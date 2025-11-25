@@ -1,20 +1,21 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Duration};
 
 use gpui::{
-    App, AppContext, ClickEvent, Context, ElementId, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, MouseButton, ParentElement, Render, RenderOnce, SharedString, Styled, Subscription, Task, Timer, Window, actions, div, px, prelude::FluentBuilder
+    actions, div, prelude::FluentBuilder, px, App, AppContext, ClickEvent, Context, ElementId,
+    Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Render, RenderOnce, SharedString, Styled, Subscription, Task, Timer, Window,
 };
 use serde::Deserialize;
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Selectable, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     list::{List, ListDelegate, ListEvent, ListItem, ListState},
     spinner::Spinner,
-    v_flex,
+    v_flex, ActiveTheme, Icon, IconName, IndexPath, Selectable, Sizable,
 };
 
-actions!(list_story, [SelectedAgentTask]);
+actions!(list_task, [SelectedAgentTask]);
 
 /// Task status enumeration
 #[derive(Clone, Default, Debug, Deserialize)]
@@ -109,36 +110,24 @@ impl RenderOnce for TaskListItem {
             .rounded(cx.theme().radius)
             .child(
                 h_flex()
-                    .items_start()  // Top align instead of center
+                    .items_start() // Top align instead of center
                     .gap_3()
                     .mt(px(2.))
-                    .child(
-                        div()
-                            .mt(px(2.))
-                            .map(|this| {
-                                if is_in_progress {
-                                    // Use Spinner for InProgress status
-                                    this.child(
-                                        Spinner::new()
-                                            .with_size(px(14.))
-                                            .color(cx.theme().accent)
-                                    )
-                                } else {
-                                    // Use Icon for other statuses
-                                    let (icon_name, icon_color) = match self.agent_task.status {
-                                        TaskStatus::Pending => (IconName::File, muted_color),
-                                        TaskStatus::Completed => (IconName::CircleCheck, cx.theme().green),
-                                        TaskStatus::Failed => (IconName::CircleX, cx.theme().red),
-                                        _ => (IconName::File, muted_color),
-                                    };
-                                    this.child(
-                                        Icon::new(icon_name)
-                                            .text_color(icon_color)
-                                            .size(px(14.))
-                                    )
-                                }
-                            })
-                    )
+                    .child(div().mt(px(2.)).map(|this| {
+                        if is_in_progress {
+                            // Use Spinner for InProgress status
+                            this.child(Spinner::new().with_size(px(14.)).color(cx.theme().accent))
+                        } else {
+                            // Use Icon for other statuses
+                            let (icon_name, icon_color) = match self.agent_task.status {
+                                TaskStatus::Pending => (IconName::File, muted_color),
+                                TaskStatus::Completed => (IconName::CircleCheck, cx.theme().green),
+                                TaskStatus::Failed => (IconName::CircleX, cx.theme().red),
+                                _ => (IconName::File, muted_color),
+                            };
+                            this.child(Icon::new(icon_name).text_color(icon_color).size(px(14.)))
+                        }
+                    }))
                     .child(
                         // Vertical layout for title and subtitle
                         v_flex()
@@ -151,7 +140,7 @@ impl RenderOnce for TaskListItem {
                                     .text_size(px(13.))
                                     .text_color(text_color)
                                     .whitespace_nowrap()
-                                    .child(self.agent_task.name.clone())
+                                    .child(self.agent_task.name.clone()),
                             )
                             .when(show_metadata, |this| {
                                 this.child(
@@ -162,21 +151,20 @@ impl RenderOnce for TaskListItem {
                                         .text_color(muted_color)
                                         .child("2 Files ")
                                         .child(
-                                            div()
-                                                .text_color(add_color)
-                                                .child(self.agent_task.add_new_code_lines_str.clone())
+                                            div().text_color(add_color).child(
+                                                self.agent_task.add_new_code_lines_str.clone(),
+                                            ),
                                         )
                                         .child(
-                                            div()
-                                                .text_color(delete_color)
-                                                .child(self.agent_task.delete_code_lines_str.clone())
+                                            div().text_color(delete_color).child(
+                                                self.agent_task.delete_code_lines_str.clone(),
+                                            ),
                                         )
                                         .child(" · ")
-                                        .child(self.agent_task.task_type.clone())
+                                        .child(self.agent_task.task_type.clone()),
                                 )
-                            })
-
-                    )
+                            }),
+                    ),
             )
     }
 }
@@ -223,7 +211,11 @@ impl TaskListDelegate {
             .cloned()
             .collect();
         for agent_task in agent_tasks.into_iter() {
-            if let Some(ix) = self.industries.iter().position(|s| s.as_ref() == agent_task.task_type.as_str()) {
+            if let Some(ix) = self
+                .industries
+                .iter()
+                .position(|s| s.as_ref() == agent_task.task_type.as_str())
+            {
                 self.matched_agent_tasks[ix].push(agent_task);
             } else {
                 self.industries.push(agent_task.task_type.clone().into());
@@ -338,9 +330,7 @@ impl ListDelegate for TaskListDelegate {
                         .flex_1()
                         .text_color(cx.theme().muted_foreground)
                         .cursor_default()
-                        .hover(|style| {
-                            style.bg(cx.theme().secondary)
-                        })
+                        .hover(|style| style.bg(cx.theme().secondary))
                         .rounded(cx.theme().radius)
                         .on_mouse_down(MouseButton::Left, move |_, window, _cx| {
                             // Toggle the collapsed state
@@ -355,7 +345,7 @@ impl ListDelegate for TaskListDelegate {
                         })
                         .child(Icon::new(chevron_icon).size(px(14.)))
                         .child(Icon::new(IconName::Folder))
-                        .child(task_type.clone())
+                        .child(task_type.clone()),
                 )
                 // Right side: add task button
                 .child(
@@ -377,7 +367,7 @@ impl ListDelegate for TaskListDelegate {
                             println!("Add new task to section: {}", section);
                             // TODO: Implement add task functionality
                         })
-                        .child(Icon::new(IconName::Plus).size(px(14.)))
+                        .child(Icon::new(IconName::Plus).size(px(14.))),
                 ),
         )
     }
@@ -447,7 +437,7 @@ impl ListDelegate for TaskListDelegate {
     }
 }
 
-pub struct ListStory {
+pub struct ListTaskPanel {
     focus_handle: FocusHandle,
     task_list: Entity<ListState<TaskListDelegate>>,
     selected_agent_task: Option<Rc<AgentTask>>,
@@ -456,7 +446,7 @@ pub struct ListStory {
     _subscriptions: Vec<Subscription>,
 }
 
-impl super::Story for ListStory {
+impl super::DockPanel for ListTaskPanel {
     fn title() -> &'static str {
         "List"
     }
@@ -470,7 +460,7 @@ impl super::Story for ListStory {
     }
 }
 
-impl ListStory {
+impl ListTaskPanel {
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
     }
@@ -492,20 +482,19 @@ impl ListStory {
 
         let task_list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
 
-        let _subscriptions =
-            vec![
-                cx.subscribe(&task_list, |_, _, ev: &ListEvent, _| match ev {
-                    ListEvent::Select(ix) => {
-                        println!("List Selected: {:?}", ix);
-                    }
-                    ListEvent::Confirm(ix) => {
-                        println!("List Confirmed: {:?}", ix);
-                    }
-                    ListEvent::Cancel => {
-                        println!("List Cancelled");
-                    }
-                }),
-            ];
+        let _subscriptions = vec![
+            cx.subscribe(&task_list, |_, _, ev: &ListEvent, _| match ev {
+                ListEvent::Select(ix) => {
+                    println!("List Selected: {:?}", ix);
+                }
+                ListEvent::Confirm(ix) => {
+                    println!("List Confirmed: {:?}", ix);
+                }
+                ListEvent::Cancel => {
+                    println!("List Cancelled");
+                }
+            }),
+        ];
 
         // Spawn a background task to randomly update task status for demo
         cx.spawn(async move |this, cx| {
@@ -539,7 +528,12 @@ impl ListStory {
         }
     }
 
-    fn selected_agent_task(&mut self, _: &SelectedAgentTask, _: &mut Window, cx: &mut Context<Self>) {
+    fn selected_agent_task(
+        &mut self,
+        _: &SelectedAgentTask,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let picker = self.task_list.read(cx);
         if let Some(agent_task) = picker.delegate().selected_agent_task() {
             self.selected_agent_task = Some(agent_task);
@@ -592,13 +586,13 @@ fn random_status() -> TaskStatus {
     }
 }
 
-impl Focusable for ListStory {
+impl Focusable for ListTaskPanel {
     fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl Render for ListStory {
+impl Render for ListTaskPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // let lazy_load = self.task_list.read(cx).delegate().lazy_load;
 

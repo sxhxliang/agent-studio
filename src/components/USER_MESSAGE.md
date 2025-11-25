@@ -171,7 +171,7 @@ This component is designed to work with the JSON-RPC Session Prompt protocol:
 }
 ```
 
-### Protocol Conversion Example
+### Protocol Conversion Agent Studio
 
 ```rust
 fn from_protocol(session_id: String, prompt: Vec<ProtocolPromptItem>) -> UserMessageData {
@@ -285,7 +285,7 @@ The component automatically uses your application's active theme:
 - Line height: 18px
 - Color: Foreground
 
-## Examples
+## Agent Studios
 
 ### Simple Text Message
 

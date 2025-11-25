@@ -1,14 +1,9 @@
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, IntoElement, ParentElement,
-    Render, RenderOnce, SharedString, Styled, Window, div, px,
-    prelude::FluentBuilder as _,
+    div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
+    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
-use gpui_component::{
-    ActiveTheme, Icon, IconName,
-    collapsible::Collapsible,
-    h_flex, v_flex,
-};
+use gpui_component::{collapsible::Collapsible, h_flex, v_flex, ActiveTheme, Icon, IconName};
 
 /// Message content type enumeration
 #[derive(Clone, Debug)]
@@ -80,9 +75,7 @@ pub enum MessageContent {
 
 impl MessageContent {
     pub fn text(text: impl Into<SharedString>) -> Self {
-        Self::Text {
-            text: text.into(),
-        }
+        Self::Text { text: text.into() }
     }
 
     pub fn resource(resource: ResourceContent) -> Self {
@@ -164,7 +157,7 @@ impl RenderOnce for ResourceItem {
                     .child(
                         Icon::new(self.resource.icon())
                             .size(px(16.))
-                            .text_color(cx.theme().accent)
+                            .text_color(cx.theme().accent),
                     )
                     .child(
                         div()
@@ -172,13 +165,13 @@ impl RenderOnce for ResourceItem {
                             .text_size(px(13.))
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .text_color(cx.theme().foreground)
-                            .child(filename)
+                            .child(filename),
                     )
                     .child(
                         div()
                             .text_size(px(11.))
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} lines", line_count))
+                            .child(format!("{} lines", line_count)),
                     )
                     .child(
                         Icon::new(if self.open {
@@ -187,8 +180,8 @@ impl RenderOnce for ResourceItem {
                             IconName::ChevronDown
                         })
                         .size(px(14.))
-                        .text_color(cx.theme().muted_foreground)
-                    )
+                        .text_color(cx.theme().muted_foreground),
+                    ),
             )
             // Content - code display
             .when(self.open, |this| {
@@ -206,8 +199,8 @@ impl RenderOnce for ResourceItem {
                                 .font_family("Monaco, 'Courier New', monospace")
                                 .text_color(cx.theme().foreground)
                                 .line_height(px(18.))
-                                .child(self.resource.text)
-                        )
+                                .child(self.resource.text),
+                        ),
                 )
             })
     }
@@ -259,15 +252,15 @@ impl RenderOnce for UserMessage {
                     .child(
                         Icon::new(IconName::User)
                             .size(px(16.))
-                            .text_color(cx.theme().accent)
+                            .text_color(cx.theme().accent),
                     )
                     .child(
                         div()
                             .text_size(px(13.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(cx.theme().foreground)
-                            .child("You")
-                    )
+                            .child("You"),
+                    ),
             )
             // Message content
             .child(
@@ -275,33 +268,31 @@ impl RenderOnce for UserMessage {
                     .gap_3()
                     .pl_6()
                     .w_full()
-                    .children(
-                        self.data.contents.into_iter().map(|content| {
-                            match content {
-                                MessageContent::Text { text } => {
-                                    div()
-                                        .text_size(px(14.))
-                                        .text_color(cx.theme().foreground)
-                                        .line_height(px(22.))
-                                        .child(text)
-                                        .into_any_element()
-                                }
-                                MessageContent::Resource { resource } => {
-                                    let current_index = resource_index;
-                                    resource_index += 1;
-                                    let open = self.resource_states.get(current_index).copied().unwrap_or(false);
-                                    let id = SharedString::from(format!("{}-resource-{}", self.id, current_index));
+                    .children(self.data.contents.into_iter().map(|content| {
+                        match content {
+                            MessageContent::Text { text } => div()
+                                .text_size(px(14.))
+                                .text_color(cx.theme().foreground)
+                                .line_height(px(22.))
+                                .child(text)
+                                .into_any_element(),
+                            MessageContent::Resource { resource } => {
+                                let current_index = resource_index;
+                                resource_index += 1;
+                                let open = self
+                                    .resource_states
+                                    .get(current_index)
+                                    .copied()
+                                    .unwrap_or(false);
+                                let id = SharedString::from(format!(
+                                    "{}-resource-{}",
+                                    self.id, current_index
+                                ));
 
-                                    ResourceItem::new(
-                                        id,
-                                        resource,
-                                        open,
-                                    )
-                                    .into_any_element()
-                                }
+                                ResourceItem::new(id, resource, open).into_any_element()
                             }
-                        })
-                    )
+                        }
+                    })),
             )
     }
 }

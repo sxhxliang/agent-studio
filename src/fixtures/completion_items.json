@@ -2,7 +2,7 @@
   {
     "label": "as",
     "detail": "as TYPE",
-    "documentation": "Perform a safe type cast.\n\n## Example:\n```rust\nlet x: u32 = 42;\nlet y: u64 = x as u64;\n```"
+    "documentation": "Perform a safe type cast.\n\n## Agent Studio:\n```rust\nlet x: u32 = 42;\nlet y: u64 = x as u64;\n```"
   },
   {
     "label": "break",
@@ -27,7 +27,7 @@
   },
   {
     "label": "enum",
-    "documentation": "Define a type that can be one of several variants.\n\n**Example:**\n```rust\nenum Direction {\n    Up,\n    Down,\n    Left,\n    Right,\n}\n```"
+    "documentation": "Define a type that can be one of several variants.\n\n**Agent Studio:**\n```rust\nenum Direction {\n    Up,\n    Down,\n    Left,\n    Right,\n}\n```"
   },
   {
     "label": "extern",
@@ -39,7 +39,7 @@
   },
   {
     "label": "fn",
-    "documentation": "Define a function.\n\n**Example:**\n```rust\nfn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n```"
+    "documentation": "Define a function.\n\n**Agent Studio:**\n```rust\nfn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n```"
   },
   {
     "label": "for",
@@ -63,7 +63,7 @@
   },
   {
     "label": "loop",
-    "documentation": "Create an infinite loop.\n\n**Example:**\n```rust\nloop {\n    println!(\"This will run forever!\");\n}\n```"
+    "documentation": "Create an infinite loop.\n\n**Agent Studio:**\n```rust\nloop {\n    println!(\"This will run forever!\");\n}\n```"
   },
   {
     "label": "match",
@@ -107,7 +107,7 @@
   },
   {
     "label": "struct",
-    "documentation": "Define a structure.\n\n**Example:**\n```rust\nstruct Point {\n    x: i32,\n    y: i32,\n}\n```"
+    "documentation": "Define a structure.\n\n**Agent Studio:**\n```rust\nstruct Point {\n    x: i32,\n    y: i32,\n}\n```"
   },
   {
     "label": "super",
@@ -179,7 +179,7 @@
   },
   {
     "label": "vec!",
-    "documentation": "Create a growable array.\n\n**Example:**\n```rust\nlet mut v = Vec::new();\nv.push(1);\nv.push(2);\n```"
+    "documentation": "Create a growable array.\n\n**Agent Studio:**\n```rust\nlet mut v = Vec::new();\nv.push(1);\nv.push(2);\n```"
   },
   {
     "label": "format!",
@@ -187,7 +187,7 @@
   },
   {
     "label": "println!",
-    "documentation": "Print to the standard output.\n\n**Example:**\n```rust\nprintln!(\"Hello, world!\");\n```"
+    "documentation": "Print to the standard output.\n\n**Agent Studio:**\n```rust\nprintln!(\"Hello, world!\");\n```"
   },
   {
     "label": "eprintln!",

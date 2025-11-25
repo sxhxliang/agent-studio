@@ -1,12 +1,9 @@
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, RenderOnce, SharedString, Styled, Window, div, px,
+    div, px, App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement,
+    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
-use gpui_component::{
-    ActiveTheme, Icon, IconName,
-    h_flex, v_flex,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName};
 
 /// Plan entry priority levels
 #[derive(Clone, Debug, PartialEq)]
@@ -117,30 +114,24 @@ impl RenderOnce for PlanEntryItem {
             PlanEntryStatus::Pending => (IconName::Dash, cx.theme().muted_foreground),
         };
 
-        div()
-            .id(self.id)
-            .child(
-                h_flex()
-                    .items_start()
-                    .gap_2()
-                    .child(
-                        div()
-                            .mt(px(1.))
-                            .child(
-                                Icon::new(icon)
-                                    .text_color(icon_color)
-                                    .size(px(16.))
-                            )
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(14.))
-                            .text_color(text_color)
-                            .line_height(px(20.))
-                            .child(self.entry.content)
-                    )
-            )
+        div().id(self.id).child(
+            h_flex()
+                .items_start()
+                .gap_2()
+                .child(
+                    div()
+                        .mt(px(1.))
+                        .child(Icon::new(icon).text_color(icon_color).size(px(16.))),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(14.))
+                        .text_color(text_color)
+                        .line_height(px(20.))
+                        .child(self.entry.content),
+                ),
+        )
     }
 }
 
@@ -217,39 +208,28 @@ impl IntoElement for AgentTodoList {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(
-                                Icon::new(IconName::LayoutDashboard)
-                                    .size(px(16.))
-                            )
+                            .child(Icon::new(IconName::LayoutDashboard).size(px(16.)))
                             .child(
                                 div()
                                     .text_size(px(14.))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(title)
-                            )
+                                    .child(title),
+                            ),
                     )
                     .child(
                         div()
                             .text_size(px(14.))
-                            .child(format!("{}/{}", completed, total))
-                    )
+                            .child(format!("{}/{}", completed, total)),
+                    ),
             )
             .child(
                 // Task list
                 v_flex()
                     .gap_2()
                     .w_full()
-                    .children(
-                        self.entries
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, entry)| {
-                                PlanEntryItem::new(
-                                    SharedString::from(format!("plan-entry-{}", i)),
-                                    entry
-                                )
-                            })
-                    )
+                    .children(self.entries.into_iter().enumerate().map(|(i, entry)| {
+                        PlanEntryItem::new(SharedString::from(format!("plan-entry-{}", i)), entry)
+                    })),
             )
     }
 }

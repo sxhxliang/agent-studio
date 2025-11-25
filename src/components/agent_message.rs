@@ -1,13 +1,9 @@
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, IntoElement, ParentElement,
-    Render, RenderOnce, SharedString, Styled, Window, div, px,
-    prelude::FluentBuilder as _,
+    div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
+    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
-use gpui_component::{
-    ActiveTheme, Icon, IconName,
-    h_flex, v_flex,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName};
 
 /// Agent message content type enumeration
 #[derive(Clone, Debug)]
@@ -132,23 +128,23 @@ impl RenderOnce for AgentMessage {
                     .child(
                         Icon::new(IconName::Bot)
                             .size(px(16.))
-                            .text_color(cx.theme().accent)
+                            .text_color(cx.theme().accent),
                     )
                     .child(
                         div()
                             .text_size(px(13.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(cx.theme().foreground)
-                            .child(agent_name)
+                            .child(agent_name),
                     )
                     .when(!self.data.is_complete, |this| {
                         // Show thinking indicator when message is not complete
                         this.child(
                             Icon::new(IconName::LoaderCircle)
                                 .size(px(12.))
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(cx.theme().muted_foreground),
                         )
-                    })
+                    }),
             )
             // Message content
             .child(
@@ -158,7 +154,7 @@ impl RenderOnce for AgentMessage {
                     .text_size(px(14.))
                     .text_color(cx.theme().foreground)
                     .line_height(px(22.))
-                    .child(self.data.full_text())
+                    .child(self.data.full_text()),
             )
     }
 }

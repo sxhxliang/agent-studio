@@ -1,18 +1,19 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
 use gpui_component::{
-    IconName, Root, Sizable,
     button::{Button, ButtonVariants as _},
     dock::{ClosePanel, DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, ToggleZoom},
     menu::DropdownMenu,
+    IconName, Root, Sizable,
 };
 
+use agentx::{
+    AppState, AppTitleBar, ChatInputPanel, CodeEditorPanel, CollapsibleEventTurn,
+    ConversationPanel, DockPanelContainer, ListTaskPanel, Open,
+};
 use gpui_component_assets::Assets;
-use agentx::{AppState, AppTitleBar, ChatInputStory, CodeEditor, CollapsibleEventTurn, ConversationStory, ListStory, Open, StoryContainer};
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
-
-
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = story, no_json)]
@@ -46,7 +47,7 @@ pub fn init(cx: &mut App) {
     cx.activate(true);
 }
 
-pub struct StoryWorkspace {
+pub struct DockWorkspace {
     title_bar: Entity<AppTitleBar>,
     dock_area: Entity<DockArea>,
     last_layout_state: Option<DockAreaState>,
@@ -59,7 +60,7 @@ struct DockAreaTab {
     version: usize,
 }
 
-impl StoryWorkspace {
+impl DockWorkspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let dock_area =
             cx.new(|cx| DockArea::new(MAIN_DOCK_AREA.id, Some(MAIN_DOCK_AREA.version), window, cx));
@@ -98,7 +99,7 @@ impl StoryWorkspace {
         .detach();
 
         let title_bar = cx.new(|cx| {
-            AppTitleBar::new("Examples", window, cx).child({
+            AppTitleBar::new("Agent Studios", window, cx).child({
                 move |_, cx| {
                     Button::new("add-panel")
                         .icon(IconName::LayoutDashboard)
@@ -257,14 +258,12 @@ impl StoryWorkspace {
 
         let left_panels = DockItem::split_with_sizes(
             Axis::Vertical,
-            vec![
-                DockItem::tab(
-                    StoryContainer::panel::<ListStory>(window, cx),
-                    &dock_area,
-                    window,
-                    cx,
-                ),
-            ],
+            vec![DockItem::tab(
+                DockPanelContainer::panel::<ListTaskPanel>(window, cx),
+                &dock_area,
+                window,
+                cx,
+            )],
             vec![None, Some(px(360.))],
             &dock_area,
             window,
@@ -274,10 +273,9 @@ impl StoryWorkspace {
         let bottom_panels = DockItem::split_with_sizes(
             Axis::Vertical,
             vec![DockItem::tabs(
-                vec![
-                    Arc::new(StoryContainer::panel::<ChatInputStory>(window, cx)),
-                    // Arc::new(StoryContainer::panel::<ScrollableStory>(window, cx)),
-                ],
+                vec![Arc::new(DockPanelContainer::panel::<ChatInputPanel>(
+                    window, cx,
+                ))],
                 None,
                 &dock_area,
                 window,
@@ -291,14 +289,12 @@ impl StoryWorkspace {
 
         let right_panels = DockItem::split_with_sizes(
             Axis::Vertical,
-            vec![
-                DockItem::tab(
-                    StoryContainer::panel::<CodeEditor>(window, cx),
-                    &dock_area,
-                    window,
-                    cx,
-                ),
-            ],
+            vec![DockItem::tab(
+                DockPanelContainer::panel::<CodeEditorPanel>(window, cx),
+                &dock_area,
+                window,
+                cx,
+            )],
             vec![None],
             &dock_area,
             window,
@@ -321,15 +317,15 @@ impl StoryWorkspace {
         window: &mut Window,
         cx: &mut App,
     ) -> DockItem {
-        // Main layout: Left (CodeEditor) and Right (Conversation + Input)
+        // Main layout: Left (CodeEditorPanel) and Right (Conversation + Input)
         DockItem::split_with_sizes(
             Axis::Horizontal,
             vec![
-                // Left panel: CodeEditor
+                // Left panel: CodeEditorPanel
                 DockItem::tabs(
-                    vec![
-                        Arc::new(StoryContainer::panel::<ConversationStory>(window, cx)),
-                    ],
+                    vec![Arc::new(DockPanelContainer::panel::<ConversationPanel>(
+                        window, cx,
+                    ))],
                     None,
                     &dock_area,
                     window,
@@ -373,7 +369,7 @@ impl StoryWorkspace {
             };
 
             let window = cx.open_window(options, |window, cx| {
-                let story_view = cx.new(|cx| StoryWorkspace::new(window, cx));
+                let story_view = cx.new(|cx| DockWorkspace::new(window, cx));
                 cx.new(|cx| Root::new(story_view, window, cx))
             })?;
 
@@ -401,9 +397,9 @@ impl StoryWorkspace {
     ) {
         // Random pick up a panel to add
         let panel = match rand::random::<usize>() % 2 {
-            0 => Arc::new(StoryContainer::panel::<ListStory>(window, cx)),
-            1 => Arc::new(StoryContainer::panel::<CodeEditor>(window, cx)),
-            _ => Arc::new(StoryContainer::panel::<ListStory>(window, cx)),
+            0 => Arc::new(DockPanelContainer::panel::<ListTaskPanel>(window, cx)),
+            1 => Arc::new(DockPanelContainer::panel::<CodeEditorPanel>(window, cx)),
+            _ => Arc::new(DockPanelContainer::panel::<ListTaskPanel>(window, cx)),
         };
 
         self.dock_area.update(cx, |dock_area, cx| {
@@ -449,7 +445,7 @@ pub fn open_new(
     init: impl FnOnce(&mut Root, &mut Window, &mut Context<Root>) + 'static + Send,
 ) -> Task<()> {
     let task: Task<std::result::Result<WindowHandle<Root>, anyhow::Error>> =
-        StoryWorkspace::new_local(cx);
+        DockWorkspace::new_local(cx);
     cx.spawn(async move |cx| {
         if let Some(root) = task.await.ok() {
             root.update(cx, |workspace, window, cx| init(workspace, window, cx))
@@ -458,7 +454,7 @@ pub fn open_new(
     })
 }
 
-impl Render for StoryWorkspace {
+impl Render for DockWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);

@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "agentx"
-description = "An example of using gpui-component to create a window with a custom title bar."
+description = "An Agent Studio of using gpui-component to create a window with a custom title bar."
 publish = false
 version = "0.4.1"
 

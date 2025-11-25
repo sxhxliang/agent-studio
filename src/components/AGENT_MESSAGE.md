@@ -157,7 +157,7 @@ This component is designed to work with the JSON-RPC Session Update protocol for
 }
 ```
 
-### Protocol Integration Example
+### Protocol Integration Agent Studio
 
 ```rust
 use agentx::{AgentMessageView, AgentMessageContent};
@@ -310,7 +310,7 @@ The component automatically uses your application's active theme:
 - Color: Foreground
 - Left padding: 24px (pl_6)
 
-## Examples
+## Agent Studios
 
 ### Simple Complete Message
 

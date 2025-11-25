@@ -175,6 +175,6 @@ The component automatically uses your application's active theme:
 - Spacing: Consistent gaps and padding
 - Icons: 16px size for clear visibility
 
-## Example: Task Panel
+## Agent Studio: Task Panel
 
-See the reference implementation in the codebase for a complete example of integrating the todo list into a panel.
+See the reference implementation in the codebase for a complete Agent Studio of integrating the todo list into a panel.

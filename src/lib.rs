@@ -1,50 +1,50 @@
 mod app_menus;
-mod chat_input_story;
+mod chat_input;
 mod components;
-mod conversation_story;
+mod conversation;
 mod editor;
+mod menu;
 mod task_list;
 mod task_turn_view;
-mod menu_story;
 
 mod themes;
 mod title_bar;
 
 use gpui::{
-    Action, AnyElement, AnyView, App, AppContext, Bounds, Context, Div, Entity, EventEmitter,
-    Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Pixels,
-    Render, RenderOnce, SharedString, Size, StatefulInteractiveElement, StyleRefinement, Styled,
-    Window, WindowBounds, WindowKind, WindowOptions, actions, div, prelude::FluentBuilder as _, px,
-    rems, size,
+    actions, div, prelude::FluentBuilder as _, px, rems, size, Action, AnyElement, AnyView, App,
+    AppContext, Bounds, Context, Div, Entity, EventEmitter, Focusable, Global, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Pixels, Render, RenderOnce,
+    SharedString, Size, StatefulInteractiveElement, StyleRefinement, Styled, Window, WindowBounds,
+    WindowKind, WindowOptions,
 };
 
-pub use editor::CodeEditor;
-pub use chat_input_story::ChatInputStory;
-pub use conversation_story::ConversationStory;
-pub use task_list::ListStory;
-pub use task_turn_view::CollapsibleEventTurn;
-pub use menu_story::MenuStory;
+pub use chat_input::ChatInputPanel;
+pub use conversation::ConversationPanel;
+pub use editor::CodeEditorPanel;
+pub use menu::UIMenu;
 use serde::{Deserialize, Serialize};
+pub use task_list::ListTaskPanel;
+pub use task_turn_view::CollapsibleEventTurn;
 pub use title_bar::AppTitleBar;
 
 // Export components
 pub use components::{
-    AgentMessage, AgentMessageView, AgentMessageData, AgentMessageContent, AgentContentType,
-    AgentTodoList, AgentTodoListView, PlanEntry, PlanEntryPriority, PlanEntryStatus,
-    ToolCallData, ToolCallItem, ToolCallItemView, ToolCallKind, ToolCallStatus, ToolCallContent,
-    UserMessage, UserMessageView, UserMessageData, MessageContent, MessageContentType, ResourceContent,
+    AgentContentType, AgentMessage, AgentMessageContent, AgentMessageData, AgentMessageView,
+    AgentTodoList, AgentTodoListView, MessageContent, MessageContentType, PlanEntry,
+    PlanEntryPriority, PlanEntryStatus, ResourceContent, ToolCallContent, ToolCallData,
+    ToolCallItem, ToolCallItemView, ToolCallKind, ToolCallStatus, UserMessage, UserMessageData,
+    UserMessageView,
 };
 
 use gpui_component::{
-    ActiveTheme, IconName, Root, TitleBar, WindowExt,
     button::Button,
-    dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle, register_panel},
+    dock::{register_panel, Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle},
     group_box::{GroupBox, GroupBoxVariants as _},
     h_flex,
     menu::PopupMenu,
     notification::Notification,
     scroll::ScrollbarShow,
-    v_flex,
+    v_flex, ActiveTheme, IconName, Root, TitleBar, WindowExt,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -79,7 +79,7 @@ actions!(
     ]
 );
 
-const PANEL_NAME: &str = "StoryContainer";
+const PANEL_NAME: &str = "DockPanelContainer";
 
 pub struct AppState {
     pub invisible_panels: Entity<Vec<SharedString>>,
@@ -146,7 +146,7 @@ pub fn create_new_window_with_size<F, E>(
         let window = cx
             .open_window(options, |window, cx| {
                 let view = crate_view_fn(window, cx);
-                let root = cx.new(|cx| StoryRoot::new(title.clone(), view, window, cx));
+                let root = cx.new(|cx| DockRoot::new(title.clone(), view, window, cx));
 
                 cx.new(|cx| Root::new(root, window, cx))
             })
@@ -164,12 +164,12 @@ pub fn create_new_window_with_size<F, E>(
     .detach();
 }
 
-struct StoryRoot {
+struct DockRoot {
     title_bar: Entity<AppTitleBar>,
     view: AnyView,
 }
 
-impl StoryRoot {
+impl DockRoot {
     pub fn new(
         title: impl Into<SharedString>,
         view: impl Into<AnyView>,
@@ -184,7 +184,7 @@ impl StoryRoot {
     }
 }
 
-impl Render for StoryRoot {
+impl Render for DockRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
@@ -219,7 +219,7 @@ pub fn init(cx: &mut App) {
     AppState::init(cx);
     themes::init(cx);
     editor::init();
-    menu_story::init(cx);
+    menu::init(cx);
 
     cx.bind_keys([
         KeyBinding::new("/", ToggleSearch, None),
@@ -239,7 +239,7 @@ pub fn init(cx: &mut App) {
 
     register_panel(cx, PANEL_NAME, |_, _, info, window, cx| {
         let story_state = match info {
-            PanelInfo::Panel(value) => StoryState::from_value(value.clone()),
+            PanelInfo::Panel(value) => DockPanelState::from_value(value.clone()),
             _ => {
                 unreachable!("Invalid PanelInfo: {:?}", info)
             }
@@ -248,15 +248,15 @@ pub fn init(cx: &mut App) {
         let view = cx.new(|cx| {
             let (title, description, closable, zoomable, story, on_active) =
                 story_state.to_story(window, cx);
-            let mut container = StoryContainer::new(window, cx)
+            let mut container = DockPanelContainer::new(window, cx)
                 .story(story, story_state.story_klass)
                 .on_active(on_active);
 
             cx.on_focus_in(
                 &container.focus_handle,
                 window,
-                |this: &mut StoryContainer, _, _| {
-                    println!("StoryContainer focus in: {}", this.name);
+                |this: &mut DockPanelContainer, _, _| {
+                    println!("DockPanelContainer focus in: {}", this.name);
                 },
             )
             .detach();
@@ -274,14 +274,14 @@ pub fn init(cx: &mut App) {
 }
 
 #[derive(IntoElement)]
-struct StorySection {
+struct DockPanelSection {
     base: Div,
     title: SharedString,
     sub_title: Vec<AnyElement>,
     children: Vec<AnyElement>,
 }
 
-impl StorySection {
+impl DockPanelSection {
     pub fn sub_title(mut self, sub_title: impl IntoElement) -> Self {
         self.sub_title.push(sub_title.into_any_element());
         self
@@ -312,19 +312,19 @@ impl StorySection {
     }
 }
 
-impl ParentElement for StorySection {
+impl ParentElement for DockPanelSection {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
         self.children.extend(elements);
     }
 }
 
-impl Styled for StorySection {
+impl Styled for DockPanelSection {
     fn style(&mut self) -> &mut gpui::StyleRefinement {
         self.base.style()
     }
 }
 
-impl RenderOnce for StorySection {
+impl RenderOnce for DockPanelSection {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         GroupBox::new()
             .id(self.title.clone())
@@ -348,8 +348,8 @@ impl RenderOnce for StorySection {
     }
 }
 
-pub(crate) fn section(title: impl Into<SharedString>) -> StorySection {
-    StorySection {
+pub(crate) fn section(title: impl Into<SharedString>) -> DockPanelSection {
+    DockPanelSection {
         title: title.into(),
         sub_title: vec![],
         base: h_flex()
@@ -362,7 +362,7 @@ pub(crate) fn section(title: impl Into<SharedString>) -> StorySection {
     }
 }
 
-pub struct StoryContainer {
+pub struct DockPanelContainer {
     focus_handle: gpui::FocusHandle,
     pub name: SharedString,
     pub title_bg: Option<Hsla>,
@@ -382,7 +382,7 @@ pub enum ContainerEvent {
     Close,
 }
 
-pub trait Story: Render + Sized {
+pub trait DockPanel: Render + Sized {
     fn klass() -> &'static str {
         std::any::type_name::<Self>().split("::").last().unwrap()
     }
@@ -429,9 +429,9 @@ pub trait Story: Render + Sized {
     }
 }
 
-impl EventEmitter<ContainerEvent> for StoryContainer {}
+impl EventEmitter<ContainerEvent> for DockPanelContainer {}
 
-impl StoryContainer {
+impl DockPanelContainer {
     pub fn new(_window: &mut Window, cx: &mut App) -> Self {
         let focus_handle = cx.focus_handle();
 
@@ -451,7 +451,7 @@ impl StoryContainer {
         }
     }
 
-    pub fn panel<S: Story>(window: &mut Window, cx: &mut App) -> Entity<Self> {
+    pub fn panel<S: DockPanel>(window: &mut Window, cx: &mut App) -> Entity<Self> {
         let name = S::title();
         let description = S::description();
         let story = S::new_view(window, cx);
@@ -528,11 +528,11 @@ impl StoryContainer {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct StoryState {
+pub struct DockPanelState {
     pub story_klass: SharedString,
 }
 
-impl StoryState {
+impl DockPanelState {
     fn to_value(&self) -> serde_json::Value {
         serde_json::json!({
             "story_klass": self.story_klass,
@@ -569,30 +569,10 @@ impl StoryState {
         }
 
         match self.story_klass.to_string().as_str() {
-            // "ButtonStory" => story!(ButtonStory),
-            // "CalendarStory" => story!(CalendarStory),
-            // "SelectStory" => story!(SelectStory),
-            // "IconStory" => story!(IconStory),
-            // "ImageStory" => story!(ImageStory),
-            // "InputStory" => story!(InputStory),
-            "ListStory" => story!(ListStory),
-            "CodeEditor" => story!(CodeEditor),
-            "ConversationStory" => story!(ConversationStory),
-            "ChatInputStory" => story!(ChatInputStory),
-            // "DialogStory" => story!(DialogStory),
-            // "PopoverStory" => story!(PopoverStory),
-            // "ProgressStory" => story!(ProgressStory),
-            // "ResizableStory" => story!(ResizableStory),
-            // "ScrollableStory" => story!(ScrollableStory),
-            // "SwitchStory" => story!(SwitchStory),
-            // "TableStory" => story!(TableStory),
-            // "LabelStory" => story!(LabelStory),
-            // "TooltipStory" => story!(TooltipStory),
-            // "WebViewStory" => story!(WebViewStory),
-            // "AccordionStory" => story!(AccordionStory),
-            // "SidebarStory" => story!(SidebarStory),
-            // "FormStory" => story!(FormStory),
-            // "NotificationStory" => story!(NotificationStory),
+            "ListTaskPanel" => story!(ListTaskPanel),
+            "CodeEditorPanel" => story!(CodeEditorPanel),
+            "ConversationPanel" => story!(ConversationPanel),
+            "ChatInputPanel" => story!(ChatInputPanel),
             _ => {
                 unreachable!("Invalid story klass: {}", self.story_klass)
             }
@@ -600,9 +580,9 @@ impl StoryState {
     }
 }
 
-impl Panel for StoryContainer {
+impl Panel for DockPanelContainer {
     fn panel_name(&self) -> &'static str {
-        "StoryContainer"
+        "DockPanelContainer"
     }
 
     fn title(&self, _window: &Window, _cx: &App) -> AnyElement {
@@ -669,7 +649,7 @@ impl Panel for StoryContainer {
 
     fn dump(&self, _cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
-        let story_state = StoryState {
+        let story_state = DockPanelState {
             story_klass: self.story_klass.clone().unwrap(),
         };
         state.info = PanelInfo::panel(story_state.to_value());
@@ -677,13 +657,13 @@ impl Panel for StoryContainer {
     }
 }
 
-impl EventEmitter<PanelEvent> for StoryContainer {}
-impl Focusable for StoryContainer {
+impl EventEmitter<PanelEvent> for DockPanelContainer {}
+impl Focusable for DockPanelContainer {
     fn focus_handle(&self, _: &App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
 }
-impl Render for StoryContainer {
+impl Render for DockPanelContainer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id("story-container")

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the `agentx` example application, part of the gpui-component workspace. It demonstrates building a desktop application with GPUI Component, featuring:
+This is the `agentx` Agent Studio application, part of the gpui-component workspace. It demonstrates building a desktop application with GPUI Component, featuring:
 
 - A dock-based layout system with multiple panels (left, right, bottom, center)
 - Custom title bar with menu integration
@@ -16,25 +16,25 @@ This is the `agentx` example application, part of the gpui-component workspace. 
 
 ### Application Structure
 
-- **Main Entry**: `src/main.rs` creates the application window with a `StoryWorkspace`
-- **StoryWorkspace**: The root container managing the dock area, title bar, and layout persistence
-- **Panels**: Individual UI components implementing the `Story` trait and wrapped in `StoryContainer`
+- **Main Entry**: `src/main.rs` creates the application window with a `DockWorkspace`
+- **DockWorkspace**: The root container managing the dock area, title bar, and layout persistence
+- **Panels**: Individual UI components implementing the `DockPanel` trait and wrapped in `DockPanelContainer`
 - **Dock System**: Uses `DockArea` from gpui-component for flexible panel layout
 
 ### Key Components
 
-1. **StoryWorkspace** (`src/main.rs`):
+1. **DockWorkspace** (`src/main.rs`):
    - Manages the main dock area with version-controlled layout persistence
    - Saves layout state to `target/docks.json` (debug) or `docks.json` (release)
    - Handles layout loading, saving (debounced by 10 seconds), and version migration
    - Provides actions for adding panels and toggling visibility
 
 2. **Panel System** (`src/lib.rs`):
-   - `StoryContainer`: Wrapper for panels implementing the `Panel` trait
-   - `Story`: Trait that panels implement to define title, description, behavior
+   - `DockPanelContainer`: Wrapper for panels implementing the `Panel` trait
+   - `DockPanel`: Trait that panels implement to define title, description, behavior
    - Panel registration happens in `init()` with deserialization from saved state
 
-3. **CodeEditor** (`src/editor.rs`):
+3. **CodeEditorPanel** (`src/editor.rs`):
    - High-performance code editor with LSP integration
    - Uses tree-sitter for syntax highlighting (navi language)
    - Mock LSP providers (completion, hover, diagnostics, code actions)
@@ -80,7 +80,7 @@ samply record cargo run --example agentx
 
 ### Initialization Pattern
 
-Always call `gpui_component::init(cx)` before using any GPUI Component features. This example extends initialization with:
+Always call `gpui_component::init(cx)` before using any GPUI Component features. This Agent Studio extends initialization with:
 
 ```rust
 pub fn init(cx: &mut App) {
@@ -104,13 +104,13 @@ This provides essential UI layers (sheets, dialogs, notifications).
 
 To add a new panel type:
 
-1. Implement the `Story` trait:
+1. Implement the `DockPanel` trait:
    - `title()`: Panel display name
    - `description()`: Panel description
    - `new_view()`: Create the panel view
    - Optional: `closable()`, `zoomable()`, `on_active()`
 
-2. Register in `StoryState::to_story()` match statement
+2. Register in `DockPanelState::to_story()` match statement
 
 3. Add to default layout in `reset_default_layout()` or `init_default_layout()`
 
@@ -144,7 +144,7 @@ This displays all GPUI components in a comprehensive gallery interface.
 
 ## Workspace Structure
 
-This example is part of a Cargo workspace at `../../`:
+This Agent Studio is part of a Cargo workspace at `../../`:
 
 - `crates/ui`: Core gpui-component library
 - `crates/story`: Story framework and examples

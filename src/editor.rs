@@ -10,7 +10,6 @@ use std::{
 use autocorrect::ignorer::Ignorer;
 use gpui::{prelude::FluentBuilder, *};
 use gpui_component::{
-    ActiveTheme, IconName, Sizable, WindowExt,
     button::{Button, ButtonVariants as _},
     h_flex,
     highlighter::{Diagnostic, DiagnosticSeverity, Language, LanguageConfig, LanguageRegistry},
@@ -20,8 +19,8 @@ use gpui_component::{
     },
     list::ListItem,
     resizable::{h_resizable, resizable_panel},
-    tree::{TreeItem, TreeState, tree},
-    v_flex,
+    tree::{tree, TreeItem, TreeState},
+    v_flex, ActiveTheme, IconName, Sizable, WindowExt,
 };
 
 use lsp_types::{
@@ -43,7 +42,7 @@ pub fn init() {
     );
 }
 
-pub struct CodeEditor {
+pub struct CodeEditorPanel {
     editor: Entity<InputState>,
     tree_state: Entity<TreeState>,
     go_to_line_state: Entity<InputState>,
@@ -51,12 +50,12 @@ pub struct CodeEditor {
     line_number: bool,
     indent_guides: bool,
     soft_wrap: bool,
-    lsp_store: CodeEditorLspStore,
+    lsp_store: CodeEditorPanelLspStore,
     _subscriptions: Vec<Subscription>,
     _lint_task: Task<()>,
 }
 
-impl super::Story for CodeEditor {
+impl super::DockPanel for CodeEditorPanel {
     fn title() -> &'static str {
         "List"
     }
@@ -75,14 +74,14 @@ impl super::Story for CodeEditor {
 }
 
 #[derive(Clone)]
-pub struct CodeEditorLspStore {
+pub struct CodeEditorPanelLspStore {
     completions: Arc<Vec<CompletionItem>>,
     code_actions: Arc<RwLock<Vec<(Range<usize>, CodeAction)>>>,
     diagnostics: Arc<RwLock<Vec<Diagnostic>>>,
     dirty: Arc<RwLock<bool>>,
 }
 
-impl CodeEditorLspStore {
+impl CodeEditorPanelLspStore {
     pub fn new() -> Self {
         let completions = serde_json::from_slice::<Vec<CompletionItem>>(include_bytes!(
             "./fixtures/completion_items.json"
@@ -145,7 +144,7 @@ fn completion_item(
     }
 }
 
-impl CompletionProvider for CodeEditorLspStore {
+impl CompletionProvider for CodeEditorPanelLspStore {
     fn completions(
         &self,
         rope: &Rope,
@@ -214,7 +213,7 @@ impl CompletionProvider for CodeEditorLspStore {
     }
 }
 
-impl CodeActionProvider for CodeEditorLspStore {
+impl CodeActionProvider for CodeEditorPanelLspStore {
     fn id(&self) -> SharedString {
         "LspStore".into()
     }
@@ -269,7 +268,7 @@ impl CodeActionProvider for CodeEditorLspStore {
     }
 }
 
-impl HoverProvider for CodeEditorLspStore {
+impl HoverProvider for CodeEditorPanelLspStore {
     fn hover(
         &self,
         text: &Rope,
@@ -318,7 +317,7 @@ const RUST_DOC_URLS: &[(&str, &str)] = &[
     ("Duration", "time/struct.Duration"),
 ];
 
-impl DefinitionProvider for CodeEditorLspStore {
+impl DefinitionProvider for CodeEditorPanelLspStore {
     fn definitions(
         &self,
         text: &Rope,
@@ -331,7 +330,7 @@ impl DefinitionProvider for CodeEditorLspStore {
         };
         let word = text.slice(word_range.clone()).to_string();
 
-        let document_uri = lsp_types::Uri::from_str("file://CodeEditor").unwrap();
+        let document_uri = lsp_types::Uri::from_str("file://CodeEditorPanel").unwrap();
         let start = text.offset_to_position(word_range.start);
         let end = text.offset_to_position(word_range.end);
         let symbol_range = lsp_types::Range { start, end };
@@ -401,7 +400,7 @@ impl CodeActionProvider for TextConvertor {
         }
 
         let state = state.read(cx);
-        let document_uri = lsp_types::Uri::from_str("file://CodeEditor").unwrap();
+        let document_uri = lsp_types::Uri::from_str("file://CodeEditorPanel").unwrap();
 
         let old_text = state.text().slice(range.clone()).to_string();
         let start = state.text().offset_to_position(range.start);
@@ -578,7 +577,7 @@ impl CodeActionProvider for TextConvertor {
     }
 }
 
-impl DocumentColorProvider for CodeEditorLspStore {
+impl DocumentColorProvider for CodeEditorPanelLspStore {
     fn document_colors(
         &self,
         text: &Rope,
@@ -645,13 +644,13 @@ fn build_file_items(ignorer: &Ignorer, root: &PathBuf, path: &PathBuf) -> Vec<Tr
     items
 }
 
-impl CodeEditor {
+impl CodeEditorPanel {
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
     }
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let default_language = Language::from_str("rust");
-        let lsp_store = CodeEditorLspStore::new();
+        let lsp_store = CodeEditorPanelLspStore::new();
 
         let editor = cx.new(|cx| {
             let mut editor = InputState::new(window, cx)
@@ -795,7 +794,7 @@ impl CodeEditor {
                 let edit = WorkspaceEdit {
                     changes: Some(
                         std::iter::once((
-                            lsp_types::Uri::from_str("file://CodeEditor").unwrap(),
+                            lsp_types::Uri::from_str("file://CodeEditorPanel").unwrap(),
                             vec![text_edit],
                         ))
                         .collect(),
@@ -988,7 +987,7 @@ impl CodeEditor {
     }
 }
 
-impl Render for CodeEditor {
+impl Render for CodeEditorPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Update diagnostics
         if self.lsp_store.is_dirty() {

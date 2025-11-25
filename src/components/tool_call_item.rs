@@ -1,14 +1,12 @@
 use gpui::{
-    App, AppContext, ClickEvent, Context, ElementId, Entity, IntoElement, ParentElement,
-    Render, RenderOnce, SharedString, Styled, Window, div, px,
-    prelude::FluentBuilder as _,
+    div, prelude::FluentBuilder as _, px, App, AppContext, ClickEvent, Context, ElementId, Entity,
+    IntoElement, ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    h_flex, v_flex,
+    h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
 
 /// Tool call kind enumeration
@@ -216,7 +214,10 @@ impl ToolCallItem {
         self
     }
 
-    pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_toggle(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_toggle = Some(Box::new(handler));
         self
     }
@@ -252,7 +253,7 @@ impl RenderOnce for ToolCallItem {
                         // Kind icon
                         Icon::new(self.data.kind.icon())
                             .size(px(16.))
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(cx.theme().muted_foreground),
                     )
                     .child(
                         // Title
@@ -260,13 +261,13 @@ impl RenderOnce for ToolCallItem {
                             .flex_1()
                             .text_size(px(13.))
                             .text_color(cx.theme().foreground)
-                            .child(self.data.title.clone())
+                            .child(self.data.title.clone()),
                     )
                     .child(
                         // Status icon
                         Icon::new(self.data.status.icon())
                             .size(px(14.))
-                            .text_color(status_color)
+                            .text_color(status_color),
                     )
                     .when(has_content, |this| {
                         // Add expand/collapse button only if there's content
@@ -288,7 +289,7 @@ impl RenderOnce for ToolCallItem {
                         };
 
                         this.child(btn)
-                    })
+                    }),
             )
             // Content - only visible when open and has content
             .when(has_content, |this| {
@@ -297,15 +298,13 @@ impl RenderOnce for ToolCallItem {
                         .gap_1()
                         .p_3()
                         .pl_8()
-                        .children(
-                            self.data.content.iter().map(|content| {
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(cx.theme().muted_foreground)
-                                    .line_height(px(18.))
-                                    .child(content.text.clone())
-                            })
-                        )
+                        .children(self.data.content.iter().map(|content| {
+                            div()
+                                .text_size(px(12.))
+                                .text_color(cx.theme().muted_foreground)
+                                .line_height(px(18.))
+                                .child(content.text.clone())
+                        })),
                 )
             })
     }

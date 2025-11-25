@@ -164,7 +164,7 @@ This component is designed to work with the JSON-RPC Agent Tool Call protocol:
 }
 ```
 
-### Protocol Conversion Example
+### Protocol Conversion Agent Studio
 
 ```rust
 fn from_protocol(call: ProtocolToolCall) -> ToolCallData {
@@ -244,7 +244,7 @@ The component automatically uses your application's active theme:
 - Border radius: Theme radius
 - Padding: 8px (header), 12px left (content)
 
-## Example: Building a Tool Call List
+## Agent Studio: Building a Tool Call List
 
 ```rust
 use gpui_component::v_flex;

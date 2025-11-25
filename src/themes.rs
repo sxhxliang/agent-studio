@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gpui::{Action, App, SharedString};
-use gpui_component::{ActiveTheme, Theme, ThemeMode, ThemeRegistry, scroll::ScrollbarShow};
+use gpui_component::{scroll::ScrollbarShow, ActiveTheme, Theme, ThemeMode, ThemeRegistry};
 use serde::{Deserialize, Serialize};
 
 const STATE_FILE: &str = "target/state.json";

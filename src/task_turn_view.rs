@@ -1,18 +1,17 @@
 use gpui::div;
 use gpui::{
-    App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
-    Styled, Window, prelude::FluentBuilder as _,
+    prelude::FluentBuilder as _, App, AppContext, Context, Entity, FocusHandle, Focusable,
+    IntoElement, ParentElement, Render, Styled, Window,
 };
 
 use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
 use gpui_component::label::Label;
-use gpui_component::{ActiveTheme, IconName, StyledExt, h_flex};
 use gpui_component::{
-    Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    v_flex,
+    v_flex, Sizable,
 };
+use gpui_component::{h_flex, ActiveTheme, IconName, StyledExt};
 
 use crate::section;
 
@@ -22,7 +21,7 @@ pub struct CollapsibleEventTurn {
     item2_open: bool,
 }
 
-impl super::Story for CollapsibleEventTurn {
+impl super::DockPanel for CollapsibleEventTurn {
     fn title() -> &'static str {
         "Collapsible"
     }
@@ -116,24 +115,17 @@ impl Render for CollapsibleEventTurn {
                                 .child(
                                     h_flex()
                                         .justify_between()
-                                        .child(
-                                            v_flex().child("Total Return").child(
-                                                h_flex()
-                                                    .gap_1()
-                                                    .child(
-                                                        Label::new("123.5%")
-                                                            .text_2xl()
-                                                            .font_semibold(),
-                                                    )
-                                                    // .child(
-                                                    //     Tag::info()
-                                                    //         .child("+4.5%")
-                                                    //         .outline()
-                                                    //         .rounded_full()
-                                                    //         .small(),
-                                                    // ),
-                                            ),
-                                        )
+                                        .child(v_flex().child("Total Return").child(
+                                            h_flex().gap_1().child(
+                                                Label::new("123.5%").text_2xl().font_semibold(),
+                                            ), // .child(
+                                               //     Tag::info()
+                                               //         .child("+4.5%")
+                                               //         .outline()
+                                               //         .rounded_full()
+                                               //         .small(),
+                                               // ),
+                                        ))
                                         .child(
                                             Button::new("toggle2")
                                                 .small()
