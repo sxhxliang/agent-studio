@@ -1,10 +1,7 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    dock::{ClosePanel, DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, ToggleZoom},
-    menu::DropdownMenu,
-    IconName, Root, Sizable,
+    IconName, Root, Sizable, button::{Button, ButtonVariants as _}, dock::{self, ClosePanel, Dock, DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, ToggleZoom}, menu::DropdownMenu
 };
 
 use agentx::{
@@ -32,7 +29,7 @@ const MAIN_DOCK_AREA: DockAreaTab = DockAreaTab {
 };
 
 #[cfg(debug_assertions)]
-const STATE_FILE: &str = "/Users/shihua/Code/AIAgent/gpui-component/target/docks-agentx.json";
+const STATE_FILE: &str = "./target/docks-agentx.json";
 #[cfg(not(debug_assertions))]
 const STATE_FILE: &str = "docks-agentx.json";
 
@@ -465,8 +462,13 @@ impl DockWorkspace {
             // Replace center with WelcomePanel
             dock_area.set_center(welcome_item, window, cx);
 
-            // Collapse right and bottom docks by setting them to empty
-            // We'll just minimize them for now - proper collapse would need dock API support
+            // Collapse right and bottom docks if they are open
+            if dock_area.is_dock_open(DockPlacement::Right, cx) {
+                dock_area.toggle_dock(DockPlacement::Right, window, cx);
+            }
+            if dock_area.is_dock_open(DockPlacement::Bottom, cx) {
+                dock_area.toggle_dock(DockPlacement::Bottom, window, cx);
+            }
         });
     }
 
