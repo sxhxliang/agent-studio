@@ -39,7 +39,7 @@ fn convert_session_update(update: &acp::SessionUpdate) -> schema::SessionUpdate 
                 available_commands: commands_update
                     .available_commands
                     .iter()
-                    .map(|cmd| schema::Command {
+                    .map(|cmd| schema::AvailableCommand {
                         name: cmd.name.to_string(),
                         description: cmd.description.clone().map(|d| d.to_string()),
                     })
@@ -151,19 +151,19 @@ fn convert_tool_call_status(status: &acp::ToolCallStatus) -> schema::ToolCallSta
 fn convert_tool_call_content(content: &acp::ToolCallContent) -> schema::ToolCallContent {
     match content {
         acp::ToolCallContent::Content(c) => {
-            schema::ToolCallContent::Content(schema::ContentItem {
+            schema::ToolCallContent::Content(schema::Content {
                 content: convert_content_block(&c.content),
             })
         }
         acp::ToolCallContent::Diff(diff) => {
-            schema::ToolCallContent::Diff(schema::DiffItem {
+            schema::ToolCallContent::Diff(schema::Diff {
                 path: diff.path.clone(),
                 old_text: diff.old_text.clone().map(|t| t.to_string()),
                 new_text: diff.new_text.to_string(),
             })
         }
         acp::ToolCallContent::Terminal(terminal) => {
-            schema::ToolCallContent::Terminal(schema::TerminalItem {
+            schema::ToolCallContent::Terminal(schema::Terminal {
                 terminal_id: terminal.terminal_id.to_string(),
             })
         }
@@ -320,9 +320,6 @@ impl acp::Client for GuiClient {
         &self,
         args: acp::SessionNotification,
     ) -> acp::Result<(), acp::Error> {
-        // Convert to agent_client_protocol_schema types
-        use agent_client_protocol_schema as schema;
-
         // Publish event to the session bus
         let event = SessionUpdateEvent {
             session_id: args.session_id.to_string(),

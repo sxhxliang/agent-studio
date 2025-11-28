@@ -16,7 +16,10 @@ use agent_client_protocol_schema::{
 
 use crate::{
     dock_panel::DockPanel, AgentMessage, AgentMessageData, AgentTodoList, UserMessageData,
+    AppState,
 };
+
+use std::sync::Arc;
 
 // ============================================================================
 // Helper Traits and Functions
@@ -452,11 +455,17 @@ pub struct ConversationPanelAcp {
     focus_handle: FocusHandle,
     /// List of rendered items
     rendered_items: Vec<RenderedItem>,
+    /// Counter for generating unique IDs for new items
+    next_index: usize,
+    /// Pending updates that need to be processed
+    pending_updates: Arc<std::sync::Mutex<Vec<SessionUpdate>>>,
 }
 
 impl ConversationPanelAcp {
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self::new(window, cx))
+        let entity = cx.new(|cx| Self::new(window, cx));
+        Self::subscribe_to_updates(&entity, cx);
+        entity
     }
 
     fn new(_window: &mut Window, cx: &mut App) -> Self {
@@ -468,9 +477,56 @@ impl ConversationPanelAcp {
             Self::add_update_to_list(&mut rendered_items, update, index, cx);
         }
 
-        Self {
+        let next_index = rendered_items.len();
+
+        let panel = Self {
             focus_handle,
             rendered_items,
+            next_index,
+            pending_updates: Arc::new(std::sync::Mutex::new(Vec::new())),
+        };
+
+        panel
+    }
+
+    /// Subscribe to session updates after the entity is created
+    pub fn subscribe_to_updates(entity: &Entity<Self>, cx: &mut App) {
+        let weak_entity = entity.downgrade();
+        let session_bus = AppState::global(cx).session_bus.clone();
+
+        // Get a clone of the pending updates Arc to use in the callback
+        let pending_updates = entity.read(cx).pending_updates.clone();
+
+        session_bus.subscribe(move |event| {
+            // Store the update in pending_updates
+            if let Ok(mut pending) = pending_updates.lock() {
+                pending.push((*event.update).clone());
+            }
+
+            // Try to notify the entity to re-render
+            if let Some(entity) = weak_entity.upgrade() {
+                log::info!(
+                    "Received session update for session {}: storing for next render",
+                    event.session_id
+                );
+                // Note: We can't directly call cx.notify() here because we don't have a Context
+                // The panel will process pending updates during its next render cycle
+            }
+        });
+    }
+
+    /// Process any pending updates that arrived since the last render
+    fn process_pending_updates(&mut self, cx: &mut Context<Self>) {
+        if let Ok(mut pending) = self.pending_updates.lock() {
+            if !pending.is_empty() {
+                log::info!("Processing {} pending updates", pending.len());
+                for update in pending.drain(..) {
+                    let index = self.next_index;
+                    self.next_index += 1;
+                    Self::add_update_to_list(&mut self.rendered_items, update, index, cx);
+                }
+                cx.notify();
+            }
         }
     }
 
@@ -644,6 +700,9 @@ impl Focusable for ConversationPanelAcp {
 
 impl Render for ConversationPanelAcp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Process any pending updates before rendering
+        self.process_pending_updates(cx);
+
         let mut children = v_flex().p_4().gap_6().bg(cx.theme().background);
 
         for item in &self.rendered_items {
