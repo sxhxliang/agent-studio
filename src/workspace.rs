@@ -13,7 +13,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     app::actions::{AddPanel, AddSessionPanel, ToggleDockToggleButton, TogglePanelVisible},
     dock_panel::DockPanelContainer,
-    AppState, AppTitleBar, ChatInputPanel, CodeEditorPanel, ConversationPanelAcp,
+    AddSessionToList, AppState, AppTitleBar, ChatInputPanel, CodeEditorPanel, ConversationPanelAcp,
     CreateTaskFromWelcome, ListTaskPanel, ShowConversationPanel, ShowWelcomePanel, WelcomePanel,
 };
 
@@ -497,13 +497,116 @@ impl DockWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let task_name = action.0.clone();
+        let agent_name = action.agent_name.clone();
+        let task_input = action.task_input.clone();
+        let mode = action.mode.clone();
 
-        // Show conversation panel
-        self.show_conversation_panel(window, cx);
+        log::info!(
+            "Creating task from welcome: agent={}, mode={}, input={}",
+            agent_name,
+            mode,
+            task_input
+        );
 
-        // Print task creation (TODO: Actually add to task list)
-        println!("Creating task: {}", task_name);
+        // Get the agent handle
+        let agent_handle = AppState::global(cx)
+            .agent_manager()
+            .and_then(|m| m.get(&agent_name));
+
+        let agent_handle = match agent_handle {
+            Some(handle) => handle,
+            None => {
+                eprintln!("Agent not found: {}", agent_name);
+                return;
+            }
+        };
+
+        // Spawn async task to create session and send the message
+        cx.spawn_in(window, async move |_this, window| {
+            use agent_client_protocol as acp;
+
+            // Create a new session
+            let request = acp::NewSessionRequest {
+                cwd: std::env::current_dir().unwrap_or_default(),
+                mcp_servers: vec![],
+                meta: None,
+            };
+
+            let session_id = match agent_handle.new_session(request).await {
+                Ok(resp) => {
+                    let sid = resp.session_id.to_string();
+                    log::info!("[{}] Created new session: {}", agent_name, sid);
+                    sid
+                }
+                Err(e) => {
+                    eprintln!("[{}] Failed to create session: {}", agent_name, e);
+                    return;
+                }
+            };
+
+            // Dispatch actions in window context
+            let sid_for_panel = session_id.clone();
+            let task_input_for_list = task_input.clone();
+            let sid_for_list = session_id.clone();
+
+            window
+                .update(|_, cx| {
+                    // Add session panel
+                    let panel_action = AddSessionPanel {
+                        session_id: sid_for_panel,
+                        placement: DockPlacement::Center,
+                    };
+                    cx.dispatch_action(&panel_action);
+
+                    // Add session to list panel
+                    let list_action = AddSessionToList {
+                        session_id: sid_for_list,
+                        task_name: task_input_for_list,
+                    };
+                    cx.dispatch_action(&list_action);
+
+                    log::info!("Dispatched AddSessionPanel and AddSessionToList actions");
+                })
+                .ok();
+
+            // Immediately publish user message to session bus for instant UI feedback
+            use agent_client_protocol_schema as schema;
+            use std::sync::Arc;
+
+            // Create user message chunk using the correct ContentChunk API
+            let content_block = schema::ContentBlock::from(task_input.clone());
+            let content_chunk = schema::ContentChunk::new(content_block);
+
+            let user_event = crate::session_bus::SessionUpdateEvent {
+                session_id: session_id.clone(),
+                update: Arc::new(schema::SessionUpdate::UserMessageChunk(content_chunk)),
+            };
+
+            // Publish to session bus
+            window
+                .update(|_, cx| {
+                    AppState::global(cx).session_bus.publish(user_event);
+                })
+                .ok();
+            log::info!("Published user message to session bus: {}", session_id);
+
+            // Send the prompt
+            let request = acp::PromptRequest {
+                session_id: acp::SessionId::from(session_id.clone()),
+                prompt: vec![task_input.into()],
+                meta: None,
+            };
+
+            match agent_handle.prompt(request).await {
+                Ok(_) => {
+                    log::info!("[{}] Prompt sent successfully", agent_name);
+                }
+                Err(e) => {
+                    eprintln!("[{}] Failed to send prompt: {}", agent_name, e);
+                }
+            }
+        })
+        .detach();
     }
 }
 

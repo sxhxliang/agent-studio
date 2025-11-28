@@ -549,7 +549,7 @@ impl ListTaskPanel {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let task_name = action.0.to_string();
+        let task_name = action.task_input.clone();
 
         // Create a new task with InProgress status
         let new_task = AgentTask {

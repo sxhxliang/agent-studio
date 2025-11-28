@@ -111,10 +111,17 @@ pub struct SelectRadius(pub usize);
 
 /// 从欢迎面板创建新任务
 ///
-/// 参数为任务名称，用于快速创建新的 Agent 任务
+/// 参数为任务和 Agent 参数，用于快速创建新的 Agent 任务
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = story, no_json)]
-pub struct CreateTaskFromWelcome(pub SharedString);
+pub struct CreateTaskFromWelcome {
+    /// 任务描述，由用户输入
+    pub task_input: String,
+    /// 使用的 Agent 名称
+    pub agent_name: String,
+    /// 任务模式
+    pub mode: String,
+}
 
 // 通用应用级操作 - 包含各种应用级别的命令和操作
 actions!(
