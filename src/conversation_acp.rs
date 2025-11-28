@@ -457,8 +457,6 @@ pub struct ConversationPanelAcp {
     rendered_items: Vec<RenderedItem>,
     /// Counter for generating unique IDs for new items
     next_index: usize,
-    /// Pending updates that need to be processed
-    pending_updates: Arc<std::sync::Mutex<Vec<SessionUpdate>>>,
 }
 
 impl ConversationPanelAcp {
@@ -483,7 +481,6 @@ impl ConversationPanelAcp {
             focus_handle,
             rendered_items,
             next_index,
-            pending_updates: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
 
         panel
@@ -494,40 +491,42 @@ impl ConversationPanelAcp {
         let weak_entity = entity.downgrade();
         let session_bus = AppState::global(cx).session_bus.clone();
 
-        // Get a clone of the pending updates Arc to use in the callback
-        let pending_updates = entity.read(cx).pending_updates.clone();
+        // Create unbounded channel for cross-thread communication
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SessionUpdate>();
 
+        // Subscribe to session bus, send updates to channel in callback
         session_bus.subscribe(move |event| {
-            // Store the update in pending_updates
-            if let Ok(mut pending) = pending_updates.lock() {
-                pending.push((*event.update).clone());
-            }
-
-            // Try to notify the entity to re-render
-            if let Some(entity) = weak_entity.upgrade() {
-                log::info!(
-                    "Received session update for session {}: storing for next render",
-                    event.session_id
-                );
-                // Note: We can't directly call cx.notify() here because we don't have a Context
-                // The panel will process pending updates during its next render cycle
-            }
+            // This callback runs in agent I/O thread
+            let _ = tx.send((*event.update).clone());
+            log::info!(
+                "Session update sent to channel: session_id={}",
+                event.session_id
+            );
         });
-    }
 
-    /// Process any pending updates that arrived since the last render
-    fn process_pending_updates(&mut self, cx: &mut Context<Self>) {
-        if let Ok(mut pending) = self.pending_updates.lock() {
-            if !pending.is_empty() {
-                log::info!("Processing {} pending updates", pending.len());
-                for update in pending.drain(..) {
-                    let index = self.next_index;
-                    self.next_index += 1;
-                    Self::add_update_to_list(&mut self.rendered_items, update, index, cx);
-                }
-                cx.notify();
+        // Spawn background task to receive from channel and update entity
+        cx.spawn(async move |cx| {
+            while let Some(update) = rx.recv().await {
+                let weak = weak_entity.clone();
+                let _ = cx.update(|cx| {
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(cx, |this, cx| {
+                            let index = this.next_index;
+                            this.next_index += 1;
+                            Self::add_update_to_list(&mut this.rendered_items, update, index, cx);
+                            cx.notify(); // Trigger re-render immediately
+                            log::info!(
+                                "Rendered session update, total items: {}",
+                                this.rendered_items.len()
+                            );
+                        });
+                    }
+                });
             }
-        }
+        })
+        .detach();
+
+        log::info!("Subscribed to session bus with channel-based updates");
     }
 
     /// Helper to add an update to the rendered items list
@@ -700,8 +699,6 @@ impl Focusable for ConversationPanelAcp {
 
 impl Render for ConversationPanelAcp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Process any pending updates before rendering
-        self.process_pending_updates(cx);
 
         let mut children = v_flex().p_4().gap_6().bg(cx.theme().background);
 

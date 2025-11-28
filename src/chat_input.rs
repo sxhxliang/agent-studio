@@ -306,6 +306,26 @@ impl ChatInputPanel {
                 }
             };
 
+            // Immediately publish user message to session bus for instant UI feedback
+            use agent_client_protocol_schema as schema;
+            use std::sync::Arc;
+
+            // Create user message chunk using the correct ContentChunk API
+            let content_block = schema::ContentBlock::from(input_text.clone());
+            let content_chunk = schema::ContentChunk::new(content_block);
+
+            let user_event = crate::session_bus::SessionUpdateEvent {
+                session_id: session_id.clone(),
+                update: Arc::new(schema::SessionUpdate::UserMessageChunk(content_chunk)),
+            };
+
+            // Publish to session bus
+            cx.update(|cx| {
+                AppState::global(cx).session_bus.publish(user_event);
+            })
+            .ok();
+            log::info!("Published user message to session bus: {}", session_id);
+
             // Send the prompt
             let request = acp::PromptRequest {
                 session_id: acp::SessionId::from(session_id),

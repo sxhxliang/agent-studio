@@ -21,205 +21,10 @@ use tokio::{
     task::LocalSet,
 };
 
-use crate::config::{AgentProcessConfig, Config, Settings};
+use crate::config::AgentProcessConfig;
+use crate::gui_client::GuiClient;
+use crate::session_bus::SessionUpdateBusContainer;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
-    let settings = Settings::parse()?;
-    let config: Config = {
-        let raw = std::fs::read_to_string(&settings.config_path)
-            .with_context(|| format!("failed to read {}", settings.config_path.display()))?;
-        serde_json::from_str(&raw)
-            .with_context(|| format!("invalid config at {}", settings.config_path.display()))?
-    };
-
-    let permission_store = Arc::new(PermissionStore::default());
-    let manager =
-        AgentManager::initialize(config.agent_servers.clone(), permission_store.clone()).await?;
-
-    println!("Loaded {} agents.", manager.list_agents().len());
-    println!("Type '/help' for available commands.");
-
-    let mut active_agent: Option<String> = manager.list_agents().first().cloned();
-    let mut active_sessions: HashMap<String, String> = HashMap::new(); // Agent -> SessionId
-
-    if let Some(ref agent) = active_agent {
-        println!("Active agent set to: {}", agent);
-    }
-
-    use std::io::{self, Write};
-    let mut input_buffer = String::new();
-
-    loop {
-        let prompt = if let Some(ref agent) = active_agent {
-            let session = active_sessions
-                .get(agent)
-                .map(|s| s.as_str())
-                .unwrap_or("no-session");
-            format!("[{} : {}]> ", agent, session)
-        } else {
-            "[no-agent]> ".to_string()
-        };
-
-        print!("{}", prompt);
-        io::stdout().flush()?;
-
-        input_buffer.clear();
-        match io::stdin().read_line(&mut input_buffer) {
-            Ok(0) => {
-                println!("CTRL-D");
-                break;
-            }
-            Ok(_) => {
-                let line = input_buffer.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                if line.starts_with("/") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    match parts[0] {
-                        "/help" => {
-                            println!("Commands:");
-                            println!("  /agent <name>              - Switch active agent");
-                            println!("  /agents                    - List available agents");
-                            println!("  /session new               - Create new session for active agent");
-                            println!("  /session switch <id>       - Switch active session for active agent");
-                            println!("  /decide <req_id> <opt_id>  - Approve permission request with option");
-                            println!("  /quit                      - Exit");
-                        }
-                        "/quit" => break,
-                        "/agents" => {
-                            let agents = manager.list_agents();
-                            for agent in agents {
-                                let prefix = if Some(&agent) == active_agent.as_ref() {
-                                    "*"
-                                } else {
-                                    " "
-                                };
-                                println!("{} {}", prefix, agent);
-                            }
-                        }
-                        "/agent" => {
-                            if parts.len() < 2 {
-                                println!("Usage: /agent <name>");
-                            } else {
-                                let name = parts[1].to_string();
-                                if manager.get(&name).is_some() {
-                                    active_agent = Some(name);
-                                    println!("Switched to agent: {}", parts[1]);
-                                } else {
-                                    println!("Agent not found: {}", name);
-                                }
-                            }
-                        }
-                        "/session" => {
-                            if let Some(ref agent_name) = active_agent {
-                                if let Some(agent_handle) = manager.get(agent_name) {
-                                    if parts.len() >= 2 {
-                                        match parts[1] {
-                                            "new" => {
-                                                match agent_handle
-                                                    .new_session(acp::NewSessionRequest {
-                                                        cwd: std::env::current_dir()?,
-                                                        mcp_servers: vec![],
-                                                        meta: None,
-                                                    })
-                                                    .await
-                                                {
-                                                    Ok(resp) => {
-                                                        let sid = resp.session_id.to_string();
-                                                        println!("Created session: {}", sid);
-                                                        active_sessions
-                                                            .insert(agent_name.clone(), sid);
-                                                    }
-                                                    Err(e) => {
-                                                        println!("Error creating session: {}", e)
-                                                    }
-                                                }
-                                            }
-                                            "switch" => {
-                                                if parts.len() < 3 {
-                                                    println!("Usage: /session switch <id>");
-                                                } else {
-                                                    let sid = parts[2].to_string();
-                                                    active_sessions.insert(agent_name.clone(), sid);
-                                                    println!("Switched to session: {}", parts[2]);
-                                                }
-                                            }
-                                            _ => println!(
-                                                "Unknown session command. Use 'new' or 'switch'."
-                                            ),
-                                        }
-                                    } else {
-                                        println!("Usage: /session <new|switch>");
-                                    }
-                                }
-                            } else {
-                                println!("No active agent selected.");
-                            }
-                        }
-                        "/decide" => {
-                            if parts.len() < 3 {
-                                println!("Usage: /decide <req_id> <opt_id>");
-                            } else {
-                                let req_id = parts[1];
-                                let opt_id = parts[2];
-                                if let Some(pending) = permission_store.remove(req_id).await {
-                                    let response = acp::RequestPermissionResponse {
-                                        outcome: acp::RequestPermissionOutcome::Selected {
-                                            option_id: acp::PermissionOptionId(Arc::from(opt_id)),
-                                        },
-                                        meta: None,
-                                    };
-                                    if let Err(_) = pending.responder.send(response) {
-                                        println!("Failed to send response (channel closed)");
-                                    } else {
-                                        println!("Permission {} decided with {}", req_id, opt_id);
-                                    }
-                                } else {
-                                    println!("Permission Request ID not found: {}", req_id);
-                                }
-                            }
-                        }
-                        _ => println!("Unknown command: {}", parts[0]),
-                    }
-                } else {
-                    // Send as prompt
-                    if let Some(ref agent_name) = active_agent {
-                        if let Some(session_id) = active_sessions.get(agent_name) {
-                            if let Some(agent_handle) = manager.get(agent_name) {
-                                let req = acp::PromptRequest {
-                                    session_id: acp::SessionId::from(session_id.clone()),
-                                    prompt: vec![line.to_string().into()],
-                                    meta: None,
-                                };
-
-                                match agent_handle.prompt(req).await {
-                                    Ok(_) => {
-                                        // Output is handled by CliClient printing to stdout
-                                    }
-                                    Err(e) => println!("Error sending prompt: {}", e),
-                                }
-                            }
-                        } else {
-                            println!("No active session. Use '/session new' to create one.");
-                        }
-                    } else {
-                        println!("No active agent. Use '/agent <name>' to select one.");
-                    }
-                }
-            }
-            Err(err) => {
-                println!("Error: {:?}", err);
-                break;
-            }
-        }
-    }
-
-    Ok(())
-}
 
 #[derive(Clone)]
 pub struct AgentManager {
@@ -230,14 +35,24 @@ impl AgentManager {
     pub async fn initialize(
         configs: HashMap<String, AgentProcessConfig>,
         permission_store: Arc<PermissionStore>,
+        session_bus: SessionUpdateBusContainer,
     ) -> Result<Arc<Self>> {
         if configs.is_empty() {
             return Err(anyhow!("no agents defined in config"));
         }
         let mut agents = HashMap::new();
         for (name, cfg) in configs {
-            let handle = AgentHandle::spawn(name.clone(), cfg, permission_store.clone()).await?;
-            agents.insert(name, Arc::new(handle));
+            match AgentHandle::spawn(name.clone(), cfg, permission_store.clone(), session_bus.clone()).await {
+                Ok(handle) => {
+                    agents.insert(name, Arc::new(handle));
+                }
+                Err(e) => {
+                    warn!("Failed to initialize agent '{}': {}", name, e);
+                }
+            }
+        }
+        if agents.is_empty() {
+            warn!("No agents could be initialized, continuing without agents");
         }
         Ok(Arc::new(Self { agents }))
     }
@@ -263,6 +78,7 @@ impl AgentHandle {
         name: String,
         config: AgentProcessConfig,
         permission_store: Arc<PermissionStore>,
+        session_bus: SessionUpdateBusContainer,
     ) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(32);
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -273,7 +89,7 @@ impl AgentHandle {
             .spawn(move || {
                 let log_name = worker_name.clone();
                 if let Err(err) =
-                    run_agent_worker(worker_name, config, permission_store, receiver, ready_tx)
+                    run_agent_worker(worker_name, config, permission_store, session_bus, receiver, ready_tx)
                 {
                     error!("agent {log_name} exited with error: {:?}", err);
                 }
@@ -340,6 +156,7 @@ fn run_agent_worker(
     agent_name: String,
     config: AgentProcessConfig,
     permission_store: Arc<PermissionStore>,
+    session_bus: SessionUpdateBusContainer,
     command_rx: mpsc::Receiver<AgentCommand>,
     ready_tx: oneshot::Sender<Result<()>>,
 ) -> Result<()> {
@@ -355,6 +172,7 @@ fn run_agent_worker(
                 agent_name,
                 config,
                 permission_store,
+                session_bus,
                 command_rx,
                 ready_tx,
             ))
@@ -366,10 +184,23 @@ async fn agent_event_loop(
     agent_name: String,
     config: AgentProcessConfig,
     permission_store: Arc<PermissionStore>,
+    session_bus: SessionUpdateBusContainer,
     mut command_rx: mpsc::Receiver<AgentCommand>,
     ready_tx: oneshot::Sender<Result<()>>,
 ) -> Result<()> {
-    let mut command = tokio::process::Command::new(&config.command);
+
+    let mut command = if cfg!(target_os = "windows") {
+        let mut shell_cmd = tokio::process::Command::new("cmd");
+        let mut full_args = vec!["/C".to_string(), config.command.clone()];
+        full_args.extend(config.args.iter().cloned());
+        shell_cmd.args(&full_args);
+        shell_cmd
+    } else {
+        let mut cmd = tokio::process::Command::new(&config.command);
+        cmd.args(&config.args);
+        cmd
+    };
+    // let mut command = tokio::process::Command::new(&config.command);
     command.args(&config.args);
     command.envs(&config.env);
     command.stdin(std::process::Stdio::piped());
@@ -390,7 +221,7 @@ async fn agent_event_loop(
         .ok_or_else(|| anyhow!("agent {agent_name} missing stdout"))?
         .compat();
 
-    let client = CliClient::new(agent_name.clone(), permission_store);
+    let client = GuiClient::new(agent_name.clone(), permission_store, session_bus);
     let (conn, io_task) = acp::ClientSideConnection::new(client, outgoing, incoming, |fut| {
         tokio::task::spawn_local(fut);
     });

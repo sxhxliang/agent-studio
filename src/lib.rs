@@ -61,7 +61,7 @@ pub use agent_client_protocol_schema::{
 use gpui_component::{
     dock::{register_panel, PanelControl, PanelInfo},
     scroll::ScrollbarShow,
-    v_flex, Root, TitleBar, WindowExt,
+    v_flex, Root, TitleBar,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 

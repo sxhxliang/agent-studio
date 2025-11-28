@@ -12,6 +12,9 @@ fn main() {
     app.run(move |cx| {
         agentx::init(cx);
 
+        // Get session_bus from global AppState
+        let session_bus = agentx::AppState::global(cx).session_bus.clone();
+
         open_new(cx, |_, _, _| {
             // Load settings and config
         })
@@ -41,8 +44,12 @@ fn main() {
             // Initialize agent manager
             let permission_store = Arc::new(PermissionStore::default());
 
-            match AgentManager::initialize(config.agent_servers.clone(), permission_store.clone())
-                .await
+            match AgentManager::initialize(
+                config.agent_servers.clone(),
+                permission_store.clone(),
+                session_bus.clone(),
+            )
+            .await
             {
                 Ok(manager) => {
                     println!("Loaded {} agents.", manager.list_agents().len());

@@ -1,23 +1,8 @@
 {
   "agent_servers": {
-    "Claude": {
-      "command": "npx",
-      "args": ["@zed-industries/claude-code-acp"],
-      "env": {}
-    },
-    "Codex": {
-      "command": "npx",
-      "args": ["@zed-industries/codex-acp"],
-      "env": {}
-    },
-    "QwenCode": {
-      "command": "qwen",
-      "args": ["--experimental-acp"],
-      "env": {}
-    },
     "Iflow": {
-      "command": "npx",
-      "args": ["@iflow-ai/iflow-cli", "--experimental-acp"],
+      "command": "iflow",
+      "args": ["--experimental-acp"],
       "env": {}
     }
   },
