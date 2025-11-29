@@ -358,7 +358,7 @@ impl Render for ChatInputPanel {
             .bg(cx.theme().background)
             .child(
                 ChatInputBox::new("chat-input-box", self.input_state.clone())
-                    .title("Send a message")
+                    // .title("Send a message")
                     .context_list(self.context_list.clone(), cx)
                     .context_popover_open(self.context_popover_open)
                     .on_context_popover_change(cx.listener(|this, open: &bool, _, cx| {

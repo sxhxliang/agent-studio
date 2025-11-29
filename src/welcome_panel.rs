@@ -306,7 +306,7 @@ impl Render for WelcomePanel {
                     .child(
                         // Chat input with title, context, mode, agent selectors and send handler
                         ChatInputBox::new("welcome-chat-input", self.input_state.clone())
-                            .title("New Task")
+                            // .title("New Task")
                             .context_list(self.context_list.clone(), cx)
                             .context_popover_open(self.context_popover_open)
                             .on_context_popover_change(cx.listener(|this, open: &bool, _, cx| {
