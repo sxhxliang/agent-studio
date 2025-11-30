@@ -618,11 +618,16 @@ impl ConversationPanelAcp {
         index: usize,
         cx: &mut App,
     ) {
+        let update_type = Self::session_update_type_name(&update);
+        log::debug!("Processing SessionUpdate[{}]: {}", index, update_type);
+
         match update {
             SessionUpdate::UserMessageChunk(chunk) => {
+                log::debug!("  └─ Creating UserMessage");
                 items.push(Self::create_user_message(chunk, index, cx));
             }
             SessionUpdate::AgentMessageChunk(chunk) => {
+                log::debug!("  └─ Creating AgentMessage");
                 let data = Self::create_agent_message_data(chunk, index);
                 items.push(RenderedItem::AgentMessage(
                     format!("agent-msg-{}", index),
@@ -630,14 +635,17 @@ impl ConversationPanelAcp {
                 ));
             }
             SessionUpdate::AgentThoughtChunk(chunk) => {
+                log::debug!("  └─ Creating AgentThought");
                 let text = Self::extract_text_from_content(&chunk.content);
                 items.push(RenderedItem::AgentThought(text));
             }
             SessionUpdate::ToolCall(tool_call) => {
+                log::debug!("  └─ Creating ToolCall: {}", tool_call.tool_call_id);
                 let entity = cx.new(|_| ToolCallItemState::new(tool_call, false));
                 items.push(RenderedItem::ToolCall(entity));
             }
             SessionUpdate::ToolCallUpdate(tool_call_update) => {
+                log::debug!("  └─ Updating ToolCall: {}", tool_call_update.tool_call_id);
                 // Find the existing ToolCall entity by ID and update it
                 let mut found = false;
                 for item in items.iter_mut() {
@@ -648,8 +656,8 @@ impl ConversationPanelAcp {
                         if matches {
                             // Update the existing tool call
                             entity.update(cx, |state, cx| {
-                                log::info!(
-                                    "Updating ToolCall {} with new status: {:?}",
+                                log::debug!(
+                                    "     ✓ Found and updating ToolCall {} (status: {:?})",
                                     tool_call_update.tool_call_id,
                                     tool_call_update.fields.status
                                 );
@@ -664,19 +672,20 @@ impl ConversationPanelAcp {
                 // If no existing ToolCall found, try to create one from the update
                 if !found {
                     log::warn!(
-                        "ToolCallUpdate received for non-existent ToolCall ID: {}. Attempting to create new ToolCall.",
+                        "     ⚠ ToolCallUpdate for non-existent ID: {}. Attempting to create.",
                         tool_call_update.tool_call_id
                     );
 
                     // Try to convert ToolCallUpdate to ToolCall
                     match agent_client_protocol_schema::ToolCall::try_from(tool_call_update) {
                         Ok(tool_call) => {
+                            log::debug!("     ✓ Successfully created ToolCall from update");
                             let entity = cx.new(|_| ToolCallItemState::new(tool_call, false));
                             items.push(RenderedItem::ToolCall(entity));
                         }
                         Err(e) => {
                             log::error!(
-                                "Failed to create ToolCall from ToolCallUpdate: {:?}",
+                                "     ✗ Failed to create ToolCall from update: {:?}",
                                 e
                             );
                         }
@@ -684,11 +693,12 @@ impl ConversationPanelAcp {
                 }
             }
             SessionUpdate::Plan(plan) => {
+                log::debug!("  └─ Creating Plan with {} entries", plan.entries.len());
                 items.push(RenderedItem::Plan(plan));
             }
             SessionUpdate::AvailableCommandsUpdate(commands_update) => {
-                log::info!(
-                    "Available commands updated: {} commands available",
+                log::debug!(
+                    "  └─ Commands update: {} available",
                     commands_update.available_commands.len()
                 );
                 items.push(RenderedItem::InfoUpdate(format!(
@@ -697,7 +707,7 @@ impl ConversationPanelAcp {
                 )));
             }
             SessionUpdate::CurrentModeUpdate(mode_update) => {
-                log::info!("Mode updated to: {}", mode_update.current_mode_id);
+                log::debug!("  └─ Mode changed to: {}", mode_update.current_mode_id);
                 items.push(RenderedItem::InfoUpdate(format!(
                     "🔄 Mode: {}",
                     mode_update.current_mode_id
@@ -705,8 +715,11 @@ impl ConversationPanelAcp {
             }
             _ => {
                 log::warn!(
-                    "Unhandled SessionUpdate variant: {:?}",
-                    std::mem::discriminant(&update)
+                    "⚠️  UNHANDLED SessionUpdate type: {}\n\
+                     This update will be ignored. Consider implementing support for this type.\n\
+                     Update details: {:?}",
+                    update_type,
+                    update
                 );
             }
         }
@@ -780,6 +793,21 @@ impl ConversationPanelAcp {
                 _ => "[Unknown Resource]".to_string(),
             },
             _ => "[Unknown Content]".to_string(),
+        }
+    }
+
+    /// Get a human-readable type name for SessionUpdate (for logging)
+    fn session_update_type_name(update: &SessionUpdate) -> &'static str {
+        match update {
+            SessionUpdate::UserMessageChunk(_) => "UserMessageChunk",
+            SessionUpdate::AgentMessageChunk(_) => "AgentMessageChunk",
+            SessionUpdate::AgentThoughtChunk(_) => "AgentThoughtChunk",
+            SessionUpdate::ToolCall(_) => "ToolCall",
+            SessionUpdate::ToolCallUpdate(_) => "ToolCallUpdate",
+            SessionUpdate::Plan(_) => "Plan",
+            SessionUpdate::AvailableCommandsUpdate(_) => "AvailableCommandsUpdate",
+            SessionUpdate::CurrentModeUpdate(_) => "CurrentModeUpdate",
+            _ => "Unknown/Future SessionUpdate Type",
         }
     }
 
