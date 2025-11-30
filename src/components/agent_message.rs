@@ -3,7 +3,7 @@ use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
     ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, text::TextView};
 use serde::{Deserialize, Serialize};
 
 /// Extended metadata for agent messages (stored in ContentChunk's meta field)
@@ -106,7 +106,7 @@ impl AgentMessage {
 }
 
 impl RenderOnce for AgentMessage {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let agent_name: SharedString = self
             .data
             .meta
@@ -116,6 +116,7 @@ impl RenderOnce for AgentMessage {
             .unwrap_or_else(|| "Agent".into());
         let is_complete = self.data.is_complete();
         let full_text = self.data.full_text();
+        let markdown_id = SharedString::from(format!("{}-markdown", self.id));
 
         v_flex()
             .gap_3()
@@ -146,15 +147,23 @@ impl RenderOnce for AgentMessage {
                         )
                     }),
             )
-            // Message content
+            // Message content with markdown rendering
             .child(
                 div()
                     .pl_6()
                     .w_full()
-                    .text_size(px(14.))
-                    .text_color(cx.theme().foreground)
-                    .line_height(px(22.))
-                    .child(full_text),
+                    .child(
+                        TextView::markdown(
+                            markdown_id,
+                            full_text,
+                            window,
+                            cx,
+                        )
+                        .text_size(px(14.))
+                        .text_color(cx.theme().foreground)
+                        .line_height(px(22.))
+                        .selectable(true),
+                    ),
             )
     }
 }

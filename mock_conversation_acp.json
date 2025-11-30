@@ -10,7 +10,7 @@
     "sessionUpdate": "agent_message_chunk",
     "content": {
       "type": "text",
-      "text": "I'll help you implement a user authentication system with JWT tokens. Let me create a plan for this task."
+      "text": "I'll help you implement a user authentication system with JWT tokens. Let me create a plan for this task.\n\n## Implementation Steps\n\n1. **Set up dependencies** - Install required packages\n2. **Create user model** - Define data structure\n3. **Implement endpoints** - Build authentication API\n\nHere's a code example:\n\n```rust\nuse jsonwebtoken::{encode, decode, Header, Validation};\n\n#[derive(Serialize, Deserialize)]\nstruct Claims {\n    sub: String,\n    exp: usize,\n}\n```\n\n> **Note**: Make sure to use a secure secret key for JWT signing!"
     }
   },
   {
@@ -81,7 +81,7 @@
     "sessionUpdate": "agent_message_chunk",
     "content": {
       "type": "text",
-      "text": "I found the existing user model. Now I'll implement the authentication endpoints."
+      "text": "I found the existing user model. Now I'll implement the authentication endpoints.\n\n### Authentication Flow\n\nThe authentication process involves:\n\n- **Registration**: Create new user with hashed password\n- **Login**: Validate credentials and generate JWT\n- **Verification**: Middleware to check token validity\n\n| Endpoint | Method | Description |\n|----------|--------|-------------|\n| `/auth/register` | POST | Create new user |\n| `/auth/login` | POST | Authenticate user |\n| `/auth/verify` | GET | Verify token |\n\nFor more details, see the [JWT documentation](https://jwt.io).\n\n---\n\n*This is a secure implementation using bcrypt for password hashing and RS256 for JWT signing.*"
     }
   },
   {

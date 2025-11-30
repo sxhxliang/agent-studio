@@ -9,6 +9,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     list::{List, ListDelegate, ListEvent, ListState},
+    popover::Popover,
     v_flex, ActiveTheme, Icon, IconName, IndexPath,
 };
 
@@ -653,6 +654,127 @@ impl Render for ListTaskPanel {
                     .border_1()
                     .border_color(cx.theme().border)
                     .rounded(cx.theme().radius),
+            )
+            // Bottom action buttons with popover
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        Popover::new("add-repository-popover")
+                            .trigger(
+                                Button::new("btn-add-repository")
+                                    .label("Add repository")
+                                    .icon(Icon::new(IconName::Plus))
+                                    .ghost(),
+                            )
+                            .content(|_state, _window, cx| {
+                                let popover_entity = cx.entity();
+                                v_flex()
+                                    .gap_1()
+                                    .min_w(px(200.))
+                                    .child(
+                                        // Open project button
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .px_3()
+                                            .py_2()
+                                            .rounded(cx.theme().radius)
+                                            .cursor_default()
+                                            .hover(|style| style.bg(cx.theme().secondary))
+                                            .on_mouse_down(MouseButton::Left, {
+                                                let popover = popover_entity.clone();
+                                                move |_, window, cx| {
+                                                    // Close the popover first
+                                                    popover.update(cx, |state, cx| {
+                                                        state.dismiss(window, cx);
+                                                    });
+
+                                                    // Then spawn the folder picker
+                                                    cx.spawn(async move |_cx| {
+                                                        let folder = rfd::AsyncFileDialog::new()
+                                                            .set_title("Select Project Folder")
+                                                            .pick_folder()
+                                                            .await;
+
+                                                        if let Some(folder) = folder {
+                                                            let path = folder.path();
+                                                            println!("Selected folder: {}", path.display());
+                                                            log::info!("Selected project folder: {}", path.display());
+                                                        } else {
+                                                            println!("No folder selected");
+                                                            log::info!("Folder selection cancelled");
+                                                        }
+                                                    })
+                                                    .detach();
+                                                }
+                                            })
+                                            .child(Icon::new(IconName::Folder).size(px(16.)))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().foreground)
+                                                    .child("Open project"),
+                                            ),
+                                    )
+                                    .child(
+                                        // Clone from URL button
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .px_3()
+                                            .py_2()
+                                            .rounded(cx.theme().radius)
+                                            .cursor_default()
+                                            .hover(|style| style.bg(cx.theme().secondary))
+                                            .on_mouse_down(MouseButton::Left, {
+                                                let popover = popover_entity.clone();
+                                                move |_, window, cx| {
+                                                    // Close the popover
+                                                    popover.update(cx, |state, cx| {
+                                                        state.dismiss(window, cx);
+                                                    });
+
+                                                    println!("Clone from URL clicked");
+                                                    // TODO: Implement clone from URL functionality
+                                                }
+                                            })
+                                            .child(Icon::new(IconName::Globe).size(px(16.)))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().foreground)
+                                                    .child("Clone from URL"),
+                                            ),
+                                    )
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("btn-notifications")
+                                    .icon(Icon::new(IconName::Bell))
+                                    .ghost()
+                                    .on_click(|_, _, _| {
+                                        println!("Notifications clicked");
+                                        // TODO: Implement notifications functionality
+                                    }),
+                            )
+                            .child(
+                                Button::new("btn-settings")
+                                    .icon(Icon::new(IconName::Settings))
+                                    .ghost()
+                                    .on_click(|_, _, _| {
+                                        println!("Settings clicked");
+                                        // TODO: Implement settings functionality
+                                    }),
+                            ),
+                    ),
             )
     }
 }
