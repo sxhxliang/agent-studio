@@ -138,9 +138,13 @@ impl WelcomePanel {
             this._subscriptions.push(subscription);
 
             // Subscribe to agent_select selection changes to create session
-            let agent_select_sub = cx.subscribe_in(&this.agent_select, window, |this, _, _: &SelectEvent<Vec<String>>, window, cx| {
-                this.on_agent_selected(window, cx);
-            });
+            let agent_select_sub = cx.subscribe_in(
+                &this.agent_select,
+                window,
+                |this, _, _: &SelectEvent<Vec<String>>, window, cx| {
+                    this.on_agent_selected(window, cx);
+                },
+            );
             this._subscriptions.push(agent_select_sub);
         });
 
@@ -154,7 +158,6 @@ impl WelcomePanel {
                 .soft_wrap(true) // Enable word wrapping
                 .placeholder("Describe what you'd like to build...")
         });
-
 
         let context_list =
             cx.new(|cx| ListState::new(ContextListDelegate::new(), window, cx).searchable(true));
@@ -235,7 +238,8 @@ impl WelcomePanel {
             return;
         }
 
-        let agent_name = self.agent_select
+        let agent_name = self
+            .agent_select
             .read(cx)
             .selected_value()
             .cloned()
@@ -294,14 +298,16 @@ impl WelcomePanel {
         let task_name = self.input_state.read(cx).text().to_string();
 
         if !task_name.is_empty() {
-            let mode = self.mode_select
+            let mode = self
+                .mode_select
                 .read(cx)
                 .selected_value()
                 .cloned()
                 .unwrap_or("Auto")
                 .to_string();
 
-            let agent_name = self.agent_select
+            let agent_name = self
+                .agent_select
                 .read(cx)
                 .selected_value()
                 .cloned()
@@ -333,8 +339,6 @@ impl Focusable for WelcomePanel {
 
 impl Render for WelcomePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-
-
         v_flex()
             .size_full()
             .items_center()

@@ -102,11 +102,7 @@ impl PermissionRequest {
             .title
             .clone()
             .unwrap_or_else(|| "Tool Call".to_string());
-        let tool_kind = tool_call
-            .fields
-            .kind
-            .as_ref()
-            .map(|k| format!("{:?}", k));
+        let tool_kind = tool_call.fields.kind.as_ref().map(|k| format!("{:?}", k));
 
         Self {
             permission_id,
@@ -192,15 +188,13 @@ impl Render for PermissionRequest {
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        Icon::new(IconName::TriangleAlert)
-                            .size(px(16.))
-                            .text_color(if responded {
-                                cx.theme().muted_foreground
-                            } else {
-                                cx.theme().accent
-                            }),
-                    )
+                    .child(Icon::new(IconName::TriangleAlert).size(px(16.)).text_color(
+                        if responded {
+                            cx.theme().muted_foreground
+                        } else {
+                            cx.theme().accent
+                        },
+                    ))
                     .child(
                         div()
                             .text_size(px(13.))
@@ -240,8 +234,10 @@ impl Render for PermissionRequest {
             .when(!responded, |this| {
                 // Options - only show if not responded
                 this.child(
-                    h_flex().gap_2().pl_6().children(
-                        self.options.iter().map(|option| {
+                    h_flex()
+                        .gap_2()
+                        .pl_6()
+                        .children(self.options.iter().map(|option| {
                             let option_id = option.option_id.clone();
                             let is_allow = option.kind.is_allow();
 
@@ -254,11 +250,12 @@ impl Render for PermissionRequest {
                             .when(is_allow, |btn| btn.primary())
                             .when(!is_allow, |btn| btn.ghost())
                             .small()
-                            .on_click(cx.listener(move |this, _ev, window, cx| {
-                                this.on_option_selected(option_id.clone(), window, cx);
-                            }))
-                        }),
-                    ),
+                            .on_click(cx.listener(
+                                move |this, _ev, window, cx| {
+                                    this.on_option_selected(option_id.clone(), window, cx);
+                                },
+                            ))
+                        })),
                 )
             })
     }
@@ -279,9 +276,8 @@ impl PermissionRequestView {
         cx: &mut App,
     ) -> Entity<Self> {
         cx.new(|cx| {
-            let item = cx.new(|_| {
-                PermissionRequest::new(permission_id, session_id, tool_call, options)
-            });
+            let item =
+                cx.new(|_| PermissionRequest::new(permission_id, session_id, tool_call, options));
             Self { item }
         })
     }

@@ -7,9 +7,9 @@ mod config;
 mod conversation;
 mod conversation_acp;
 pub mod dock_panel;
+mod permission_bus;
 mod schemas;
 mod session_bus;
-mod permission_bus;
 mod settings_window;
 mod task_data;
 mod task_list;
@@ -54,9 +54,9 @@ pub use welcome_panel::WelcomePanel;
 // Export components
 pub use components::{
     AgentMessage, AgentMessageData, AgentMessageMeta, AgentMessageView, AgentTodoList,
-    AgentTodoListView, PlanMeta, PermissionOptionData, PermissionOptionKind, PermissionRequest,
-    PermissionRequestView, ToolCallItem, ToolCallItemView, ToolCallStatusExt, ToolKindExt,
-    UserMessage, UserMessageData, UserMessageView,
+    AgentTodoListView, ChatInputBox, PermissionOptionData, PermissionOptionKind, PermissionRequest,
+    PermissionRequestView, PlanMeta, ToolCallItem, ToolCallItemView, ToolCallStatusExt,
+    ToolKindExt, UserMessage, UserMessageData, UserMessageView,
 };
 
 // Re-export ACP types for convenience

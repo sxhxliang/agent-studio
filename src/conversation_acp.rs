@@ -6,8 +6,8 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
     h_flex,
-    scroll::ScrollbarAxis,
-    v_flex, ActiveTheme, Icon, IconName, Sizable, StyledExt,
+    input::InputState,
+    v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
 
 // Use the published ACP schema crate
@@ -17,8 +17,10 @@ use agent_client_protocol_schema::{
 };
 
 use crate::{
-    dock_panel::DockPanel, AgentMessage, AgentMessageData, AgentTodoList, AppState,
-    PermissionRequestView, UserMessageData,
+    acp_client::AgentHandle,
+    dock_panel::DockPanel,
+    AgentMessage, AgentMessageData, AgentTodoList, AppState, ChatInputBox, PermissionRequestView,
+    UserMessageData,
 };
 
 // ============================================================================
@@ -525,6 +527,8 @@ pub struct ConversationPanelAcp {
     session_id: Option<String>,
     /// Scroll handle for auto-scrolling to bottom
     scroll_handle: ScrollHandle,
+    /// Input state for the chat input box
+    input_state: Entity<InputState>,
 }
 
 impl ConversationPanelAcp {
@@ -539,12 +543,12 @@ impl ConversationPanelAcp {
     }
 
     /// Create a new panel for a specific session (no mock data)
-    pub fn view_for_session(session_id: String, cx: &mut App) -> Entity<Self> {
+    pub fn view_for_session(session_id: String, window: &mut Window, cx: &mut App) -> Entity<Self> {
         log::info!(
             "🚀 Creating ConversationPanelAcp for session: {}",
             session_id
         );
-        let entity = cx.new(|cx| Self::new_for_session(session_id.clone(), cx));
+        let entity = cx.new(|cx| Self::new_for_session(session_id.clone(), window, cx));
         Self::subscribe_to_updates(&entity, Some(session_id.clone()), cx);
         Self::subscribe_to_permissions(&entity, Some(session_id.clone()), cx);
         log::info!(
@@ -558,6 +562,12 @@ impl ConversationPanelAcp {
         log::info!("🔧 Initializing ConversationPanelAcp (new)");
         let focus_handle = cx.focus_handle();
         let scroll_handle = ScrollHandle::new();
+        let input_state = cx.new(|cx| {
+            InputState::new(_window, cx)
+                .auto_grow(2, 8)
+                .soft_wrap(true)
+                .placeholder("Type a message...")
+        });
         let session_updates = Self::load_mock_data();
 
         let mut rendered_items = Vec::new();
@@ -573,18 +583,25 @@ impl ConversationPanelAcp {
             next_index,
             session_id: None,
             scroll_handle,
+            input_state,
         };
 
         panel
     }
 
-    fn new_for_session(session_id: String, cx: &mut App) -> Self {
+    fn new_for_session(session_id: String, window: &mut Window, cx: &mut App) -> Self {
         log::info!(
             "🔧 Initializing ConversationPanelAcp for session: {}",
             session_id
         );
         let focus_handle = cx.focus_handle();
         let scroll_handle = ScrollHandle::new();
+        let input_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .auto_grow(2, 8)
+                .soft_wrap(true)
+                .placeholder("Type a message...")
+        });
 
         Self {
             focus_handle,
@@ -592,6 +609,7 @@ impl ConversationPanelAcp {
             next_index: 0,
             session_id: Some(session_id),
             scroll_handle,
+            input_state,
         }
     }
 
@@ -1047,6 +1065,77 @@ impl ConversationPanelAcp {
         id.hash(&mut hasher);
         ElementId::from(("item", hasher.finish()))
     }
+
+    /// Send a message to the current session
+    fn send_message(&self, text: String, cx: &mut Context<Self>) {
+        // Only send if we have a session_id
+        let Some(ref session_id) = self.session_id else {
+            log::warn!("Cannot send message: no session_id");
+            return;
+        };
+
+        log::info!("Sending message to session: {}", session_id);
+
+        let session_id = session_id.clone();
+
+        // Spawn async task to send the message
+        cx.spawn(async move |_this, cx| {
+            // Immediately publish user message to session bus for instant UI feedback
+            use agent_client_protocol_schema as schema;
+            use std::sync::Arc;
+
+            // Create user message chunk
+            let content_block = schema::ContentBlock::from(text.clone());
+            let content_chunk = schema::ContentChunk::new(content_block);
+
+            let user_event = crate::session_bus::SessionUpdateEvent {
+                session_id: session_id.clone(),
+                update: Arc::new(schema::SessionUpdate::UserMessageChunk(content_chunk)),
+            };
+
+            // Publish to session bus
+            cx.update(|cx| {
+                AppState::global(cx).session_bus.publish(user_event);
+            })
+            .ok();
+            log::info!("Published user message to session bus: {}", session_id);
+
+            // Get agent handle and send prompt
+            let agent_handle: Option<Arc<AgentHandle>> = cx
+                .update(|cx| {
+                    AppState::global(cx)
+                        .agent_manager()
+                        .and_then(|m| {
+                            // Get the first available agent
+                            let agents = m.list_agents();
+                            agents.first().and_then(|name| m.get(name))
+                        })
+                })
+                .ok()
+                .flatten();
+
+            if let Some(agent_handle) = agent_handle {
+                // Send the prompt
+                let request = agent_client_protocol::PromptRequest {
+                    session_id: agent_client_protocol::SessionId::from(session_id.clone()),
+                    prompt: vec![text.into()],
+                    meta: None,
+                };
+
+                match agent_handle.prompt(request).await {
+                    Ok(_) => {
+                        log::info!("Prompt sent successfully to session: {}", session_id);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send prompt to session {}: {}", session_id, e);
+                    }
+                }
+            } else {
+                log::error!("No agent handle available");
+            }
+        })
+        .detach();
+    }
 }
 
 impl DockPanel for ConversationPanelAcp {
@@ -1165,12 +1254,33 @@ impl Render for ConversationPanelAcp {
             }
         }
 
-        // Use div with overflow_scroll and track_scroll to enable auto-scrolling
-        div()
-            .id("conversation-scroll-container")
+        // Main layout: vertical flex with scroll area on top and input box at bottom
+        v_flex()
             .size_full()
-            .overflow_scroll()
-            .track_scroll(&self.scroll_handle)
-            .child(children)
+            .child(
+                // Scrollable message area
+                div()
+                    .id("conversation-scroll-container")
+                    .flex_1()
+                    .overflow_scroll()
+                    .track_scroll(&self.scroll_handle)
+                    .child(children),
+            )
+            .child(
+                // Chat input box at bottom (not scrollable)
+                ChatInputBox::new("chat-input", self.input_state.clone())
+                    .on_send(cx.listener(|this, _ev, window, cx| {
+                        let text = this.input_state.read(cx).value().to_string();
+                        if !text.trim().is_empty() {
+                            // Clear the input
+                            this.input_state.update(cx, |state, cx| {
+                                state.set_value(SharedString::from(""), window, cx);
+                            });
+
+                            // Send the message
+                            this.send_message(text, cx);
+                        }
+                    })),
+            )
     }
 }

@@ -2,18 +2,16 @@ use anyhow::{Context as _, Result};
 use gpui::*;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{
-        DockArea, DockAreaState, DockEvent, DockItem, DockPlacement,
-    },
+    dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement},
     menu::DropdownMenu,
     IconName, Root, Sizable,
 };
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AddPanel, AppState, AppTitleBar, ChatInputPanel, CodeEditorPanel, ConversationPanelAcp,
-    ListTaskPanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
-    dock_panel::DockPanelContainer,
+    dock_panel::DockPanelContainer, AddPanel, AppState, AppTitleBar, ChatInputPanel,
+    CodeEditorPanel, ConversationPanelAcp, ListTaskPanel, ToggleDockToggleButton,
+    TogglePanelVisible, WelcomePanel,
 };
 
 // Action handlers module
@@ -369,7 +367,6 @@ impl DockWorkspace {
             Ok(window)
         })
     }
-
 }
 
 impl Render for DockWorkspace {

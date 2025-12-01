@@ -112,7 +112,7 @@ pub struct SelectRadius(pub usize);
 /// 从欢迎面板创建新任务
 ///
 /// 参数为任务和 Agent 参数，用于快速创建新的 Agent 任务
-#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Action, Clone, Debug, PartialEq, Eq, Deserialize)]
 #[action(namespace = story, no_json)]
 pub struct CreateTaskFromWelcome {
     /// 任务描述，由用户输入
@@ -123,7 +123,7 @@ pub struct CreateTaskFromWelcome {
     pub mode: String,
 }
 /// 显示会话对话面板
-/// 
+///
 #[derive(Action, Clone, PartialEq, Deserialize)]
 #[action(namespace = task_list, no_json)]
 pub struct NewSessionConversationPanel {

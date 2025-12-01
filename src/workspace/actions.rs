@@ -1,13 +1,12 @@
-use std::sync::Arc;
+use agent_client_protocol as acp;
 use gpui::*;
 use gpui_component::dock::{DockItem, DockPlacement};
-use agent_client_protocol as acp;
+use std::sync::Arc;
 
 use crate::{
-    AddPanel, AppState, ConversationPanelAcp,
+    dock_panel::DockPanelContainer, utils, AddPanel, AppState, ConversationPanelAcp,
     CreateTaskFromWelcome, NewSessionConversationPanel, ShowConversationPanel, ShowWelcomePanel,
-    ToggleDockToggleButton, TogglePanelVisible, WelcomePanel, dock_panel::DockPanelContainer,
-    utils,
+    ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
 };
 
 use super::DockWorkspace;
@@ -23,19 +22,20 @@ impl DockWorkspace {
     /// Helper method to create and add a new ConversationPanelAcp to the center
     pub fn add_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let panel = Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
-                window, cx,
-            ));
+            window, cx,
+        ));
 
         self.dock_area.update(cx, |dock_area, cx| {
             dock_area.add_panel(panel, DockPlacement::Center, None, window, cx);
         });
-        
     }
 
     /// Helper method to show ConversationPanelAcp in the current active tab
     /// This will add the panel to the current TabPanel instead of replacing the entire center
     fn show_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let conversation_panel = Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(window, cx));
+        let conversation_panel = Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+            window, cx,
+        ));
         let conversation_panel = DockPanelContainer::panel::<ConversationPanelAcp>(window, cx);
         let conversation_item =
             DockItem::tab(conversation_panel, &self.dock_area.downgrade(), window, cx);
@@ -188,72 +188,76 @@ impl DockWorkspace {
 
         cx.spawn_in(window, async move |_this, window| {
             // Determine session_id: use existing or create new
-            let (session_id_str, session_id_obj, agent_handle) = if let Some(session) = existing_session {
-                log::info!("Using existing welcome session: {}", session.session_id);
+            let (session_id_str, session_id_obj, agent_handle) =
+                if let Some(session) = existing_session {
+                    log::info!("Using existing welcome session: {}", session.session_id);
 
-                // Get agent handle from session's agent_name
-                let agent_handle = window
-                    .update(|_, cx| {
-                        AppState::global(cx)
-                            .agent_manager()
-                            .and_then(|m| m.get(&session.agent_name))
-                    })
-                    .ok()
-                    .flatten();
+                    // Get agent handle from session's agent_name
+                    let agent_handle = window
+                        .update(|_, cx| {
+                            AppState::global(cx)
+                                .agent_manager()
+                                .and_then(|m| m.get(&session.agent_name))
+                        })
+                        .ok()
+                        .flatten();
 
-                let agent_handle = match agent_handle {
-                    Some(handle) => handle,
-                    None => {
-                        log::error!("Agent not found for existing session: {}", session.agent_name);
-                        return;
-                    }
+                    let agent_handle = match agent_handle {
+                        Some(handle) => handle,
+                        None => {
+                            log::error!(
+                                "Agent not found for existing session: {}",
+                                session.agent_name
+                            );
+                            return;
+                        }
+                    };
+
+                    // Clone session_id to avoid lifetime issues
+                    let session_id_str = session.session_id.clone();
+                    let session_id_obj = acp::SessionId::from(session_id_str.clone());
+
+                    (session_id_str, session_id_obj, agent_handle)
+                } else {
+                    // Fallback: create new session (for compatibility)
+                    log::info!("No existing welcome session, creating new session...");
+
+                    let agent_handle = window
+                        .update(|_, cx| {
+                            AppState::global(cx)
+                                .agent_manager()
+                                .and_then(|m| m.get(&agent_name))
+                        })
+                        .ok()
+                        .flatten();
+
+                    let agent_handle = match agent_handle {
+                        Some(handle) => handle,
+                        None => {
+                            log::error!("Agent not found: {}", agent_name);
+                            return;
+                        }
+                    };
+
+                    let new_session_req = acp::NewSessionRequest {
+                        cwd: std::env::current_dir().unwrap_or_default(),
+                        mcp_servers: vec![],
+                        meta: None,
+                    };
+
+                    let session_id_obj = match agent_handle.new_session(new_session_req).await {
+                        Ok(resp) => resp.session_id,
+                        Err(e) => {
+                            log::error!("Failed to create session: {}", e);
+                            return;
+                        }
+                    };
+
+                    let session_id_str = session_id_obj.to_string();
+                    log::info!("New session created: {}", session_id_str);
+
+                    (session_id_str, session_id_obj, agent_handle)
                 };
-
-                // Clone session_id to avoid lifetime issues
-                let session_id_str = session.session_id.clone();
-                let session_id_obj = acp::SessionId::from(session_id_str.clone());
-
-                (session_id_str, session_id_obj, agent_handle)
-            } else {
-                // Fallback: create new session (for compatibility)
-                log::info!("No existing welcome session, creating new session...");
-
-                let agent_handle = window
-                    .update(|_, cx| {
-                        AppState::global(cx)
-                            .agent_manager()
-                            .and_then(|m| m.get(&agent_name))
-                    })
-                    .ok()
-                    .flatten();
-
-                let agent_handle = match agent_handle {
-                    Some(handle) => handle,
-                    None => {
-                        log::error!("Agent not found: {}", agent_name);
-                        return;
-                    }
-                };
-
-                let new_session_req = acp::NewSessionRequest {
-                    cwd: std::env::current_dir().unwrap_or_default(),
-                    mcp_servers: vec![],
-                    meta: None,
-                };
-
-                let session_id_obj = match agent_handle.new_session(new_session_req).await {
-                    Ok(resp) => resp.session_id,
-                    Err(e) => {
-                        log::error!("Failed to create session: {}", e);
-                        return;
-                    }
-                };
-
-                let session_id_str = session_id_obj.to_string();
-                log::info!("New session created: {}", session_id_str);
-
-                (session_id_str, session_id_obj, agent_handle)
-            };
 
             // Clear the welcome session from AppState
             _ = window.update(|_, cx| {
@@ -267,14 +271,10 @@ impl DockWorkspace {
             _ = window.update(move |window, cx| {
                 // A. Create Panel (Subscribes to bus immediately)
                 let conversation_panel =
-                    DockPanelContainer::panel_for_session(session_id_str_clone.clone(), cx);
+                    DockPanelContainer::panel_for_session(session_id_str_clone.clone(), window, cx);
 
-                let conversation_item = DockItem::tab(
-                    conversation_panel,
-                    &dock_area.downgrade(),
-                    window,
-                    cx,
-                );
+                let conversation_item =
+                    DockItem::tab(conversation_panel, &dock_area.downgrade(), window, cx);
 
                 dock_area.update(cx, |dock_area, cx| {
                     dock_area.set_center(conversation_item, window, cx);

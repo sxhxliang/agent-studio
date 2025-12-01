@@ -3,7 +3,7 @@ use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
     ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, text::TextView};
+use gpui_component::{h_flex, text::TextView, v_flex, ActiveTheme, Icon, IconName};
 use serde::{Deserialize, Serialize};
 
 /// Extended metadata for agent messages (stored in ContentChunk's meta field)
@@ -149,21 +149,13 @@ impl RenderOnce for AgentMessage {
             )
             // Message content with markdown rendering
             .child(
-                div()
-                    .pl_6()
-                    .w_full()
-                    .child(
-                        TextView::markdown(
-                            markdown_id,
-                            full_text,
-                            window,
-                            cx,
-                        )
+                div().pl_6().w_full().child(
+                    TextView::markdown(markdown_id, full_text, window, cx)
                         .text_size(px(14.))
                         .text_color(cx.theme().foreground)
                         .line_height(px(22.))
                         .selectable(true),
-                    ),
+                ),
             )
     }
 }

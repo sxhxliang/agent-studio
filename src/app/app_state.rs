@@ -4,8 +4,8 @@ use gpui::{App, AppContext, Entity, Global, SharedString};
 
 use crate::{
     acp_client::{AgentManager, PermissionStore},
-    session_bus::SessionUpdateBusContainer,
     permission_bus::PermissionBusContainer,
+    session_bus::SessionUpdateBusContainer,
 };
 
 /// Welcome session info - stores the session created when user selects an agent

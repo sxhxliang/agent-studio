@@ -240,7 +240,12 @@ async fn agent_event_loop(
         .ok_or_else(|| anyhow!("agent {agent_name} missing stdout"))?
         .compat();
 
-    let client = GuiClient::new(agent_name.clone(), permission_store, session_bus, permission_bus);
+    let client = GuiClient::new(
+        agent_name.clone(),
+        permission_store,
+        session_bus,
+        permission_bus,
+    );
     let (conn, io_task) = acp::ClientSideConnection::new(client, outgoing, incoming, |fut| {
         tokio::task::spawn_local(fut);
     });
@@ -423,7 +428,11 @@ impl acp::Client for GuiClient {
         &self,
         args: acp::SessionNotification,
     ) -> acp::Result<(), acp::Error> {
-        log::info!("[GuiClient] Received session_notification from agent '{}' for session '{}'", self.agent_name, args.session_id);
+        log::info!(
+            "[GuiClient] Received session_notification from agent '{}' for session '{}'",
+            self.agent_name,
+            args.session_id
+        );
 
         // Publish event to the session bus
         let event = SessionUpdateEvent {

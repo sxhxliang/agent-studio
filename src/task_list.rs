@@ -20,7 +20,10 @@ use crate::components::TaskListItem;
 use crate::task_data::{load_mock_tasks, random_status};
 use crate::task_schema::{AgentTask, TaskStatus};
 use crate::utils;
-use crate::{AppState, CreateTaskFromWelcome, NewSessionConversationPanel, ShowConversationPanel, ShowWelcomePanel};
+use crate::{
+    AppState, CreateTaskFromWelcome, NewSessionConversationPanel, ShowConversationPanel,
+    ShowWelcomePanel,
+};
 
 struct TaskListDelegate {
     industries: Vec<SharedString>,
@@ -409,18 +412,18 @@ impl ListTaskPanel {
                     // Enter key - show conversation panel
                     window.dispatch_action(Box::new(ShowConversationPanel), cx);
                 }
-                ListEvent::DoubleClick(ix) => {
-                    println!("List Double-clicked: {:?}", ix);
-                    // Double click - add a new conversation panel
-                    window.dispatch_action(
-                        Box::new(NewSessionConversationPanel {
-                            session_id: String::new(),
-                            agent_name: String::new(),
-                            mode: String::new(),
-                        }),
-                        cx,
-                    );
-                }
+                // ListEvent::DoubleClick(ix) => {
+                //     println!("List Double-clicked: {:?}", ix);
+                //     // Double click - add a new conversation panel
+                //     window.dispatch_action(
+                //         Box::new(NewSessionConversationPanel {
+                //             session_id: String::new(),
+                //             agent_name: String::new(),
+                //             mode: String::new(),
+                //         }),
+                //         cx,
+                //     );
+                // }
                 ListEvent::Cancel => {
                     println!("List Cancelled");
                 }
@@ -498,12 +501,17 @@ impl ListTaskPanel {
         // Extract text from the update
         let text = match &update {
             SessionUpdate::UserMessageChunk(chunk) => {
+                log::debug!("User message chunk: {:?}", chunk);
                 Self::extract_text_from_content(&chunk.content)
             }
             SessionUpdate::AgentMessageChunk(chunk) => {
+                log::debug!("Agent message chunk: {:?}", chunk);
                 Self::extract_text_from_content(&chunk.content)
             }
-            _ => return, // Ignore other update types
+            _ => {
+                log::debug!("Ignoring session update: {:?}", update);
+                return;
+            } // Ignore other update types
         };
 
         if text.is_empty() {
@@ -556,6 +564,7 @@ impl ListTaskPanel {
     ) {
         let picker = self.task_list.read(cx);
         if let Some(agent_task) = picker.delegate().selected_agent_task() {
+            log::debug!("Selected agent task: {:?}", &agent_task.name);
             self.selected_agent_task = Some(agent_task);
         }
     }
@@ -568,7 +577,7 @@ impl ListTaskPanel {
         cx: &mut Context<Self>,
     ) {
         let task_name = action.task_input.clone();
-
+        log::debug!("Creating new task from welcome: {:?}", action);
         // Create a new task with InProgress status
         let new_task = AgentTask {
             name: task_name,
@@ -632,6 +641,7 @@ impl ListTaskPanel {
         cx: &mut Context<Self>,
     ) {
         // Ensure this panel has focus before dispatching action
+        log::debug!("Focusing on ‘New Task’ button");
         window.focus(&self.focus_handle);
         window.dispatch_action(Box::new(ShowWelcomePanel), cx);
     }
@@ -712,8 +722,9 @@ impl Render for ListTaskPanel {
                                                     cx.spawn(async move |_cx| {
                                                         utils::pick_and_log_folder(
                                                             "Select Project Folder",
-                                                            "Task List"
-                                                        ).await;
+                                                            "Task List",
+                                                        )
+                                                        .await;
                                                     })
                                                     .detach();
                                                 }

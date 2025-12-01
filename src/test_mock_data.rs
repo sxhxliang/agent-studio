@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol_schema::{SessionUpdate, ContentChunk, ContentBlock};
+    use agent_client_protocol_schema::{ContentBlock, ContentChunk, SessionUpdate};
 
     #[test]
     fn test_session_update_serialization() {
@@ -26,7 +26,10 @@ mod tests {
 
         match &result {
             Ok(updates) => {
-                println!("\n✅ Successfully parsed {} items from original JSON", updates.len());
+                println!(
+                    "\n✅ Successfully parsed {} items from original JSON",
+                    updates.len()
+                );
                 for (i, update) in updates.iter().take(3).enumerate() {
                     println!("  [{}] {:?}", i, std::mem::discriminant(update));
                 }

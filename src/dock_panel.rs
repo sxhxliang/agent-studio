@@ -217,13 +217,14 @@ impl DockPanelContainer {
     /// Create a panel specifically for a session (ConversationPanelAcp only)
     pub fn panel_for_session(
         session_id: String,
+        window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
         use crate::ConversationPanelAcp;
 
         let name = ConversationPanelAcp::title();
         let description = ConversationPanelAcp::description();
-        let story = ConversationPanelAcp::view_for_session(session_id, cx);
+        let story = ConversationPanelAcp::view_for_session(session_id, window, cx);
         let story_klass = ConversationPanelAcp::klass();
 
         let view = cx.new(|cx| {
