@@ -255,7 +255,6 @@ impl DockWorkspace {
                 vec![Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(
                     window, cx,
                 ))],
-                None,
                 &dock_area,
                 window,
                 cx,
@@ -273,7 +272,6 @@ impl DockWorkspace {
                     Arc::new(DockPanelContainer::panel::<CodeEditorPanel>(window, cx)),
                     Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(window, cx)),
                 ],
-                None,
                 &dock_area,
                 window,
                 cx,
@@ -309,7 +307,6 @@ impl DockWorkspace {
                     vec![Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
                         window, cx,
                     ))],
-                    None,
                     &dock_area,
                     window,
                     cx,
