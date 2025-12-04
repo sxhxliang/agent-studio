@@ -1,10 +1,6 @@
 use gpui::{App, KeyBinding};
 
-use crate::app::actions::{Copy, Cut, Paste, Quit, SelectLeft, SelectRight, ToggleSearch};
-#[cfg(not(target_os = "macos"))]
-use crate::Open;
-#[cfg(target_os = "macos")]
-use crate::Quit;
+use crate::app::actions::{Open, Copy, Cut, Paste, Quit, SelectLeft, SelectRight, ToggleSearch};
 
 // 导出KeyBinding设置函数，供主应用使用
 pub fn init(cx: &mut App) {

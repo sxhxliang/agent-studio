@@ -217,9 +217,17 @@ impl DockWorkspace {
         };
         let welcome_item = DockItem::tab(welcome_panel, &self.dock_area.downgrade(), window, cx);
 
+        let welcome_dock = DockItem::split_with_sizes(
+            Axis::Horizontal,
+            vec![welcome_item],
+            vec![None, None],
+            &self.dock_area.downgrade(),
+            window,
+            cx,
+        );
+
         self.dock_area.update(cx, |dock_area, cx| {
-            // Replace center with WelcomePanel
-            dock_area.set_center(welcome_item, window, cx);
+            dock_area.set_center(welcome_dock, window, cx);
 
             // Collapse right and bottom docks if they are open
             if dock_area.is_dock_open(DockPlacement::Right, cx) {
