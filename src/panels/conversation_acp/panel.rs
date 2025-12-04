@@ -1,6 +1,7 @@
 use gpui::{
-    div, prelude::*, px, App, Context, ElementId, Entity, FocusHandle, Focusable, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, prelude::*, px, App, ClipboardEntry, Context, ElementId, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -18,8 +19,9 @@ use agent_client_protocol_schema::{
 };
 
 use crate::{
-    core::agent::AgentHandle, panels::dock_panel::DockPanel, AgentMessage, AgentMessageData,
-    AgentTodoList, AppState, ChatInputBox, PermissionRequestView, UserMessageData,
+    components::PastedImage, core::agent::AgentHandle, panels::dock_panel::DockPanel, AgentMessage,
+    AgentMessageData, AgentTodoList, AppState, ChatInputBox, PermissionRequestView,
+    UserMessageData,
 };
 
 // Import from types module
@@ -435,6 +437,8 @@ pub struct ConversationPanelAcp {
     scroll_handle: ScrollHandle,
     /// Input state for the chat input box
     input_state: Entity<InputState>,
+    /// List of pasted images
+    pasted_images: Vec<PastedImage>,
 }
 
 impl ConversationPanelAcp {
@@ -494,6 +498,7 @@ impl ConversationPanelAcp {
             session_id: None,
             scroll_handle,
             input_state,
+            pasted_images: Vec::new(),
         };
 
         panel
@@ -520,6 +525,7 @@ impl ConversationPanelAcp {
             session_id: Some(session_id),
             scroll_handle,
             input_state,
+            pasted_images: Vec::new(),
         }
     }
 
@@ -1058,6 +1064,51 @@ impl ConversationPanelAcp {
         ElementId::from(("item", hasher.finish()))
     }
 
+    /// Handle paste event and add images to pasted_images list
+    fn handle_paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        log::info!("Handling paste in ConversationPanelAcp");
+
+        if let Some(clipboard_item) = cx.read_from_clipboard() {
+            for entry in clipboard_item.entries().iter() {
+                if let ClipboardEntry::Image(image) = entry {
+                    log::info!("Processing pasted image: {:?}", image.format);
+                    let image = image.clone();
+
+                    cx.spawn_in(window, async move |this, mut cx| {
+                        // Write image to temp file
+                        match crate::utils::file::write_image_to_temp_file(&image).await {
+                            Ok(temp_path) => {
+                                log::info!("Image written to temp file: {}", temp_path);
+
+                                // Extract filename from path
+                                let filename = std::path::Path::new(&temp_path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("image.png")
+                                    .to_string();
+
+                                // Add to pasted_images
+                                _ = cx.update(move |_window, cx| {
+                                    this.update(cx, |this, cx| {
+                                        this.pasted_images.push(PastedImage {
+                                            path: temp_path,
+                                            filename,
+                                        });
+                                        cx.notify();
+                                    });
+                                });
+                            }
+                            Err(e) => {
+                                log::error!("Failed to write image to temp file: {}", e);
+                            }
+                        }
+                    })
+                    .detach();
+                }
+            }
+        }
+    }
+
     /// Send a message to the current session
     fn send_message(&self, text: String, cx: &mut Context<Self>) {
         // Only send if we have a session_id
@@ -1247,6 +1298,11 @@ impl Render for ConversationPanelAcp {
         // Main layout: vertical flex with scroll area on top and input box at bottom
         v_flex()
             .size_full()
+            .on_action(
+                cx.listener(|this, _: &crate::app::actions::Paste, window, cx| {
+                    this.handle_paste(window, cx);
+                }),
+            )
             .child(
                 // Scrollable message area - takes remaining space
                 div()
@@ -1268,20 +1324,31 @@ impl Render for ConversationPanelAcp {
                     .p_1()
                     // .border_color(cx.theme().border)
                     .child(
-                        ChatInputBox::new("chat-input", self.input_state.clone()).on_send(
-                            cx.listener(|this, _ev, window, cx| {
+                        ChatInputBox::new("chat-input", self.input_state.clone())
+                            .pasted_images(self.pasted_images.clone())
+                            .on_remove_image(cx.listener(|this, idx, _, cx| {
+                                // Remove the image at the given index
+                                if *idx < this.pasted_images.len() {
+                                    this.pasted_images.remove(*idx);
+                                    cx.notify();
+                                }
+                            }))
+                            .on_send(cx.listener(|this, _ev, window, cx| {
                                 let text = this.input_state.read(cx).value().to_string();
-                                if !text.trim().is_empty() {
+                                if !text.trim().is_empty() || !this.pasted_images.is_empty() {
                                     // Clear the input
                                     this.input_state.update(cx, |state, cx| {
                                         state.set_value(SharedString::from(""), window, cx);
                                     });
 
-                                    // Send the message
+                                    // Send the message with images if any
                                     this.send_message(text, cx);
+
+                                    // Clear pasted images after sending
+                                    this.pasted_images.clear();
+                                    cx.notify();
                                 }
-                            }),
-                        ),
+                            })),
                     ),
             )
     }

@@ -6,6 +6,7 @@ mod schemas;
 mod task_data;
 mod utils;
 pub mod workspace;
+pub use app::key_binding;
 
 #[cfg(test)]
 mod test_mock_data;
@@ -188,18 +189,7 @@ pub fn init(cx: &mut App) {
     themes::init(cx);
     panels::code_editor::init();
     menu::init(cx);
-
-    cx.bind_keys([
-        KeyBinding::new("/", ToggleSearch, None),
-        #[cfg(target_os = "macos")]
-        KeyBinding::new("cmd-o", Open, None),
-        #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("ctrl-o", Open, None),
-        #[cfg(target_os = "macos")]
-        KeyBinding::new("cmd-q", Quit, None),
-        #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("alt-f4", Quit, None),
-    ]);
+    key_binding::init(cx);
 
     cx.on_action(|_: &Quit, cx: &mut App| {
         cx.quit();

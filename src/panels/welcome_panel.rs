@@ -1,6 +1,6 @@
 use gpui::{
-    px, App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
-    Render, Styled, Subscription, Window,
+    px, App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription, Window,
 };
 
 use gpui_component::{
@@ -10,7 +10,10 @@ use gpui_component::{
     v_flex, ActiveTheme, IndexPath, StyledExt,
 };
 
-use crate::{components::ChatInputBox, AppState, CreateTaskFromWelcome, WelcomeSession};
+use crate::{
+    components::{ChatInputBox, PastedImage},
+    AppState, CreateTaskFromWelcome, WelcomeSession,
+};
 
 /// Delegate for the context list in the chat input popover
 struct ContextListDelegate {
@@ -110,6 +113,7 @@ pub struct WelcomePanel {
     active_workspace_name: Option<String>,
     /// Specific workspace ID to display (if provided via action)
     workspace_id: Option<String>,
+    pasted_images: Vec<PastedImage>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -300,6 +304,7 @@ impl WelcomePanel {
             has_workspace: false,
             active_workspace_name: None,
             workspace_id,
+            pasted_images: Vec::new(),
             _subscriptions: Vec::new(),
         };
 
@@ -539,6 +544,9 @@ impl WelcomePanel {
                 state.set_value("", window, cx);
             });
 
+            // Clear pasted images after sending
+            self.pasted_images.clear();
+
             // Dispatch CreateTaskFromWelcome action
             let action = CreateTaskFromWelcome {
                 task_input: task_name.clone(),
@@ -557,6 +565,53 @@ impl Focusable for WelcomePanel {
     }
 }
 
+impl WelcomePanel {
+    /// Handle paste event and add images to pasted_images list
+    fn handle_paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        log::info!("Handling paste in WelcomePanel");
+
+        if let Some(clipboard_item) = cx.read_from_clipboard() {
+            for entry in clipboard_item.entries().iter() {
+                if let ClipboardEntry::Image(image) = entry {
+                    log::info!("Processing pasted image: {:?}", image.format);
+                    let image = image.clone();
+
+                    cx.spawn_in(window, async move |this, mut cx| {
+                        // Write image to temp file
+                        match crate::utils::file::write_image_to_temp_file(&image).await {
+                            Ok(temp_path) => {
+                                log::info!("Image written to temp file: {}", temp_path);
+
+                                // Extract filename from path
+                                let filename = std::path::Path::new(&temp_path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("image.png")
+                                    .to_string();
+
+                                // Add to pasted_images
+                                _ = cx.update(move |_window, cx| {
+                                    this.update(cx, |this, cx| {
+                                        this.pasted_images.push(PastedImage {
+                                            path: temp_path,
+                                            filename,
+                                        });
+                                        cx.notify();
+                                    });
+                                });
+                            }
+                            Err(e) => {
+                                log::error!("Failed to write image to temp file: {}", e);
+                            }
+                        }
+                    })
+                    .detach();
+                }
+            }
+        }
+    }
+}
+
 impl Render for WelcomePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
@@ -564,6 +619,9 @@ impl Render for WelcomePanel {
             .items_center()
             .justify_center()
             .bg(cx.theme().background)
+            .on_action(cx.listener(|this, _: &crate::app::actions::Paste, window, cx| {
+                this.handle_paste(window, cx);
+            }))
             .child(
                 v_flex()
                     .w_full()
@@ -613,6 +671,14 @@ impl Render for WelcomePanel {
                             .mode_select(self.mode_select.clone())
                             .agent_select(self.agent_select.clone())
                             .session_select(self.session_select.clone())
+                            .pasted_images(self.pasted_images.clone())
+                            .on_remove_image(cx.listener(|this, idx, _, cx| {
+                                // Remove the image at the given index
+                                if *idx < this.pasted_images.len() {
+                                    this.pasted_images.remove(*idx);
+                                    cx.notify();
+                                }
+                            }))
                             .on_new_session(cx.listener(|this, _, window, cx| {
                                 this.create_new_session(window, cx);
                             }))

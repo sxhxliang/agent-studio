@@ -1,8 +1,13 @@
 use gpui::*;
 use gpui_component::dock::{DockItem, DockPlacement};
+use rand;
 use std::sync::Arc;
 
 use crate::{
+    app::{
+        self,
+        actions::{Paste, Submit},
+    },
     panels::{dock_panel::DockPanelContainer, DockPanel},
     title_bar::OpenSettings,
     utils, AddPanel, AppState, ConversationPanelAcp, CreateTaskFromWelcome,
@@ -20,6 +25,53 @@ use super::DockWorkspace;
 //   - on_action_create_task_from_welcome - 从欢迎面板创建任务
 
 impl DockWorkspace {
+    pub(super) fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
+        // println!("Submitted URL: {}", self.content);
+        // cx.emit(UrlInputEvent::SubmitRequested);
+    }
+
+    pub(super) fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+        log::info!("Pasting from clipboard in workspace");
+        if let Some(clipboard_item) = cx.read_from_clipboard() {
+            let mut image_paths = Vec::new();
+
+            for entry in clipboard_item.entries().iter() {
+                if let ClipboardEntry::Image(image) = entry {
+                    // Handle image entry
+                    log::info!("Pasted image {:?}", image.format);
+                    // Clone the image data to move into the async closure
+                    let image = image.clone();
+
+                    // Write image to temporary file synchronously in a spawn
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    cx.spawn_in(window, async move |_this, _window| {
+                        match utils::file::write_image_to_temp_file(&image).await {
+                            Ok(temp_path) => {
+                                log::info!("Image written to temporary file: {}", temp_path);
+                                let _ = tx.send(Some(temp_path));
+                            }
+                            Err(e) => {
+                                log::error!("Failed to write image to temporary file: {}", e);
+                                let _ = tx.send(None);
+                            }
+                        }
+                    })
+                    .detach();
+
+                    // Try to receive the path (non-blocking for now, will be collected later)
+                    if let Ok(Some(path)) = rx.recv() {
+                        image_paths.push(path);
+                    }
+                }
+            }
+
+            // Process text if needed
+            if let Some(text_content) = clipboard_item.text() {
+                log::info!("Pasted text: {}", text_content);
+                // TODO: Write text to temporary file if needed, or pass directly to chat input
+            }
+        }
+    }
     /// Helper method to create and add a new ConversationPanelAcp to the center
     pub fn add_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let panel = Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(

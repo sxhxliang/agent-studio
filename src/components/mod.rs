@@ -10,7 +10,7 @@ pub use agent_message::{AgentMessage, AgentMessageData, AgentMessageMeta, AgentM
 
 pub use agent_todo_list::{AgentTodoList, AgentTodoListView, PlanMeta};
 
-pub use chat_input_box::ChatInputBox;
+pub use chat_input_box::{ChatInputBox, PastedImage};
 
 pub use tool_call_item::{ToolCallItem, ToolCallItemView, ToolCallStatusExt, ToolKindExt};
 

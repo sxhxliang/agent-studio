@@ -205,7 +205,10 @@ actions!(
         Paste,       // 粘贴
         Cut,         // 剪切
         SearchAll,   // 全局搜索
-        ToggleCheck  // 切换勾选状态
+        Submit,      // 提交
+        ToggleCheck, // 切换勾选状态
+        SelectLeft,  // 向左选择
+        SelectRight, // 向右选择
     ]
 );
 

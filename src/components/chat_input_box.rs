@@ -2,6 +2,7 @@ use gpui::{
     div, prelude::FluentBuilder, px, AnyElement, App, ElementId, Entity, Focusable, IntoElement,
     ParentElement, RenderOnce, Styled, Window,
 };
+use std::rc::Rc;
 
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -21,6 +22,7 @@ use gpui_component::{
 /// - Action buttons (attach, mode select, sources)
 /// - Send button with icon
 /// - Optional title displayed above the input box
+/// - Support for pasting multiple images with filename display
 #[derive(IntoElement)]
 pub struct ChatInputBox {
     id: ElementId,
@@ -35,6 +37,15 @@ pub struct ChatInputBox {
     agent_select: Option<Entity<SelectState<Vec<String>>>>,
     session_select: Option<Entity<SelectState<Vec<String>>>>,
     on_new_session: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
+    pasted_images: Vec<PastedImage>,
+    on_remove_image: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
+}
+
+/// Information about a pasted image
+#[derive(Clone, Debug)]
+pub struct PastedImage {
+    pub path: String,
+    pub filename: String,
 }
 
 impl ChatInputBox {
@@ -53,6 +64,8 @@ impl ChatInputBox {
             agent_select: None,
             session_select: None,
             on_new_session: None,
+            pasted_images: Vec::new(),
+            on_remove_image: None,
         }
     }
 
@@ -123,6 +136,21 @@ impl ChatInputBox {
         self.on_new_session = Some(Box::new(callback));
         self
     }
+
+    /// Set the list of pasted images
+    pub fn pasted_images(mut self, images: Vec<PastedImage>) -> Self {
+        self.pasted_images = images;
+        self
+    }
+
+    /// Set a callback for when an image is removed
+    pub fn on_remove_image<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&usize, &mut Window, &mut App) + 'static,
+    {
+        self.on_remove_image = Some(Rc::new(callback));
+        self
+    }
 }
 
 impl RenderOnce for ChatInputBox {
@@ -190,8 +218,49 @@ impl RenderOnce for ChatInputBox {
                     .bg(theme.secondary)
                     .shadow_lg()
                     .child(
-                        // Top row: Add context button with popover
-                        h_flex().w_full().child(context_element),
+                        // Top row: Pasted images (if any) and Add context button with popover
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .items_center()
+                            .children(self.pasted_images.iter().enumerate().map(|(idx, image)| {
+                                let on_remove = self.on_remove_image.clone();
+                                let idx_clone = idx;
+
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .p_1()
+                                    .px_2()
+                                    .rounded(theme.radius)
+                                    .bg(theme.muted)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .child(
+                                        Icon::new(IconName::File)
+                                            .size(px(14.))
+                                            .text_color(theme.accent),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(theme.foreground)
+                                            .child(image.filename.clone()),
+                                    )
+                                    .child(
+                                        Button::new(("remove-image", idx))
+                                            .icon(Icon::new(IconName::Close))
+                                            .ghost()
+                                            .xsmall()
+                                            .when_some(on_remove, |btn, callback| {
+                                                btn.on_click(move |_ev, window, cx| {
+                                                    callback(&idx_clone, window, cx);
+                                                })
+                                            }),
+                                    )
+                                    .into_any_element()
+                            }))
+                            .child(context_element),
                     )
                     .child(
                         // Textarea (multi-line input)
