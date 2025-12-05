@@ -1,8 +1,8 @@
-# ConversationPanelAcp 渲染问题分析报告
+# ConversationPanel 渲染问题分析报告
 
 ## 📊 问题总结
 
-经过详细分析，发现**原始mock_conversation_acp.json格式完全正确**，但**ConversationPanelAcp的渲染实现存在问题**。
+经过详细分析，发现**原始mock_conversation_acp.json格式完全正确**，但**ConversationPanel的渲染实现存在问题**。
 
 ---
 

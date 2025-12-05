@@ -6,13 +6,13 @@
 2025-12-01
 
 ### 重构状态
-**✅ 阶段 2 成功完成** - ConversationPanelAcp 已拆分，编译通过
+**✅ 阶段 2 成功完成** - ConversationPanel 已拆分，编译通过
 
 ---
 
 ## 📊 拆分前后对比
 
-### ConversationPanelAcp 拆分
+### ConversationPanel 拆分
 
 **拆分前**:
 ```
@@ -58,7 +58,7 @@ src/panels/conversation_acp/
 - `ToolCallItemState` - 工具调用状态和渲染
 - `UserMessageView` - 用户消息视图
 - `RenderedItem` - 渲染项枚举
-- `ConversationPanelAcp` - 主面板实现
+- `ConversationPanel` - 主面板实现
 - 所有业务逻辑和渲染逻辑
 
 **保持内聚性**:
@@ -71,7 +71,7 @@ src/panels/conversation_acp/
 mod panel;
 mod types;
 
-pub use panel::ConversationPanelAcp;
+pub use panel::ConversationPanel;
 ```
 
 **作用**:
@@ -274,7 +274,7 @@ conversation_acp/
 
 ## ✨ 结论
 
-**阶段 2 - ConversationPanelAcp 拆分成功完成！**
+**阶段 2 - ConversationPanel 拆分成功完成！**
 
 ✅ 主要成果:
 - ✅ 1309 行大文件拆分为 3 个模块

@@ -161,7 +161,7 @@ src/
 ```
 panels/conversation/
 ├── mod.rs                    # 模块导出
-├── panel.rs                  # ConversationPanelAcp 主结构 (~300 行)
+├── panel.rs                  # ConversationPanel 主结构 (~300 行)
 ├── state.rs                  # 状态管理和数据结构 (~200 行)
 ├── message_renderer.rs       # 消息渲染逻辑 (~300 行)
 ├── tool_renderer.rs          # 工具调用渲染 (~200 行)
@@ -170,7 +170,7 @@ panels/conversation/
 ```
 
 **拆分原则**:
-- `panel.rs`: `ConversationPanelAcp` 结构定义、`new()` 方法、`Render` trait 实现
+- `panel.rs`: `ConversationPanel` 结构定义、`new()` 方法、`Render` trait 实现
 - `state.rs`: `MessageItem`, `ResourceInfo`, `ToolCallInfo` 等数据结构
 - `message_renderer.rs`: `render_user_message()`, `render_agent_message()` 等
 - `tool_renderer.rs`: `render_tool_calls()` 和工具调用相关 UI
@@ -241,13 +241,13 @@ impl SessionService {
 
 ```rust
 // 修改前
-pub struct ConversationPanelAcp {
+pub struct ConversationPanel {
     app_state: Entity<AppState>,
     session_bus: SessionUpdateBusContainer,
 }
 
 // 修改后
-pub struct ConversationPanelAcp {
+pub struct ConversationPanel {
     session_service: Arc<SessionService>,
 }
 ```

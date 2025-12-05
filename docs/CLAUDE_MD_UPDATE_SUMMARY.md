@@ -28,7 +28,7 @@
 ✅ 更新所有组件路径：
 - SessionUpdateBus: `src/core/event_bus/session_bus.rs`
 - GuiClient: `src/core/agent/client.rs`
-- ConversationPanelAcp: `src/panels/conversation_acp/panel.rs`
+- ConversationPanel: `src/panels/conversation_acp/panel.rs`
 - ChatInputPanel: `src/panels/chat_input.rs`
 
 ### 4. Important Files 部分
@@ -56,7 +56,7 @@
 ### 7. 新增 Refactoring History 部分 🆕
 ✅ 记录完整的重构历史：
 - **Stage 1**: 目录重组 (62% 根目录文件减少)
-- **Stage 2**: 文件模块化 (ConversationPanelAcp 拆分)
+- **Stage 2**: 文件模块化 (ConversationPanel 拆分)
 - **Future Opportunities**: 可选的进一步优化
 - 链接到详细文档 (REFACTORING_STAGE1_SUMMARY.md, REFACTORING_STAGE2_SUMMARY.md)
 

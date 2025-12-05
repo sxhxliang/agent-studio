@@ -438,7 +438,7 @@ pub(super) fn on_action_create_task_from_welcome(...) {
 
 ---
 
-### Phase 4: 迁移 ConversationPanelAcp (-10 行)
+### Phase 4: 迁移 ConversationPanel (-10 行)
 
 **文件**: `src/panels/conversation_acp/panel.rs`
 
@@ -638,7 +638,7 @@ log::info!("...", session_filter_log_end.as_deref()...); // ✅ 使用独立克�
 
 4. **更新面板描述**
    - ChatInputPanel: 注明使用 MessageService 发送消息
-   - ConversationPanelAcp: 注明使用 MessageService 订阅更新
+   - ConversationPanel: 注明使用 MessageService 订阅更新
    - workspace/actions.rs: 注明使用 MessageService 统一流程
 
 ---

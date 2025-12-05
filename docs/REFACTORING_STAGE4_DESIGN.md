@@ -705,7 +705,7 @@ cx.spawn(async move |cx| {
 - [ ] 移除重复的 session 创建代码
 - [ ] 测试功能正常
 
-### 阶段 4: 迁移 ConversationPanelAcp (20 分钟)
+### 阶段 4: 迁移 ConversationPanel (20 分钟)
 - [ ] 使用 MessageService::subscribe_session_updates
 - [ ] 简化订阅逻辑
 - [ ] 使用 MessageService 发送消息

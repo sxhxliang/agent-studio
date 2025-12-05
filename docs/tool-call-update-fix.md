@@ -2,7 +2,7 @@
 
 ## 🎯 修复目标
 
-修复 `ConversationPanelAcp` 中 `ToolCallUpdate` 的处理逻辑，使其能够正确更新已存在的 ToolCall 状态，而不是创建新的文本条目。
+修复 `ConversationPanel` 中 `ToolCallUpdate` 的处理逻辑，使其能够正确更新已存在的 ToolCall 状态，而不是创建新的文本条目。
 
 ---
 

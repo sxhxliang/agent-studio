@@ -11,7 +11,7 @@
             "children": [],
             "info": {
               "panel": {
-                "story_klass": "ConversationPanelAcp"
+                "story_klass": "ConversationPanel"
               }
             }
           },
@@ -20,7 +20,7 @@
             "children": [],
             "info": {
               "panel": {
-                "story_klass": "ConversationPanelAcp"
+                "story_klass": "ConversationPanel"
               }
             }
           },
@@ -29,7 +29,7 @@
             "children": [],
             "info": {
               "panel": {
-                "story_klass": "ConversationPanelAcp"
+                "story_klass": "ConversationPanel"
               }
             }
           }

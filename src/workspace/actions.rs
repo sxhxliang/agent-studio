@@ -10,8 +10,8 @@ use crate::{
     },
     panels::{dock_panel::DockPanelContainer, DockPanel},
     title_bar::OpenSettings,
-    utils, AddPanel, AppState, ConversationPanelAcp, CreateTaskFromWelcome,
-    NewSessionConversationPanel, SettingsWindow, ShowConversationPanel, ShowWelcomePanel,
+    utils, AddPanel, AppState, ConversationPanel, CreateTaskFromWelcome,
+    NewSessionConversationPanel, SettingsPanel, ShowConversationPanel, ShowWelcomePanel,
     ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
 };
 
@@ -72,9 +72,9 @@ impl DockWorkspace {
             }
         }
     }
-    /// Helper method to create and add a new ConversationPanelAcp to the center
+    /// Helper method to create and add a new ConversationPanel to the center
     pub fn add_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let panel = Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+        let panel = Arc::new(DockPanelContainer::panel::<ConversationPanel>(
             window, cx,
         ));
 
@@ -83,7 +83,7 @@ impl DockWorkspace {
         });
     }
 
-    /// Helper method to show ConversationPanelAcp in the current active tab
+    /// Helper method to show ConversationPanel in the current active tab
     /// This will add the panel to the current TabPanel instead of replacing the entire center
     ///
     /// If session_id is provided, it will load the conversation history for that session
@@ -99,7 +99,7 @@ impl DockWorkspace {
             DockPanelContainer::panel_for_session(session_id, window, cx)
         } else {
             // Create new panel without session (mock data)
-            DockPanelContainer::panel::<ConversationPanelAcp>(window, cx)
+            DockPanelContainer::panel::<ConversationPanel>(window, cx)
         };
 
         let conversation_item =
@@ -127,13 +127,13 @@ impl DockWorkspace {
     ) {
         // Random pick up a panel to add
         let panel = match rand::random::<usize>() % 2 {
-            0 => Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+            0 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
                 window, cx,
             )),
-            1 => Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+            1 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
                 window, cx,
             )),
-            _ => Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+            _ => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
                 window, cx,
             )),
         };
@@ -196,7 +196,7 @@ impl DockWorkspace {
         cx: &mut Context<Self>,
     ) {
         log::info!("Adding new Settings panel");
-        let panel = Arc::new(DockPanelContainer::panel::<SettingsWindow>(window, cx));
+        let panel = Arc::new(DockPanelContainer::panel::<SettingsPanel>(window, cx));
 
         self.dock_area.update(cx, |dock_area, cx| {
             dock_area.add_panel(panel, DockPlacement::Center, None, window, cx);
@@ -430,30 +430,30 @@ impl DockWorkspace {
         })
         .detach();
     }
-    /// Create a panel specifically for a session (ConversationPanelAcp only)
+    /// Create a panel specifically for a session (ConversationPanel only)
     pub fn panel_for_session(
         session_id: String,
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<DockPanelContainer> {
-        use crate::ConversationPanelAcp;
+        use crate::ConversationPanel;
 
-        let name = ConversationPanelAcp::title();
-        let description = ConversationPanelAcp::description();
-        let story = ConversationPanelAcp::view_for_session(session_id, window, cx);
-        let story_klass = ConversationPanelAcp::klass();
+        let name = ConversationPanel::title();
+        let description = ConversationPanel::description();
+        let story = ConversationPanel::view_for_session(session_id, window, cx);
+        let story_klass = ConversationPanel::klass();
 
         let view = cx.new(|cx| {
             let mut story = DockPanelContainer::new(cx)
                 .story(story.into(), story_klass)
-                .on_active(ConversationPanelAcp::on_active_any);
+                .on_active(ConversationPanel::on_active_any);
             story.focus_handle = cx.focus_handle();
-            story.closable = ConversationPanelAcp::closable();
-            story.zoomable = ConversationPanelAcp::zoomable();
+            story.closable = ConversationPanel::closable();
+            story.zoomable = ConversationPanel::zoomable();
             story.name = name.into();
             story.description = description.into();
-            story.title_bg = ConversationPanelAcp::title_bg();
-            story.paddings = ConversationPanelAcp::paddings();
+            story.title_bg = ConversationPanel::title_bg();
+            story.paddings = ConversationPanel::paddings();
             story
         });
 

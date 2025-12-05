@@ -2,13 +2,13 @@
 
 ## 🐛 问题描述
 
-**现象**: 从 Welcome Panel 创建任务后，ConversationPanelAcp 不显示任何消息（用户消息和 Agent 响应都看不到）。
+**现象**: 从 Welcome Panel 创建任务后，ConversationPanel 不显示任何消息（用户消息和 Agent 响应都看不到）。
 
 **日志分析**:
 ```
 17:05:05.772Z - 发布用户消息到 session bus
 17:05:08.190Z - Agent 响应发布到 bus
-17:05:08.198Z - ConversationPanelAcp 创建并订阅 ← 太晚了！
+17:05:08.198Z - ConversationPanel 创建并订阅 ← 太晚了！
 17:05:08.222Z - 后台任务启动，但收不到任何消息
 ```
 
@@ -240,7 +240,7 @@ $ cargo build
 
 ```
 T1: Got session xxx for agent Iflow
-T2: Creating ConversationPanelAcp for session: xxx
+T2: Creating ConversationPanel for session: xxx
 T3: Subscribed to session updates via MessageService for: xxx
 T4: Starting background task for session: xxx
 T5: Published user message to session bus: xxx

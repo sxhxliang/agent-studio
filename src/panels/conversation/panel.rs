@@ -425,7 +425,7 @@ impl RenderedItem {
 }
 
 /// Conversation panel that displays SessionUpdate messages from ACP
-pub struct ConversationPanelAcp {
+pub struct ConversationPanel {
     focus_handle: FocusHandle,
     /// List of rendered items
     rendered_items: Vec<RenderedItem>,
@@ -441,21 +441,21 @@ pub struct ConversationPanelAcp {
     pasted_images: Vec<PastedImage>,
 }
 
-impl ConversationPanelAcp {
+impl ConversationPanel {
     /// Create a new panel with mock data (for demo purposes)
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
-        log::info!("🚀 Creating ConversationPanelAcp view");
+        log::info!("🚀 Creating ConversationPanel view");
         let entity = cx.new(|cx| Self::new(window, cx));
         Self::subscribe_to_updates(&entity, None, cx);
         Self::subscribe_to_permissions(&entity, None, cx);
-        log::info!("✅ ConversationPanelAcp view created and subscribed");
+        log::info!("✅ ConversationPanel view created and subscribed");
         entity
     }
 
     /// Create a new panel for a specific session (no mock data)
     pub fn view_for_session(session_id: String, window: &mut Window, cx: &mut App) -> Entity<Self> {
         log::info!(
-            "🚀 Creating ConversationPanelAcp for session: {}",
+            "🚀 Creating ConversationPanel for session: {}",
             session_id
         );
         let entity = cx.new(|cx| Self::new_for_session(session_id.clone(), window, cx));
@@ -466,14 +466,14 @@ impl ConversationPanelAcp {
         Self::subscribe_to_updates(&entity, Some(session_id.clone()), cx);
         Self::subscribe_to_permissions(&entity, Some(session_id.clone()), cx);
         log::info!(
-            "✅ ConversationPanelAcp created for session: {}",
+            "✅ ConversationPanel created for session: {}",
             session_id
         );
         entity
     }
 
     fn new(_window: &mut Window, cx: &mut App) -> Self {
-        log::info!("🔧 Initializing ConversationPanelAcp (new)");
+        log::info!("🔧 Initializing ConversationPanel (new)");
         let focus_handle = cx.focus_handle();
         let scroll_handle = ScrollHandle::new();
         let input_state = cx.new(|cx| {
@@ -506,7 +506,7 @@ impl ConversationPanelAcp {
 
     fn new_for_session(session_id: String, window: &mut Window, cx: &mut App) -> Self {
         log::info!(
-            "🔧 Initializing ConversationPanelAcp for session: {}",
+            "🔧 Initializing ConversationPanel for session: {}",
             session_id
         );
         let focus_handle = cx.focus_handle();
@@ -1067,7 +1067,7 @@ impl ConversationPanelAcp {
     /// Handle paste event and add images to pasted_images list
     /// Returns true if we handled the paste (had images), false otherwise
     fn handle_paste(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        log::info!("Handling paste in ConversationPanelAcp");
+        log::info!("Handling paste in ConversationPanel");
 
         let mut handled = false;
         if let Some(clipboard_item) = cx.read_from_clipboard() {
@@ -1183,7 +1183,7 @@ impl ConversationPanelAcp {
     }
 }
 
-impl DockPanel for ConversationPanelAcp {
+impl DockPanel for ConversationPanel {
     fn title() -> &'static str {
         "Conversation"
     }
@@ -1213,13 +1213,13 @@ impl DockPanel for ConversationPanelAcp {
     }
 }
 
-impl Focusable for ConversationPanelAcp {
+impl Focusable for ConversationPanel {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl Render for ConversationPanelAcp {
+impl Render for ConversationPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut children = v_flex().p_4().gap_6().bg(cx.theme().background);
 

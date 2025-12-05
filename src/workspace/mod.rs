@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     panels::dock_panel::DockPanelContainer, AddPanel, AppState, AppTitleBar, CodeEditorPanel,
-    ConversationPanelAcp, SessionManagerPanel, TaskPanel, ToggleDockToggleButton,
+    ConversationPanel, SessionManagerPanel, TaskPanel, ToggleDockToggleButton,
     TogglePanelVisible,
 };
 
@@ -302,9 +302,9 @@ impl DockWorkspace {
         DockItem::split_with_sizes(
             Axis::Horizontal,
             vec![
-                // Left panel: ConversationPanelAcp (ACP-enabled conversation)
+                // Left panel: ConversationPanel (ACP-enabled conversation)
                 DockItem::tabs(
-                    vec![Arc::new(DockPanelContainer::panel::<ConversationPanelAcp>(
+                    vec![Arc::new(DockPanelContainer::panel::<ConversationPanel>(
                         window, cx,
                     ))],
                     &dock_area,

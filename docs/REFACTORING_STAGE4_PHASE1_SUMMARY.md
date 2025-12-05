@@ -332,7 +332,7 @@ Phase 1 已完成，接下来：
 - 移除重复的 session 创建代码
 
 ### Phase 4 (预计 20 分钟)
-- 迁移 ConversationPanelAcp
+- 迁移 ConversationPanel
 - 使用 MessageService::subscribe_session_updates
 - 简化订阅逻辑
 

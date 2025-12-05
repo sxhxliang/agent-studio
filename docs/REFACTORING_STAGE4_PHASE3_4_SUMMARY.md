@@ -10,7 +10,7 @@
 - 使用 MessageService 统一消息发送
 - 移除重复的 session 创建代码
 
-### Phase 4: 迁移 ConversationPanelAcp
+### Phase 4: 迁移 ConversationPanel
 - 使用 MessageService::subscribe_session_updates
 - 简化订阅逻辑
 - 移除手动 channel 管理
@@ -205,7 +205,7 @@ pub(super) fn on_action_create_task_from_welcome(...) {
 
 ---
 
-## 📝 Phase 4 重构详情 - ConversationPanelAcp
+## 📝 Phase 4 重构详情 - ConversationPanel
 
 ### 文件: src/panels/conversation_acp/panel.rs
 
@@ -384,7 +384,7 @@ pub fn subscribe_to_updates(
 
 ---
 
-### 2. Phase 4 改进 (ConversationPanelAcp)
+### 2. Phase 4 改进 (ConversationPanel)
 
 #### 代码简化
 - ✅ 手动 channel 创建和管理移除
@@ -440,7 +440,7 @@ $ cargo build
 ### 功能验证
 - ✅ 编译通过，无错误
 - ✅ workspace/actions.rs 大幅简化
-- ✅ ConversationPanelAcp 订阅逻辑简化
+- ✅ ConversationPanel 订阅逻辑简化
 - ✅ 所有 MessageService 调用正确
 
 ---
@@ -540,7 +540,7 @@ $ cargo build
    }
    ```
 
-### Phase 4 移除的逻辑 (ConversationPanelAcp)
+### Phase 4 移除的逻辑 (ConversationPanel)
 
 1. **手动 Channel 创建** (1 行)
    ```rust
@@ -570,7 +570,7 @@ $ cargo build
 ✅ 主要成果:
 - ✅ workspace/actions.rs 减少 76 行（23.9%）
 - ✅ on_action_create_task_from_welcome 减少 74 行（49.3%）
-- ✅ ConversationPanelAcp 订阅逻辑简化
+- ✅ ConversationPanel 订阅逻辑简化
 - ✅ 手动 channel 和订阅管理完全移除
 - ✅ 所有重复的 session 创建代码消除
 - ✅ 零编译错误

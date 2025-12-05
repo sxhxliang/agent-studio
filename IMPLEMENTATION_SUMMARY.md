@@ -36,7 +36,7 @@
 - 在异步上下文中初始化（避免运行时错误）
 - 错误处理和日志记录
 
-### 3. ConversationPanelAcp 历史加载
+### 3. ConversationPanel 历史加载
 
 **文件**: `src/panels/conversation_acp/panel.rs`
 
@@ -87,7 +87,7 @@ JSONL 格式，每行一个 JSON 对象：
 ### 历史加载流程
 
 1. 用户点击任务列表中的任务
-2. 创建 ConversationPanelAcp 面板
+2. 创建 ConversationPanel 面板
 3. 调用 `load_history_for_session()`
 4. 在后台异步加载 JSONL 文件
 5. 解析每行 JSON 并转换为 SessionUpdate
@@ -154,7 +154,7 @@ feat: 添加会话消息持久化功能
 
 - 新增 PersistenceService 用于 JSONL 文件的读写
 - MessageService 集成自动持久化所有 SessionUpdate
-- ConversationPanelAcp 支持自动加载历史记录
+- ConversationPanel 支持自动加载历史记录
 - 消息保存到 target/sessions/{session_id}.jsonl
 - 支持历史加载、删除和会话列表查询
 

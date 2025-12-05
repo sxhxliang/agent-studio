@@ -110,7 +110,7 @@
     {
       "id": "5a180cbb-fab0-43ad-9042-48392875f0fa",
       "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "目前会话消息能持久化了，希望点击左侧任务会话，ConversationPanelAcp加载对应的session记录（target/sessions目录下jsonl文件）并显示",
+      "name": "目前会话消息能持久化了，希望点击左侧任务会话，ConversationPanel加载对应的session记录（target/sessions目录下jsonl文件）并显示",
       "agent_name": "Claude Code",
       "mode": "Auto",
       "session_id": "019ae426-9b86-71bf-a7d5-d8f37cca7ef5",

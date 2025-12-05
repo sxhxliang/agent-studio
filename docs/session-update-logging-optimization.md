@@ -2,7 +2,7 @@
 
 ## 🎯 优化目标
 
-为 ConversationPanelAcp 添加完善的日志系统，追踪所有 SessionUpdate 的处理情况，帮助开发者调试和监控。
+为 ConversationPanel 添加完善的日志系统，追踪所有 SessionUpdate 的处理情况，帮助开发者调试和监控。
 
 ---
 

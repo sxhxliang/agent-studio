@@ -147,7 +147,7 @@ match AgentManager::initialize(
 
 ```rust
 // Line 461: 移除 pending_updates 字段
-pub struct ConversationPanelAcp {
+pub struct ConversationPanel {
     focus_handle: FocusHandle,
     rendered_items: Vec<RenderedItem>,
     next_index: usize,
@@ -357,7 +357,7 @@ log::info!("Published user message to session bus: {}", session_id);
 3. 如果 Agent 确实回显，会显示两条消息（一条本地，一条来自 agent）
 
 **备选方案（如需去重）：**
-- 在 ConversationPanelAcp 中维护 `seen_chunks: HashSet<String>`
+- 在 ConversationPanel 中维护 `seen_chunks: HashSet<String>`
 - 根据 `chunk_id` 去重
 
 **当前建议：** 先实现基本功能，观察 Agent 是否真的会回显。如果不回显，则无需去重逻辑。

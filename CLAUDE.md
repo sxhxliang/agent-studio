@@ -98,7 +98,7 @@ src/
    - `DockPanelContainer`: Wrapper for panels implementing the `Panel` trait from gpui-component
    - `DockPanel`: Custom trait that panels implement to define title, description, behavior
    - `panel<S: DockPanel>()`: Factory method to create panels of any DockPanel type
-   - `panel_for_session()`: Specialized method to create session-specific ConversationPanelAcp instances
+   - `panel_for_session()`: Specialized method to create session-specific ConversationPanel instances
    - Panel registration happens in `init()` via `register_panel()` with deserialization from saved state
    - All panels are registered under the name `"DockPanelContainer"` with state determining the actual panel type
 
@@ -140,7 +140,7 @@ src/
 
 5. **Panel Implementations** (`src/panels/`):
    - **ConversationPanel** (`conversation.rs`): Mock conversation UI showcasing all message types
-   - **ConversationPanelAcp** (`conversation_acp/`): **ACP-enabled conversation panel** with real-time event bus integration
+   - **ConversationPanel** (`conversation_acp/`): **ACP-enabled conversation panel** with real-time event bus integration
      - Modularized into `panel.rs` (main logic), `types.rs` (reusable helpers), and `mod.rs`
      - Uses **MessageService** for unified message sending (session creation, event publishing, prompt sending)
    - **CodeEditorPanel** (`code_editor/`): High-performance code editor with LSP integration and tree-sitter
@@ -472,7 +472,7 @@ The application uses a centralized event bus for real-time message distribution 
    - **Publishes** to session bus when agent sends updates
    - Used by `AgentManager` to bridge agent I/O threads to GPUI main thread
 
-3. **ConversationPanelAcp** (`src/panels/conversation_acp/panel.rs`)
+3. **ConversationPanel** (`src/panels/conversation_acp/panel.rs`)
    - **Subscribes** to session bus on initialization
    - Uses `tokio::sync::mpsc::unbounded_channel` for cross-thread communication
    - Real-time rendering: subscription callback → channel → `cx.spawn()` → `cx.update()` → `cx.notify()`
@@ -488,12 +488,12 @@ The application uses a centralized event bus for real-time message distribution 
 ```
 User Input → ChatInputPanel
   ├─→ Immediate publish to session_bus (user message)
-  │    └─→ ConversationPanelAcp displays instantly
+  │    └─→ ConversationPanel displays instantly
   └─→ agent_handle.prompt()
        └─→ Agent processes
             └─→ GuiClient.session_notification()
                  └─→ session_bus.publish()
-                      └─→ ConversationPanelAcp subscription
+                      └─→ ConversationPanel subscription
                            └─→ channel.send()
                                 └─→ cx.spawn() background task
                                      └─→ cx.update() + cx.notify()
@@ -510,7 +510,7 @@ User Input → ChatInputPanel
 #### Usage Example
 
 ```rust
-// Subscribe to session bus (in ConversationPanelAcp)
+// Subscribe to session bus (in ConversationPanel)
 let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 session_bus.subscribe(move |event| {
     let _ = tx.send((*event.update).clone());
@@ -693,7 +693,7 @@ RUST_LOG=info,agentx::core=debug,agentx::panels::conversation_acp=debug cargo ru
 
 Key log points:
 - `"Published user message to session bus"` - ChatInputPanel
-- `"Subscribed to session bus with channel-based updates"` - ConversationPanelAcp
+- `"Subscribed to session bus with channel-based updates"` - ConversationPanel
 - `"Session update sent to channel"` - Subscription callback
 - `"Rendered session update"` - Entity update + render
 
@@ -851,7 +851,7 @@ The AgentX codebase has undergone systematic refactoring to improve code organiz
 **Objective**: Split large files into manageable, focused modules.
 
 **Changes**:
-- **ConversationPanelAcp** (1309 lines) → `panels/conversation_acp/` directory:
+- **ConversationPanel** (1309 lines) → `panels/conversation_acp/` directory:
   - `panel.rs` (1215 lines) - Main panel logic
   - `types.rs` (94 lines) - Reusable helper traits and types
   - `mod.rs` (6 lines) - Module exports
@@ -895,7 +895,7 @@ The AgentX codebase has undergone systematic refactoring to improve code organiz
 2. **Panel Development**: All panels live in `src/panels/`:
    ```rust
    use crate::panels::dock_panel::DockPanel;
-   use crate::panels::conversation_acp::ConversationPanelAcp;
+   use crate::panels::conversation_acp::ConversationPanel;
    ```
 
 3. **Modular Panels**: Large panels can be split into subdirectories:
