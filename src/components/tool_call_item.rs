@@ -92,9 +92,13 @@ impl ToolCallItem {
         self.open = open;
         cx.notify();
     }
-
+    // pub fn update_tool_title(&mut self, tool_call: ToolCall, cx: &mut Context<Self>) {
+    //     self.tool_call.title = title;
+    //     cx.notify();
+    // }
     /// Update the tool call data
     pub fn update_tool_call(&mut self, tool_call: ToolCall, cx: &mut Context<Self>) {
+        log::debug!("tool_call: {:?}", &tool_call);
         self.tool_call = tool_call;
         cx.notify();
     }

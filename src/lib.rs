@@ -194,6 +194,11 @@ pub fn init(cx: &mut App) {
     menu::init(cx);
     key_binding::init(cx);
 
+    let http_client = std::sync::Arc::new(
+        reqwest_client::ReqwestClient::user_agent("agentx-studio").unwrap(),
+    );
+    cx.set_http_client(http_client);
+
     cx.on_action(|_: &Quit, cx: &mut App| {
         cx.quit();
     });

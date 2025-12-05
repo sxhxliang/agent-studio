@@ -20,8 +20,8 @@ tree-sitter-navi = "0.2.2"
 smol.workspace = true
 color-lsp = "0.2.0"
 lsp-types.workspace = true
-# reqwest_client = { path = "../crates/reqwest_client" }
-# smol.workspace = true
+reqwest_client = { path = "../crates/reqwest_client" }
+
 tracing.workspace = true
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 agent-client-protocol = "0.7.0"

@@ -170,6 +170,7 @@ impl ToolCallItemState {
         update_fields: agent_client_protocol_schema::ToolCallUpdateFields,
         cx: &mut Context<Self>,
     ) {
+        log::debug!("Applying update to tool call: {:?}", update_fields);
         // Use the built-in update method from ToolCall
         self.tool_call.update(update_fields);
 
