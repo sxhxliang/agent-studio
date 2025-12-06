@@ -1,4 +1,4 @@
-use agent_client_protocol_schema::{ContentBlock, ContentChunk, SessionId};
+use agent_client_protocol::{ContentBlock, ContentChunk, SessionId};
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
     ParentElement, Render, RenderOnce, SharedString, Styled, Window,

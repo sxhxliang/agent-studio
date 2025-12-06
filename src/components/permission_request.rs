@@ -1,3 +1,4 @@
+use agent_client_protocol::{PermissionOption, PermissionOptionKind};
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext, Context, Entity, IntoElement,
     ParentElement, Render, SharedString, Styled, Window,
@@ -10,68 +11,21 @@ use gpui_component::{
 
 use crate::AppState;
 
-/// Permission option kind determines the button style
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionOptionKind {
-    AllowOnce,
-    AllowAlways,
-    RejectOnce,
-    RejectAlways,
-}
-
-impl PermissionOptionKind {
-    pub fn icon(&self) -> IconName {
-        match self {
-            PermissionOptionKind::AllowOnce => IconName::Check,
-            PermissionOptionKind::AllowAlways => IconName::CircleCheck,
-            PermissionOptionKind::RejectOnce => IconName::Minus,
-            PermissionOptionKind::RejectAlways => IconName::CircleX,
-        }
-    }
-
-    pub fn is_allow(&self) -> bool {
-        matches!(
-            self,
-            PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
-        )
+pub fn permission_option_kind_to_icon(kind: PermissionOptionKind) -> IconName {
+    match kind {
+        PermissionOptionKind::AllowOnce => IconName::Check,
+        PermissionOptionKind::AllowAlways => IconName::CircleCheck,
+        PermissionOptionKind::RejectOnce => IconName::Minus,
+        PermissionOptionKind::RejectAlways => IconName::CircleX,
+        _ => IconName::CircleX,
     }
 }
 
-impl From<&agent_client_protocol::PermissionOptionKind> for PermissionOptionKind {
-    fn from(kind: &agent_client_protocol::PermissionOptionKind) -> Self {
-        match kind {
-            agent_client_protocol::PermissionOptionKind::AllowOnce => {
-                PermissionOptionKind::AllowOnce
-            }
-            agent_client_protocol::PermissionOptionKind::AllowAlways => {
-                PermissionOptionKind::AllowAlways
-            }
-            agent_client_protocol::PermissionOptionKind::RejectOnce => {
-                PermissionOptionKind::RejectOnce
-            }
-            agent_client_protocol::PermissionOptionKind::RejectAlways => {
-                PermissionOptionKind::RejectAlways
-            }
-        }
-    }
-}
-
-/// Permission option for display
-#[derive(Clone)]
-pub struct PermissionOptionData {
-    pub option_id: String,
-    pub name: String,
-    pub kind: PermissionOptionKind,
-}
-
-impl From<agent_client_protocol::PermissionOption> for PermissionOptionData {
-    fn from(option: agent_client_protocol::PermissionOption) -> Self {
-        Self {
-            option_id: option.id.to_string(),
-            name: option.name,
-            kind: PermissionOptionKind::from(&option.kind),
-        }
-    }
+pub fn permission_is_allow(kind: PermissionOptionKind) -> bool {
+    matches!(
+        kind,
+        PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
+    )
 }
 
 /// Permission request component - displays a tool call permission request with options
@@ -85,7 +39,7 @@ pub struct PermissionRequest {
     /// Tool call kind
     tool_kind: Option<String>,
     /// Available permission options
-    options: Vec<PermissionOptionData>,
+    options: Vec<PermissionOption>,
     /// Whether the request has been responded to
     responded: bool,
 }
@@ -109,7 +63,7 @@ impl PermissionRequest {
             session_id,
             tool_title,
             tool_kind,
-            options: options.into_iter().map(Into::into).collect(),
+            options: options.into_iter().collect(),
             responded: false,
         }
     }
@@ -136,12 +90,11 @@ impl PermissionRequest {
 
         if let Some(store) = permission_store {
             let permission_id = self.permission_id.clone();
-            let response = agent_client_protocol::RequestPermissionResponse {
-                outcome: agent_client_protocol::RequestPermissionOutcome::Selected {
-                    option_id: option_id.clone().into(),
-                },
-                meta: None,
-            };
+            let response = agent_client_protocol::RequestPermissionResponse::new(
+                agent_client_protocol::RequestPermissionOutcome::Selected(
+                    agent_client_protocol::SelectedPermissionOutcome::new(option_id),
+                ),
+            );
 
             // Spawn a task to send the response
             cx.spawn(async move |_entity, _cx| {
@@ -239,20 +192,19 @@ impl Render for PermissionRequest {
                         .pl_6()
                         .children(self.options.iter().map(|option| {
                             let option_id = option.option_id.clone();
-                            let is_allow = option.kind.is_allow();
-
+                            let is_allow = permission_is_allow(option.kind);
                             Button::new(SharedString::from(format!(
                                 "permission-{}-{}",
                                 self.permission_id, option.option_id
                             )))
                             .label(option.name.clone())
-                            .icon(option.kind.icon())
+                            .icon(permission_option_kind_to_icon(option.kind))
                             .when(is_allow, |btn| btn.primary())
                             .when(!is_allow, |btn| btn.ghost())
                             .small()
                             .on_click(cx.listener(
                                 move |this, _ev, window, cx| {
-                                    this.on_option_selected(option_id.clone(), window, cx);
+                                    this.on_option_selected(option_id.to_string(), window, cx);
                                 },
                             ))
                         })),

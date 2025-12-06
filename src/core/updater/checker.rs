@@ -74,11 +74,7 @@ impl UpdateChecker {
                 match info.parse_version() {
                     Ok(latest) => {
                         if latest.is_newer_than(&current) {
-                            log::info!(
-                                "Update available: {} -> {}",
-                                current,
-                                latest
-                            );
+                            log::info!("Update available: {} -> {}", current, latest);
                             UpdateCheckResult::UpdateAvailable(info)
                         } else {
                             log::info!("No update available (current: {})", current);

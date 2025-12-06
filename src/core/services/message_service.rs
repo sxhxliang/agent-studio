@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use agent_client_protocol as acp;
-use agent_client_protocol_schema as schema;
-use agent_client_protocol_schema::SessionUpdate;
+use agent_client_protocol as schema;
+use agent_client_protocol::SessionUpdate;
 use anyhow::{anyhow, Result};
 
 use crate::core::event_bus::session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
@@ -123,13 +123,14 @@ impl MessageService {
         let schema_block = match block {
             acp::ContentBlock::Text(text) => {
                 // Create TextContent using new() or default methods to handle non-exhaustive struct
-                let mut text_content = schema::TextContent::new(text.text.clone());
+                let text_content = schema::TextContent::new(text.text.clone());
                 // Note: annotations field might not be directly settable due to version mismatch
                 schema::ContentBlock::Text(text_content)
             }
             acp::ContentBlock::Image(img) => {
                 // Create ImageContent using new() method
-                let image_content = schema::ImageContent::new(img.data.clone(), img.mime_type.clone());
+                let image_content =
+                    schema::ImageContent::new(img.data.clone(), img.mime_type.clone());
                 schema::ContentBlock::Image(image_content)
             }
             // Handle other block types if needed
@@ -143,7 +144,10 @@ impl MessageService {
         };
 
         self.session_bus.publish(user_event);
-        log::debug!("Published user content block to session bus: {}", session_id);
+        log::debug!(
+            "Published user content block to session bus: {}",
+            session_id
+        );
     }
 
     /// Subscribe to session updates

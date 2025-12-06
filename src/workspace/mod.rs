@@ -10,8 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     panels::dock_panel::DockPanelContainer, AddPanel, AppState, AppTitleBar, CodeEditorPanel,
-    ConversationPanel, SessionManagerPanel, TaskPanel, ToggleDockToggleButton,
-    TogglePanelVisible,
+    ConversationPanel, SessionManagerPanel, TaskPanel, ToggleDockToggleButton, TogglePanelVisible,
 };
 
 // Action handlers module

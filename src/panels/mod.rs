@@ -9,7 +9,6 @@ mod task_panel;
 mod tool_call_detail_panel;
 mod welcome_panel;
 
-
 // Re-export panel types
 pub use code_editor::CodeEditorPanel;
 pub use conversation::ConversationPanel;

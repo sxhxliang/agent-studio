@@ -26,7 +26,7 @@ use crate::core::event_bus::{
     permission_bus::{PermissionBusContainer, PermissionRequestEvent},
     session_bus::{SessionUpdateBusContainer, SessionUpdateEvent},
 };
-use agent_client_protocol_schema as schema;
+use agent_client_protocol as schema;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 #[derive(Clone)]
@@ -257,19 +257,18 @@ async fn agent_event_loop(
             warn!("agent I/O task ended: {:?}", err);
         }
     });
+    // Assuming `InitializeRequest` and `Implementation` have `new` methods or implement `Default`
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    let mut client_info = acp::Implementation::new("agentx", version);
+    client_info.name = "cli-client".into();
+    client_info.title = Some("CLI Client".into());
+    client_info.version = env!("CARGO_PKG_VERSION").into();
 
-    let init_result = conn
-        .initialize(acp::InitializeRequest {
-            protocol_version: acp::V1,
-            client_capabilities: acp::ClientCapabilities::default(),
-            client_info: Some(acp::Implementation {
-                name: "cli-client".into(),
-                title: Some("CLI Client".into()),
-                version: env!("CARGO_PKG_VERSION").into(),
-            }),
-            meta: None,
-        })
-        .await;
+    let mut init_request = acp::InitializeRequest::new(acp::ProtocolVersion::V1);
+    init_request.client_capabilities = acp::ClientCapabilities::default();
+    init_request.client_info = Some(client_info);
+    init_request.meta = None;
+    let init_result = conn.initialize(init_request).await;
 
     match init_result {
         Ok(_) => {
@@ -307,7 +306,7 @@ async fn agent_event_loop(
     Ok(())
 }
 
-/// Convert from agent_client_protocol SessionUpdate to agent_client_protocol_schema SessionUpdate
+/// Convert from agent_client_protocol SessionUpdate to agent_client_protocol SessionUpdate
 ///
 /// Uses JSON serialization/deserialization as a bridge between the two incompatible versions
 fn convert_session_update(update: &acp::SessionUpdate) -> schema::SessionUpdate {
@@ -372,9 +371,8 @@ impl acp::Client for GuiClient {
         );
         self.permission_bus.publish(event);
 
-        rx.await.map_err(|_| {
-            acp::Error::internal_error().with_data("permission request channel closed")
-        })
+        rx.await
+            .map_err(|_| acp::Error::internal_error().data("permission request channel closed"))
     }
 
     async fn write_text_file(

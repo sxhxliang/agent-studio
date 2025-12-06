@@ -1,5 +1,4 @@
 /// Helper functions for ConversationPanel
-
 use regex::Regex;
 
 /// Extract text content from XML-like tags using regex based on ToolKind
@@ -9,18 +8,19 @@ use regex::Regex;
 /// This function decides whether to extract XML content based on the tool type:
 /// - For Execute, Other, and similar types: Extract XML content
 /// - For other types: Return original text
-pub fn extract_xml_content(text: &str, tool_kind: &agent_client_protocol_schema::ToolKind) -> String {
+pub fn extract_xml_content(text: &str, tool_kind: &agent_client_protocol::ToolKind) -> String {
     // Decide whether to extract XML based on tool kind
     let should_extract = matches!(
         tool_kind,
-        agent_client_protocol_schema::ToolKind::Execute
-        | agent_client_protocol_schema::ToolKind::Other
-        | agent_client_protocol_schema::ToolKind::Read
+        agent_client_protocol::ToolKind::Execute
+            | agent_client_protocol::ToolKind::Other
+            | agent_client_protocol::ToolKind::Read
     );
 
     if !should_extract {
         // For other tool types, return the text as-is (just strip code fences)
-        return text.trim_start_matches("```")
+        return text
+            .trim_start_matches("```")
             .trim_end_matches("```")
             .trim()
             .to_string();
@@ -61,8 +61,8 @@ pub fn get_element_id(id: &str) -> gpui::ElementId {
 }
 
 /// Extract text from ContentBlock for display
-pub fn extract_text_from_content(content: &agent_client_protocol_schema::ContentBlock) -> String {
-    use agent_client_protocol_schema::{ContentBlock, EmbeddedResourceResource};
+pub fn extract_text_from_content(content: &agent_client_protocol::ContentBlock) -> String {
+    use agent_client_protocol::{ContentBlock, EmbeddedResourceResource};
 
     match content {
         ContentBlock::Text(text_content) => text_content.text.clone(),
@@ -93,8 +93,8 @@ pub fn extract_text_from_content(content: &agent_client_protocol_schema::Content
 }
 
 /// Get a human-readable type name for SessionUpdate (for logging)
-pub fn session_update_type_name(update: &agent_client_protocol_schema::SessionUpdate) -> &'static str {
-    use agent_client_protocol_schema::SessionUpdate;
+pub fn session_update_type_name(update: &agent_client_protocol::SessionUpdate) -> &'static str {
+    use agent_client_protocol::SessionUpdate;
 
     match update {
         SessionUpdate::UserMessageChunk(_) => "UserMessageChunk",

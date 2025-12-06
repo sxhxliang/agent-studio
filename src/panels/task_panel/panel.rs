@@ -106,13 +106,12 @@ impl TaskPanel {
             })
         };
 
-        let entity = cx.new(|cx| {
-            Self::new(window, cx, remove_workspace_callback, remove_task_callback)
-        });
+        let entity =
+            cx.new(|cx| Self::new(window, cx, remove_workspace_callback, remove_task_callback));
 
         // Poll for workspace remove requests
         let entity_weak = entity.downgrade();
-        cx.spawn(async move |mut cx| {
+        cx.spawn(async move |cx| {
             while let Some(workspace_id) = ws_rx.recv().await {
                 if let Some(entity) = entity_weak.upgrade() {
                     cx.update(|cx| {
@@ -130,7 +129,7 @@ impl TaskPanel {
 
         // Poll for task remove requests
         let entity_weak = entity.downgrade();
-        cx.spawn(async move |mut cx| {
+        cx.spawn(async move |cx| {
             while let Some(task_id) = task_rx.recv().await {
                 if let Some(entity) = entity_weak.upgrade() {
                     cx.update(|cx| {
@@ -222,27 +221,30 @@ impl TaskPanel {
     fn subscribe_to_workspace_updates(_entity: &Entity<Self>, cx: &mut App) {
         let workspace_bus = AppState::global(cx).workspace_bus.clone();
 
-        workspace_bus.lock().unwrap().subscribe(move |event| match event {
-            WorkspaceUpdateEvent::WorkspaceAdded { workspace_id } => {
-                log::debug!("TaskPanel received WorkspaceAdded: {}", workspace_id);
-            }
-            WorkspaceUpdateEvent::WorkspaceRemoved { workspace_id } => {
-                log::debug!("TaskPanel received WorkspaceRemoved: {}", workspace_id);
-            }
-            WorkspaceUpdateEvent::TaskCreated {
-                workspace_id,
-                task_id,
-            } => {
-                log::debug!(
-                    "TaskPanel received TaskCreated: {} in {}",
+        workspace_bus
+            .lock()
+            .unwrap()
+            .subscribe(move |event| match event {
+                WorkspaceUpdateEvent::WorkspaceAdded { workspace_id } => {
+                    log::debug!("TaskPanel received WorkspaceAdded: {}", workspace_id);
+                }
+                WorkspaceUpdateEvent::WorkspaceRemoved { workspace_id } => {
+                    log::debug!("TaskPanel received WorkspaceRemoved: {}", workspace_id);
+                }
+                WorkspaceUpdateEvent::TaskCreated {
+                    workspace_id,
                     task_id,
-                    workspace_id
-                );
-            }
-            WorkspaceUpdateEvent::TaskUpdated { task_id } => {
-                log::debug!("TaskPanel received TaskUpdated: {}", task_id);
-            }
-        });
+                } => {
+                    log::debug!(
+                        "TaskPanel received TaskCreated: {} in {}",
+                        task_id,
+                        workspace_id
+                    );
+                }
+                WorkspaceUpdateEvent::TaskUpdated { task_id } => {
+                    log::debug!("TaskPanel received TaskUpdated: {}", task_id);
+                }
+            });
     }
 
     fn load_random_data(entity: &Entity<Self>, cx: &mut App) {
@@ -547,7 +549,12 @@ impl TaskPanel {
             .child(
                 h_flex()
                     .gap_1()
-                    .child(Button::new("refresh").ghost().small().icon(IconName::Delete))
+                    .child(
+                        Button::new("refresh")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Delete),
+                    )
                     .child(
                         Button::new("monitor")
                             .ghost()
@@ -651,17 +658,19 @@ impl TaskPanel {
                                 .ghost()
                                 .xsmall()
                                 .on_click(|_, _, cx| cx.stop_propagation())
-                                .dropdown_menu(move |menu, _, _| {
-                                    let workspace_id = workspace_id_for_menu.clone();
-                                    let callback = remove_callback.clone();
-                                    menu.item(
-                                        PopupMenuItem::new("移除工作区")
-                                            .icon(IconName::Delete)
-                                            .on_click(move |_, _, _| {
-                                                callback(workspace_id.clone());
-                                            }),
-                                    )
-                                }),
+                                .dropdown_menu(
+                                    move |menu, _, _| {
+                                        let workspace_id = workspace_id_for_menu.clone();
+                                        let callback = remove_callback.clone();
+                                        menu.item(
+                                            PopupMenuItem::new("移除工作区")
+                                                .icon(IconName::Delete)
+                                                .on_click(move |_, _, _| {
+                                                    callback(workspace_id.clone());
+                                                }),
+                                        )
+                                    },
+                                ),
                             ),
                     ),
             )
@@ -732,7 +741,9 @@ impl TaskPanel {
             .py_2()
             .cursor_pointer()
             .when(is_selected, |s| s.bg(theme.accent))
-            .when(!is_selected, |s| s.hover(|s| s.bg(theme.accent.opacity(0.5))))
+            .when(!is_selected, |s| {
+                s.hover(|s| s.bg(theme.accent.opacity(0.5)))
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_task(task_id_for_click.clone(), window, cx);
             }))
@@ -916,7 +927,9 @@ impl TaskPanel {
             .border_b_1()
             .border_color(theme.border.opacity(0.5))
             .when(is_selected, |s| s.bg(theme.accent))
-            .when(!is_selected, |s| s.hover(|s| s.bg(theme.accent.opacity(0.5))))
+            .when(!is_selected, |s| {
+                s.hover(|s| s.bg(theme.accent.opacity(0.5)))
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_task(task_id_for_click.clone(), window, cx);
             }))

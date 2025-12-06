@@ -1,4 +1,4 @@
-use agent_client_protocol_schema::SessionUpdate;
+use agent_client_protocol::SessionUpdate;
 use std::sync::Arc;
 
 /// Session update event that can be broadcast to subscribers

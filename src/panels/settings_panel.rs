@@ -1,10 +1,9 @@
 use gpui::{
-    App, AppContext, Axis, Context, Element, Entity, FocusHandle, Focusable, Global, IntoElement,
-    ParentElement as _, Render, SharedString, Styled, Window, px,
+    px, App, AppContext, Axis, Context, Element, Entity, FocusHandle, Focusable, Global,
+    IntoElement, ParentElement as _, Render, SharedString, Styled, Window,
 };
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable, Size, Theme, ThemeMode,
     button::Button,
     group_box::GroupBoxVariant,
     h_flex,
@@ -14,7 +13,7 @@ use gpui_component::{
         SettingItem, SettingPage, Settings,
     },
     text::TextView,
-    v_flex,
+    v_flex, ActiveTheme, Icon, IconName, Sizable, Size, Theme, ThemeMode,
 };
 
 use crate::core::updater::{UpdateCheckResult, UpdateManager, Version};
@@ -148,7 +147,7 @@ impl SettingsPanel {
         let update_manager = self.update_manager.clone();
         let entity = cx.entity().downgrade();
 
-        cx.spawn(async move |_this, mut cx| {
+        cx.spawn(async move |_this, cx| {
             let result = update_manager.check_for_updates().await;
 
             let _ = cx.update(|cx| {
@@ -392,84 +391,85 @@ impl SettingsPanel {
                                             .child(
                                                 Label::new(&current_version)
                                                     .text_sm()
-                                                    .text_color(cx.theme().muted_foreground)
-                                            )
+                                                    .text_color(cx.theme().muted_foreground),
+                                            ),
                                     )
-                                    .child(
-                                        match &update_status {
-                                            UpdateStatus::Idle => {
-                                                Label::new("Click 'Check for Updates' to check for new versions")
+                                    .child(match &update_status {
+                                        UpdateStatus::Idle => Label::new(
+                                            "Click 'Check for Updates' to check for new versions",
+                                        )
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .into_any_element(),
+                                        UpdateStatus::Checking => h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(Icon::new(IconName::LoaderCircle).size_4())
+                                            .child(
+                                                Label::new("Checking for updates...")
                                                     .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .into_any_element()
-                                            }
-                                            UpdateStatus::Checking => {
-                                                h_flex()
-                                                    .gap_2()
-                                                    .items_center()
-                                                    .child(Icon::new(IconName::LoaderCircle).size_4())
-                                                    .child(
-                                                        Label::new("Checking for updates...")
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                    )
-                                                    .into_any_element()
-                                            }
-                                            UpdateStatus::NoUpdate => {
-                                                h_flex()
-                                                    .gap_2()
-                                                    .items_center()
-                                                    .child(Icon::new(IconName::Check).size_4())
-                                                    .child(
-                                                        Label::new("You're up to date!")
-                                                            .text_xs()
-                                                            .text_color(cx.theme().success_foreground)
-                                                    )
-                                                    .into_any_element()
-                                            }
-                                            UpdateStatus::Available { version, notes } => {
-                                                let has_notes = !notes.is_empty();
-                                                let notes_elem = if has_notes {
-                                                    Some(
-                                                        Label::new(notes)
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                    )
-                                                } else {
-                                                    None
-                                                };
+                                                    .text_color(cx.theme().muted_foreground),
+                                            )
+                                            .into_any_element(),
+                                        UpdateStatus::NoUpdate => h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(Icon::new(IconName::Check).size_4())
+                                            .child(
+                                                Label::new("You're up to date!")
+                                                    .text_xs()
+                                                    .text_color(cx.theme().success_foreground),
+                                            )
+                                            .into_any_element(),
+                                        UpdateStatus::Available { version, notes } => {
+                                            let has_notes = !notes.is_empty();
+                                            let notes_elem = if has_notes {
+                                                Some(
+                                                    Label::new(notes)
+                                                        .text_xs()
+                                                        .text_color(cx.theme().muted_foreground),
+                                                )
+                                            } else {
+                                                None
+                                            };
 
-                                                v_flex()
-                                                    .gap_2()
-                                                    .w_full()
-                                                    .child(
-                                                        h_flex()
-                                                            .gap_2()
-                                                            .items_center()
-                                                            .child(Icon::new(IconName::ArrowDown).size_4())
-                                                            .child(
-                                                                Label::new(format!("Update available: v{}", version))
-                                                                    .text_xs()
-                                                                    .text_color(cx.theme().accent_foreground)
-                                                            )
-                                                    )
-                                                    .children(notes_elem)
-                                                    .into_any_element()
-                                            }
-                                            UpdateStatus::Error(err) => {
-                                                h_flex()
-                                                    .gap_2()
-                                                    .items_center()
-                                                    .child(Icon::new(IconName::CircleX).size_4())
-                                                    .child(
-                                                        Label::new(format!("Error: {}", err))
+                                            v_flex()
+                                                .gap_2()
+                                                .w_full()
+                                                .child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(
+                                                            Icon::new(IconName::ArrowDown).size_4(),
+                                                        )
+                                                        .child(
+                                                            Label::new(format!(
+                                                                "Update available: v{}",
+                                                                version
+                                                            ))
                                                             .text_xs()
-                                                            .text_color(cx.theme().colors.danger_foreground)
-                                                    )
-                                                    .into_any_element()
-                                            }
+                                                            .text_color(
+                                                                cx.theme().accent_foreground,
+                                                            ),
+                                                        ),
+                                                )
+                                                .children(notes_elem)
+                                                .into_any_element()
                                         }
-                                    )
+                                        UpdateStatus::Error(err) => h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(Icon::new(IconName::CircleX).size_4())
+                                            .child(
+                                                Label::new(format!("Error: {}", err))
+                                                    .text_xs()
+                                                    .text_color(
+                                                        cx.theme().colors.danger_foreground,
+                                                    ),
+                                            )
+                                            .into_any_element(),
+                                    })
                                     .into_any()
                             }
                         }),
@@ -507,7 +507,9 @@ impl SettingsPanel {
                             )
                             .default_value(default_settings.auto_check_on_startup),
                         )
-                        .description("Automatically check for updates when the application starts."),
+                        .description(
+                            "Automatically check for updates when the application starts.",
+                        ),
                         SettingItem::new(
                             "Enable Notifications",
                             SettingField::switch(
@@ -547,7 +549,7 @@ impl SettingsPanel {
                             .default_value(default_settings.check_frequency_days),
                         )
                         .description("How often to automatically check for updates (in days)."),
-                    ])
+                    ]),
                 ]),
             SettingPage::new("About")
                 .resettable(resettable)

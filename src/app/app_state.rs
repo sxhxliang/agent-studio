@@ -33,7 +33,7 @@ pub struct AppState {
     /// Current working directory for the code editor
     current_working_dir: PathBuf,
     /// Selected tool call for detail view
-    pub selected_tool_call: Entity<Option<agent_client_protocol_schema::ToolCall>>,
+    pub selected_tool_call: Entity<Option<agent_client_protocol::ToolCall>>,
 }
 
 impl AppState {

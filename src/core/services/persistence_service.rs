@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use agent_client_protocol_schema::SessionUpdate;
+use agent_client_protocol::SessionUpdate;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -196,7 +196,7 @@ impl PersistenceService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol_schema::ContentBlock;
+    use agent_client_protocol::ContentBlock;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -206,7 +206,7 @@ mod tests {
 
         let session_id = "test-session";
         let update = SessionUpdate::AgentMessageChunk(
-            agent_client_protocol_schema::ContentChunk::new(
+            agent_client_protocol::ContentChunk::new(
                 ContentBlock::from("Hello, world!".to_string())
             )
         );
@@ -239,13 +239,13 @@ mod tests {
 
         // Create some session files
         service.save_update("session-1", SessionUpdate::AgentMessageChunk(
-            agent_client_protocol_schema::ContentChunk::new(
+            agent_client_protocol::ContentChunk::new(
                 ContentBlock::from("Message 1".to_string())
             )
         )).await.unwrap();
 
         service.save_update("session-2", SessionUpdate::AgentMessageChunk(
-            agent_client_protocol_schema::ContentChunk::new(
+            agent_client_protocol::ContentChunk::new(
                 ContentBlock::from("Message 2".to_string())
             )
         )).await.unwrap();

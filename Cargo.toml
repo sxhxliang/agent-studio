@@ -23,9 +23,8 @@ lsp-types.workspace = true
 reqwest_client = { path = "../../crates/reqwest_client" }
 
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-agent-client-protocol = "0.7.0"
-agent-client-protocol-schema = "0.7.0"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+agent-client-protocol = "0.8.0"
 log.workspace = true
 tokio-util = { version = "0.7.17", features = ["compat"] }
 tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "process", "fs", "io-util"] }

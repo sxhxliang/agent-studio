@@ -1,10 +1,9 @@
+use agent_client_protocol::{ContentChunk, Plan};
 /// RenderedItem enum and message handling logic
-
 use gpui::Entity;
-use agent_client_protocol_schema::{ContentChunk, Plan};
 
-use crate::{AgentMessageData, PermissionRequestView};
 use super::components::{ToolCallItemState, UserMessageView};
+use crate::{AgentMessageData, PermissionRequestView};
 
 // ============================================================================
 // Rendered Item

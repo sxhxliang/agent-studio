@@ -1,13 +1,11 @@
 use gpui::{
-    div, prelude::*, px, App, ClipboardEntry, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, Window,
 };
-use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable, h_flex, scroll::ScrollableElement, text::TextView, v_flex
-};
+use gpui_component::{h_flex, text::TextView, v_flex, ActiveTheme, Icon, IconName};
 
-use agent_client_protocol_schema::{ContentBlock, ToolCall, ToolCallContent};
+use agent_client_protocol::{ContentBlock, ToolCall, ToolCallContent};
 
 use crate::panels::dock_panel::DockPanel;
 
@@ -56,7 +54,6 @@ impl ToolCallDetailPanel {
     pub fn set_tool_call(&mut self, tool_call: ToolCall) {
         self.tool_call = Some(tool_call);
     }
-    
 
     /// Clear the displayed tool call
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -68,7 +65,7 @@ impl ToolCallDetailPanel {
     pub fn subscribe_to_tool_call_updates(cx: &mut Context<Self>) {
         let app_state = crate::AppState::global(cx);
         let selected_tool_call = app_state.selected_tool_call.clone();
-        
+
         cx.observe(&selected_tool_call, |this, tool_call_entity, cx| {
             let tool_call = tool_call_entity.read(cx);
             if let Some(tc) = tool_call.clone() {
@@ -90,7 +87,10 @@ impl ToolCallDetailPanel {
         match content {
             ToolCallContent::Content(c) => match &c.content {
                 ContentBlock::Text(text) => {
-                    let markdown_id = SharedString::from(format!("detail-{}-markdown", self.tool_call.as_ref().unwrap().tool_call_id ));
+                    let markdown_id = SharedString::from(format!(
+                        "detail-{}-markdown",
+                        self.tool_call.as_ref().unwrap().tool_call_id
+                    ));
                     div()
                         .w_full()
                         .p_4()
@@ -121,70 +121,32 @@ impl ToolCallDetailPanel {
                     .child("Unsupported content type")
                     .into_any_element(),
             },
-            ToolCallContent::Diff(diff) => {
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Icon::new(IconName::File)
-                                    .size(px(16.))
-                                    .text_color(cx.theme().accent),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(cx.theme().foreground)
-                                    .child(diff.path.display().to_string()),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .gap_2()
-                            .when(diff.old_text.is_some(), |this| {
-                                this.child(
-                                    v_flex()
-                                        .w_full()
-                                        .gap_1()
-                                        .child(
-                                            div()
-                                                .text_size(px(11.))
-                                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                .text_color(cx.theme().red)
-                                                .child("- Old"),
-                                        )
-                                        .child(
-                                            div()
-                                                .w_full()
-                                                .p_3()
-                                                .rounded(cx.theme().radius)
-                                                .bg(cx.theme().secondary)
-                                                .border_1()
-                                                .border_color(cx.theme().red.opacity(0.3))
-                                                .child(
-                                                    div()
-                                                        .text_size(px(12.))
-                                                        .font_family(
-                                                            "Monaco, 'Courier New', monospace",
-                                                        )
-                                                        .text_color(cx.theme().foreground)
-                                                        .line_height(px(18.))
-                                                        .whitespace_normal()
-                                                        .child(
-                                                            diff.old_text
-                                                                .clone()
-                                                                .unwrap_or_default(),
-                                                        ),
-                                                ),
-                                        ),
-                                )
-                            })
-                            .child(
+            ToolCallContent::Diff(diff) => v_flex()
+                .w_full()
+                .gap_3()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::File)
+                                .size(px(16.))
+                                .text_color(cx.theme().accent),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(diff.path.display().to_string()),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .when(diff.old_text.is_some(), |this| {
+                            this.child(
                                 v_flex()
                                     .w_full()
                                     .gap_1()
@@ -192,8 +154,8 @@ impl ToolCallDetailPanel {
                                         div()
                                             .text_size(px(11.))
                                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(cx.theme().green)
-                                            .child("+ New"),
+                                            .text_color(cx.theme().red)
+                                            .child("- Old"),
                                     )
                                     .child(
                                         div()
@@ -202,7 +164,7 @@ impl ToolCallDetailPanel {
                                             .rounded(cx.theme().radius)
                                             .bg(cx.theme().secondary)
                                             .border_1()
-                                            .border_color(cx.theme().green.opacity(0.3))
+                                            .border_color(cx.theme().red.opacity(0.3))
                                             .child(
                                                 div()
                                                     .text_size(px(12.))
@@ -210,53 +172,83 @@ impl ToolCallDetailPanel {
                                                     .text_color(cx.theme().foreground)
                                                     .line_height(px(18.))
                                                     .whitespace_normal()
-                                                    .child(diff.new_text.clone()),
+                                                    .child(
+                                                        diff.old_text.clone().unwrap_or_default(),
+                                                    ),
                                             ),
                                     ),
-                            ),
-                    )
-                    .into_any_element()
-            }
-            ToolCallContent::Terminal(terminal) => {
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Icon::new(IconName::SquareTerminal)
-                                    .size(px(16.))
-                                    .text_color(cx.theme().accent),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(cx.theme().foreground)
-                                    .child(format!("Terminal: {}", terminal.terminal_id)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .p_3()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().secondary)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .font_family("Monaco, 'Courier New', monospace")
-                                    .text_color(cx.theme().foreground)
-                                    .line_height(px(18.))
-                                    .child("Terminal output display"),
-                            ),
-                    )
-                    .into_any_element()
-            }
+                        })
+                        .child(
+                            v_flex()
+                                .w_full()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(cx.theme().green)
+                                        .child("+ New"),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .p_3()
+                                        .rounded(cx.theme().radius)
+                                        .bg(cx.theme().secondary)
+                                        .border_1()
+                                        .border_color(cx.theme().green.opacity(0.3))
+                                        .child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .font_family("Monaco, 'Courier New', monospace")
+                                                .text_color(cx.theme().foreground)
+                                                .line_height(px(18.))
+                                                .whitespace_normal()
+                                                .child(diff.new_text.clone()),
+                                        ),
+                                ),
+                        ),
+                )
+                .into_any_element(),
+            ToolCallContent::Terminal(terminal) => v_flex()
+                .w_full()
+                .gap_2()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::SquareTerminal)
+                                .size(px(16.))
+                                .text_color(cx.theme().accent),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(format!("Terminal: {}", terminal.terminal_id)),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .p_3()
+                        .rounded(cx.theme().radius)
+                        .bg(cx.theme().secondary)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_family("Monaco, 'Courier New', monospace")
+                                .text_color(cx.theme().foreground)
+                                .line_height(px(18.))
+                                .child("Terminal output display"),
+                        ),
+                )
+                .into_any_element(),
             _ => div()
                 .text_size(px(13.))
                 .text_color(cx.theme().muted_foreground)
@@ -338,12 +330,7 @@ impl Render for ToolCallDetailPanel {
                                                         .child(tool_call.title.clone()),
                                                 ),
                                         )
-                                        .child(
-                                            div()
-                                                .w_full()
-                                                .h(px(1.))
-                                                .bg(cx.theme().border),
-                                        )
+                                        .child(div().w_full().h(px(1.)).bg(cx.theme().border))
                                         .children(tool_call.content.iter().map(|content| {
                                             self.render_content(content, window, cx)
                                         })),
@@ -351,17 +338,12 @@ impl Render for ToolCallDetailPanel {
                             })
                             .when(self.tool_call.is_none(), |this| {
                                 this.child(
-                                    div()
-                                        .flex_1()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(
-                                            div()
-                                                .text_size(px(14.))
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child("Click on a tool call to view details"),
-                                        ),
+                                    div().flex_1().flex().items_center().justify_center().child(
+                                        div()
+                                            .text_size(px(14.))
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Click on a tool call to view details"),
+                                    ),
                                 )
                             }),
                     ),

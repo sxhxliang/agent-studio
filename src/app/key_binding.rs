@@ -1,6 +1,6 @@
 use gpui::{App, KeyBinding};
 
-use crate::app::actions::{Open, Copy, Cut, Paste, Quit, SelectLeft, SelectRight, ToggleSearch};
+use crate::app::actions::{Open, Paste, Quit, ToggleSearch};
 
 // 导出KeyBinding设置函数，供主应用使用
 pub fn init(cx: &mut App) {

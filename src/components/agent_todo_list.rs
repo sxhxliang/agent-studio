@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
-use agent_client_protocol_schema::{Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus};
+use agent_client_protocol::{Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName};
 use serde::{Deserialize, Serialize};
 
@@ -92,7 +92,9 @@ impl AgentTodoList {
         let meta = plan
             .meta
             .as_ref()
-            .and_then(|m| serde_json::from_value::<PlanMeta>(m.clone()).ok())
+            .and_then(|m| {
+                serde_json::from_value::<PlanMeta>(serde_json::Value::Object(m.clone())).ok()
+            })
             .unwrap_or_default();
 
         Self { plan, meta }
@@ -133,7 +135,9 @@ impl AgentTodoList {
     pub fn into_plan(mut self) -> Plan {
         // Store meta back into plan
         if self.meta.title.is_some() {
-            self.plan.meta = serde_json::to_value(&self.meta).ok();
+            self.plan.meta = serde_json::to_value(&self.meta)
+                .ok()
+                .and_then(|v| v.as_object().cloned());
         }
         self.plan
     }
@@ -234,7 +238,9 @@ impl AgentTodoListView {
         let meta = plan
             .meta
             .as_ref()
-            .and_then(|m| serde_json::from_value::<PlanMeta>(m.clone()).ok())
+            .and_then(|m| {
+                serde_json::from_value::<PlanMeta>(serde_json::Value::Object(m.clone())).ok()
+            })
             .unwrap_or_default();
 
         cx.new(|cx| {
@@ -267,7 +273,9 @@ impl AgentTodoListView {
         self.meta = plan
             .meta
             .as_ref()
-            .and_then(|m| serde_json::from_value::<PlanMeta>(m.clone()).ok())
+            .and_then(|m| {
+                serde_json::from_value::<PlanMeta>(serde_json::Value::Object(m.clone())).ok()
+            })
             .unwrap_or_default();
 
         self.plan.update(cx, |p, cx| {

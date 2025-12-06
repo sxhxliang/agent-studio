@@ -5,10 +5,12 @@ use rand;
 use std::sync::Arc;
 
 use crate::{
-    AddPanel, AppState, ConversationPanel, CreateTaskFromWelcome, NewSessionConversationPanel, SettingsPanel, ShowConversationPanel, ShowToolCallDetail, ShowWelcomePanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel, app::{
-        self,
-        actions::{Paste, Submit},
-    }, panels::{DockPanel, dock_panel::DockPanelContainer}, title_bar::OpenSettings, utils
+    app::actions::{Paste, Submit},
+    panels::{dock_panel::DockPanelContainer, DockPanel},
+    title_bar::OpenSettings,
+    utils, AddPanel, AppState, ConversationPanel, CreateTaskFromWelcome,
+    NewSessionConversationPanel, SettingsPanel, ShowConversationPanel, ShowToolCallDetail,
+    ShowWelcomePanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
 };
 
 use super::DockWorkspace;
@@ -70,9 +72,7 @@ impl DockWorkspace {
     }
     /// Helper method to create and add a new ConversationPanel to the center
     pub fn add_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let panel = Arc::new(DockPanelContainer::panel::<ConversationPanel>(
-            window, cx,
-        ));
+        let panel = Arc::new(DockPanelContainer::panel::<ConversationPanel>(window, cx));
 
         self.dock_area.update(cx, |dock_area, cx| {
             dock_area.add_panel(panel, DockPlacement::Center, None, window, cx);
@@ -123,15 +123,9 @@ impl DockWorkspace {
     ) {
         // Random pick up a panel to add
         let panel = match rand::random::<usize>() % 2 {
-            0 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
-                window, cx,
-            )),
-            1 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
-                window, cx,
-            )),
-            _ => Arc::new(DockPanelContainer::panel::<ConversationPanel>(
-                window, cx,
-            )),
+            0 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(window, cx)),
+            1 => Arc::new(DockPanelContainer::panel::<ConversationPanel>(window, cx)),
+            _ => Arc::new(DockPanelContainer::panel::<ConversationPanel>(window, cx)),
         };
 
         self.dock_area.update(cx, |dock_area, cx| {
@@ -265,11 +259,13 @@ impl DockWorkspace {
                 log::debug!("Toggled right dock to open");
             }
 
-            log::debug!("Added ToolCallDetail panel, right dock is now open: {}",
-                       dock_area.is_dock_open(DockPlacement::Right, cx));
+            log::debug!(
+                "Added ToolCallDetail panel, right dock is now open: {}",
+                dock_area.is_dock_open(DockPlacement::Right, cx)
+            );
         });
     }
-    
+
     /// Handle ShowConversationPanel action - display conversation panel
     pub(super) fn on_action_show_conversation_panel(
         &mut self,
@@ -453,14 +449,15 @@ impl DockWorkspace {
 
             // Add image contents - convert schema::ImageContent to agent_client_protocol::ImageContent
             for (image_content, _filename) in images.iter() {
-                let acp_image = acp::ImageContent {
-                    annotations: None,
-                    data: image_content.data.clone(),
-                    mime_type: image_content.mime_type.clone(),
-                    uri: image_content.uri.clone(),
-                    meta: None,
-                };
-                prompt_blocks.push(acp::ContentBlock::Image(acp_image));
+                // let acp_image = acp::ImageContent::new(data, mime_type)
+                // let acp_image = acp::ImageContent {
+                //     annotations: None,
+                //     data: image_content.data.clone(),
+                //     mime_type: image_content.mime_type.clone(),
+                //     uri: image_content.uri.clone(),
+                //     meta: None,
+                // };
+                prompt_blocks.push(acp::ContentBlock::Image(image_content.clone()));
             }
             log::debug!("Built {} content blocks for prompt", prompt_blocks.len());
 

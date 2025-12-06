@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol_schema::{ContentBlock, ContentChunk, SessionUpdate};
+    use agent_client_protocol::{ContentBlock, ContentChunk, SessionUpdate};
 
     #[test]
     fn test_session_update_serialization() {

@@ -12,12 +12,11 @@ pub use app::key_binding;
 #[cfg(test)]
 mod test_mock_data;
 
-
 // Re-export from panels module
 use crate::panels::{DockPanel, DockPanelContainer, DockPanelState};
 pub use panels::{
-    CodeEditorPanel, ConversationPanel, SessionManagerPanel, SettingsPanel,
-    TaskPanel, ToolCallDetailPanel, WelcomePanel,
+    CodeEditorPanel, ConversationPanel, SessionManagerPanel, SettingsPanel, TaskPanel,
+    ToolCallDetailPanel, WelcomePanel,
 };
 
 // Re-export from core module
@@ -43,9 +42,8 @@ pub use app::{
     app_menus, menu, themes, title_bar,
 };
 use gpui::{
-    div, px, size, AnyView, App, AppContext, Bounds, Context, Entity, IntoElement, KeyBinding,
-    ParentElement, Pixels, Render, SharedString, Size, Styled, Window, WindowBounds, WindowKind,
-    WindowOptions,
+    div, px, size, AnyView, App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement,
+    Pixels, Render, SharedString, Size, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 // Re-export from other modules
 pub use menu::UIMenu;
@@ -55,13 +53,13 @@ pub use title_bar::AppTitleBar;
 // Export components
 pub use components::{
     AgentMessage, AgentMessageData, AgentMessageMeta, AgentMessageView, AgentTodoList,
-    AgentTodoListView, ChatInputBox, PermissionOptionData, PermissionOptionKind, PermissionRequest,
-    PermissionRequestView, PlanMeta, ToolCallItem, ToolCallItemView, ToolCallStatusExt,
-    ToolKindExt, UserMessage, UserMessageData, UserMessageView,
+    AgentTodoListView, ChatInputBox, PermissionRequest, PermissionRequestView, PlanMeta,
+    ToolCallItem, ToolCallItemView, ToolCallStatusExt, ToolKindExt, UserMessage, UserMessageData,
+    UserMessageView,
 };
 
 // Re-export ACP types for convenience
-pub use agent_client_protocol_schema::{
+pub use agent_client_protocol::{
     Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, ToolCall, ToolCallContent, ToolCallId,
     ToolCallStatus, ToolKind,
 };
@@ -194,9 +192,8 @@ pub fn init(cx: &mut App) {
     menu::init(cx);
     key_binding::init(cx);
 
-    let http_client = std::sync::Arc::new(
-        reqwest_client::ReqwestClient::user_agent("agentx-studio").unwrap(),
-    );
+    let http_client =
+        std::sync::Arc::new(reqwest_client::ReqwestClient::user_agent("agentx-studio").unwrap());
     cx.set_http_client(http_client);
 
     cx.on_action(|_: &Quit, cx: &mut App| {

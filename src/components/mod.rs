@@ -16,6 +16,4 @@ pub use tool_call_item::{ToolCallItem, ToolCallItemView, ToolCallStatusExt, Tool
 
 pub use user_message::{UserMessage, UserMessageData, UserMessageView};
 
-pub use permission_request::{
-    PermissionOptionData, PermissionOptionKind, PermissionRequest, PermissionRequestView,
-};
+pub use permission_request::{PermissionRequest, PermissionRequestView};

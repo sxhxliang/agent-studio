@@ -3,7 +3,7 @@
 //! 本模块集中管理所有应用中使用的 GPUI Actions，便于维护和查找。
 //! Actions 是 GPUI 中用于触发用户操作的类型安全机制。
 
-use agent_client_protocol_schema::{ImageContent, ToolCall};
+use agent_client_protocol::{ImageContent, ToolCall};
 use gpui::{actions, Action, SharedString};
 use gpui_component::{dock::DockPlacement, scroll::ScrollbarShow, ThemeMode};
 use serde::Deserialize;
@@ -38,7 +38,6 @@ pub struct AddToolCallDetailPanel {
     #[serde(skip, default = "default_dock_placement")]
     pub placement: DockPlacement,
 }
-
 
 /// 添加会话面板
 ///

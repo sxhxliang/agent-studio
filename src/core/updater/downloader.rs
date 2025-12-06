@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
-use tokio::io::AsyncWriteExt;
 
 /// Progress callback for download operations
 pub type ProgressCallback = Box<dyn Fn(u64, u64) + Send + Sync>;
@@ -75,7 +74,7 @@ impl UpdateDownloader {
     /// Extract filename from URL
     fn extract_filename_from_url(url: &str) -> Option<String> {
         url.split('/')
-            .last()
+            .next_back()
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
     }
@@ -108,9 +107,7 @@ mod tests {
     #[test]
     fn test_extract_filename() {
         assert_eq!(
-            UpdateDownloader::extract_filename_from_url(
-                "https://example.com/app-v1.0.0.dmg"
-            ),
+            UpdateDownloader::extract_filename_from_url("https://example.com/app-v1.0.0.dmg"),
             Some("app-v1.0.0.dmg".to_string())
         );
 

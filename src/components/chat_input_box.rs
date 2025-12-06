@@ -14,7 +14,7 @@ use gpui_component::{
     v_flex, ActiveTheme, Disableable, Icon, IconName, Sizable,
 };
 
-use agent_client_protocol_schema::ImageContent;
+use agent_client_protocol::ImageContent;
 
 /// A reusable chat input component with context controls and send button.
 ///
@@ -236,9 +236,10 @@ impl RenderOnce for ChatInputBox {
                             // The callback should handle image detection, we just handle text fallback
                             if let Some(clipboard_item) = cx.read_from_clipboard() {
                                 // Check if there are any images in clipboard
-                                let has_images = clipboard_item.entries().iter().any(|entry| {
-                                    matches!(entry, gpui::ClipboardEntry::Image(_))
-                                });
+                                let has_images = clipboard_item
+                                    .entries()
+                                    .iter()
+                                    .any(|entry| matches!(entry, gpui::ClipboardEntry::Image(_)));
 
                                 // If no images, try to paste text to input
                                 if !has_images {
@@ -259,43 +260,45 @@ impl RenderOnce for ChatInputBox {
                             .w_full()
                             .gap_2()
                             .items_center()
-                            .children(self.pasted_images.iter().enumerate().map(|(idx, (_image, filename))| {
-                                let on_remove = self.on_remove_image.clone();
-                                let idx_clone = idx;
+                            .children(self.pasted_images.iter().enumerate().map(
+                                |(idx, (_image, filename))| {
+                                    let on_remove = self.on_remove_image.clone();
+                                    let idx_clone = idx;
 
-                                h_flex()
-                                    .gap_1()
-                                    .items_center()
-                                    .p_1()
-                                    .px_2()
-                                    .rounded(theme.radius)
-                                    .bg(theme.muted)
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .child(
-                                        Icon::new(IconName::File)
-                                            .size(px(14.))
-                                            .text_color(theme.accent),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(theme.foreground)
-                                            .child(filename.clone()),
-                                    )
-                                    .child(
-                                        Button::new(("remove-image", idx))
-                                            .icon(Icon::new(IconName::Close))
-                                            .ghost()
-                                            .xsmall()
-                                            .when_some(on_remove, |btn, callback| {
-                                                btn.on_click(move |_ev, window, cx| {
-                                                    callback(&idx_clone, window, cx);
-                                                })
-                                            }),
-                                    )
-                                    .into_any_element()
-                            }))
+                                    h_flex()
+                                        .gap_1()
+                                        .items_center()
+                                        .p_1()
+                                        .px_2()
+                                        .rounded(theme.radius)
+                                        .bg(theme.muted)
+                                        .border_1()
+                                        .border_color(theme.border)
+                                        .child(
+                                            Icon::new(IconName::File)
+                                                .size(px(14.))
+                                                .text_color(theme.accent),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(theme.foreground)
+                                                .child(filename.clone()),
+                                        )
+                                        .child(
+                                            Button::new(("remove-image", idx))
+                                                .icon(Icon::new(IconName::Close))
+                                                .ghost()
+                                                .xsmall()
+                                                .when_some(on_remove, |btn, callback| {
+                                                    btn.on_click(move |_ev, window, cx| {
+                                                        callback(&idx_clone, window, cx);
+                                                    })
+                                                }),
+                                        )
+                                        .into_any_element()
+                                },
+                            ))
                             .child(context_element),
                     )
                     .child(

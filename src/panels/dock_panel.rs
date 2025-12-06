@@ -1,4 +1,4 @@
-use agent_client_protocol_schema::ToolCall;
+use agent_client_protocol::ToolCall;
 use gpui::{prelude::FluentBuilder, *};
 use gpui_component::{
     button::Button,
@@ -12,10 +12,10 @@ use gpui_component::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, ToolCallDetailPanel};
-use crate::{ShowPanelInfo, ToggleSearch};
 use crate::panels::conversation::ConversationPanel;
 use crate::panels::welcome_panel::WelcomePanel;
+use crate::{AppState, ToolCallDetailPanel};
+use crate::{ShowPanelInfo, ToggleSearch};
 
 #[derive(IntoElement)]
 pub struct DockPanelSection {
@@ -223,7 +223,6 @@ impl DockPanelContainer {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-
         let name = ToolCallDetailPanel::title();
         let description = ToolCallDetailPanel::description();
         let mut story = ToolCallDetailPanel::new(window, cx);
@@ -231,7 +230,6 @@ impl DockPanelContainer {
         story.set_tool_call(tool_call);
 
         let entity = cx.new(|cx| story);
-        
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
@@ -256,7 +254,6 @@ impl DockPanelContainer {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-
         let name = ConversationPanel::title();
         let description = ConversationPanel::description();
         let story = ConversationPanel::view_for_session(session_id, window, cx);
@@ -286,7 +283,6 @@ impl DockPanelContainer {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-
         let name = WelcomePanel::title();
         let description = WelcomePanel::description();
         let story = WelcomePanel::view_for_workspace(workspace_id, window, cx);

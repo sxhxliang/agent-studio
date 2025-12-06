@@ -1,6 +1,6 @@
 use gpui::{
-    px, App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription, Window,
+    px, App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement,
+    ParentElement, Render, Styled, Subscription, Window,
 };
 
 use gpui_component::{
@@ -10,12 +10,9 @@ use gpui_component::{
     v_flex, ActiveTheme, IndexPath, StyledExt,
 };
 
-use agent_client_protocol_schema::ImageContent;
+use agent_client_protocol::ImageContent;
 
-use crate::{
-    components::ChatInputBox,
-    AppState, CreateTaskFromWelcome, WelcomeSession,
-};
+use crate::{components::ChatInputBox, AppState, CreateTaskFromWelcome, WelcomeSession};
 
 /// Delegate for the context list in the chat input popover
 struct ContextListDelegate {
@@ -599,7 +596,8 @@ impl WelcomePanel {
                                 match std::fs::read(&temp_path) {
                                     Ok(bytes) => {
                                         use base64::Engine;
-                                        let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                        let base64_data = base64::engine::general_purpose::STANDARD
+                                            .encode(&bytes);
 
                                         // Determine MIME type from format
                                         let mime_type = match image.format {
@@ -610,10 +608,12 @@ impl WelcomePanel {
                                             gpui::ImageFormat::Svg => "image/svg+xml",
                                             gpui::ImageFormat::Bmp => "image/bmp",
                                             gpui::ImageFormat::Tiff => "image/tiff",
-                                        }.to_string();
+                                        }
+                                        .to_string();
 
                                         // Create ImageContent
-                                        let image_content = ImageContent::new(base64_data, mime_type);
+                                        let image_content =
+                                            ImageContent::new(base64_data, mime_type);
 
                                         // Add to pasted_images
                                         _ = cx.update(move |_window, cx| {

@@ -68,11 +68,10 @@ impl AgentService {
     pub async fn create_session(&self, agent_name: &str) -> Result<String> {
         let agent_handle = self.get_agent_handle(agent_name)?;
 
-        let request = acp::NewSessionRequest {
-            cwd: std::env::current_dir().unwrap_or_default(),
-            mcp_servers: vec![],
-            meta: None,
-        };
+        let mut request = acp::NewSessionRequest::new(std::env::current_dir().unwrap_or_default());
+        request.cwd = std::env::current_dir().unwrap_or_default();
+        request.mcp_servers = vec![];
+        request.meta = None;
 
         let session_id = agent_handle
             .new_session(request)
@@ -153,11 +152,7 @@ impl AgentService {
     ) -> Result<()> {
         let agent_handle = self.get_agent_handle(agent_name)?;
 
-        let request = acp::PromptRequest {
-            session_id: acp::SessionId::from(session_id.to_string()),
-            prompt,
-            meta: None,
-        };
+        let request = acp::PromptRequest::new(acp::SessionId::from(session_id.to_string()), prompt);
 
         agent_handle
             .prompt(request)

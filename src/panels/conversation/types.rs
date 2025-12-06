@@ -1,4 +1,4 @@
-use agent_client_protocol_schema::{ToolCallStatus, ToolKind};
+use agent_client_protocol::{ToolCallStatus, ToolKind};
 use gpui::SharedString;
 use gpui_component::IconName;
 
@@ -78,18 +78,16 @@ pub struct ResourceInfo {
 }
 
 impl ResourceInfo {
-    pub fn from_content_block(
-        content: &agent_client_protocol_schema::ContentBlock,
-    ) -> Option<Self> {
+    pub fn from_content_block(content: &agent_client_protocol::ContentBlock) -> Option<Self> {
         match content {
-            agent_client_protocol_schema::ContentBlock::ResourceLink(link) => Some(ResourceInfo {
+            agent_client_protocol::ContentBlock::ResourceLink(link) => Some(ResourceInfo {
                 uri: link.uri.clone().into(),
                 name: link.name.clone().into(),
                 mime_type: link.mime_type.clone().map(Into::into),
                 text: None,
             }),
             // TODO: Handle Resource type when schema is clarified
-            // agent_client_protocol_schema::ContentBlock::Resource(res) => { ... }
+            // agent_client_protocol::ContentBlock::Resource(res) => { ... }
             _ => None,
         }
     }

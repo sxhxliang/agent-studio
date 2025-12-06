@@ -1,18 +1,15 @@
 use gpui::{
-    div, prelude::*, px, App, ClipboardEntry, Context, Entity, FocusHandle, Focusable,
-    IntoElement, ParentElement, Render, ScrollHandle, SharedString, Styled, Window,
+    div, prelude::*, px, App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement,
+    ParentElement, Render, ScrollHandle, SharedString, Styled, Window,
 };
 use gpui_component::{
     h_flex, input::InputState, scroll::ScrollableElement, v_flex, ActiveTheme, Icon, IconName,
 };
 
 // Use the published ACP schema crate
-use agent_client_protocol_schema::{SessionUpdate, ImageContent};
+use agent_client_protocol::{ImageContent, SessionUpdate};
 
-use crate::{
-    AgentMessage, AgentTodoList, AppState, ChatInputBox,
-    core::agent::AgentHandle, panels::dock_panel::DockPanel,
-};
+use crate::{panels::dock_panel::DockPanel, AgentMessage, AgentTodoList, AppState, ChatInputBox};
 
 // Import from submodules
 use super::{
@@ -52,10 +49,7 @@ impl ConversationPanel {
 
     /// Create a new panel for a specific session (no mock data)
     pub fn view_for_session(session_id: String, window: &mut Window, cx: &mut App) -> Entity<Self> {
-        log::info!(
-            "🚀 Creating ConversationPanel for session: {}",
-            session_id
-        );
+        log::info!("🚀 Creating ConversationPanel for session: {}", session_id);
         let entity = cx.new(|cx| Self::new_for_session(session_id.clone(), window, cx));
 
         // Load historical messages before subscribing to new updates
@@ -63,10 +57,7 @@ impl ConversationPanel {
 
         Self::subscribe_to_updates(&entity, Some(session_id.clone()), cx);
         Self::subscribe_to_permissions(&entity, Some(session_id.clone()), cx);
-        log::info!(
-            "✅ ConversationPanel created for session: {}",
-            session_id
-        );
+        log::info!("✅ ConversationPanel created for session: {}", session_id);
         entity
     }
 
@@ -465,7 +456,8 @@ impl ConversationPanel {
                 for item in items.iter_mut() {
                     if let RenderedItem::ToolCall(entity) = item {
                         let entity_clone = entity.clone();
-                        let matches = entity_clone.read(cx).tool_call_id() == &tool_call.tool_call_id;
+                        let matches =
+                            entity_clone.read(cx).tool_call_id() == &tool_call.tool_call_id;
 
                         if matches {
                             // Update the existing tool call by replacing it with the new data
@@ -536,7 +528,7 @@ impl ConversationPanel {
                     );
 
                     // Try to convert ToolCallUpdate to ToolCall
-                    match agent_client_protocol_schema::ToolCall::try_from(tool_call_update) {
+                    match agent_client_protocol::ToolCall::try_from(tool_call_update) {
                         Ok(tool_call) => {
                             log::debug!("     ✓ Successfully created ToolCall from update");
                             let entity = cx.new(|_| ToolCallItemState::new(tool_call, false));
@@ -615,7 +607,11 @@ impl ConversationPanel {
     }
 
     /// Create a UserMessage RenderedItem from a ContentChunk
-    fn create_user_message(chunk: agent_client_protocol_schema::ContentChunk, _index: usize, cx: &mut App) -> RenderedItem {
+    fn create_user_message(
+        chunk: agent_client_protocol::ContentChunk,
+        _index: usize,
+        cx: &mut App,
+    ) -> RenderedItem {
         use crate::UserMessageData;
 
         let content_vec = vec![chunk.content.clone()];
@@ -669,7 +665,8 @@ impl ConversationPanel {
                                 match std::fs::read(&temp_path) {
                                     Ok(bytes) => {
                                         use base64::Engine;
-                                        let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                        let base64_data = base64::engine::general_purpose::STANDARD
+                                            .encode(&bytes);
 
                                         // Determine MIME type from format
                                         let mime_type = match image.format {
@@ -680,10 +677,12 @@ impl ConversationPanel {
                                             gpui::ImageFormat::Svg => "image/svg+xml",
                                             gpui::ImageFormat::Bmp => "image/bmp",
                                             gpui::ImageFormat::Tiff => "image/tiff",
-                                        }.to_string();
+                                        }
+                                        .to_string();
 
                                         // Create ImageContent
-                                        let image_content = ImageContent::new(base64_data, mime_type);
+                                        let image_content =
+                                            ImageContent::new(base64_data, mime_type);
 
                                         // Add to pasted_images
                                         _ = cx.update(move |_window, cx| {
@@ -714,7 +713,12 @@ impl ConversationPanel {
     }
 
     /// Send a message to the current session
-    fn send_message(&self, text: String, images: &Vec<(ImageContent, String)>, cx: &mut Context<Self>) {
+    fn send_message(
+        &self,
+        text: String,
+        images: &Vec<(ImageContent, String)>,
+        cx: &mut Context<Self>,
+    ) {
         // Only send if we have a session_id
         let Some(ref session_id) = self.session_id else {
             log::warn!("Cannot send message: no session_id");
@@ -729,7 +733,7 @@ impl ConversationPanel {
         // Spawn async task to send the message
         cx.spawn(async move |_this, cx| {
             // Immediately publish user message to session bus for instant UI feedback
-            use agent_client_protocol_schema as schema;
+            use agent_client_protocol as schema;
             use std::sync::Arc;
 
             // Create user message chunk
@@ -942,41 +946,39 @@ impl Render for ConversationPanel {
                     // .border_t_1()
                     .p_1()
                     // .border_color(cx.theme().border)
-                    .child(
-                        {
-                            let entity = cx.entity().clone();
-                            ChatInputBox::new("chat-input", self.input_state.clone())
-                                .pasted_images(self.pasted_images.clone())
-                                .on_paste(move |window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.handle_paste(window, cx);
+                    .child({
+                        let entity = cx.entity().clone();
+                        ChatInputBox::new("chat-input", self.input_state.clone())
+                            .pasted_images(self.pasted_images.clone())
+                            .on_paste(move |window, cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.handle_paste(window, cx);
+                                });
+                            })
+                            .on_remove_image(cx.listener(|this, idx, _, cx| {
+                                // Remove the image at the given index
+                                if *idx < this.pasted_images.len() {
+                                    this.pasted_images.remove(*idx);
+                                    cx.notify();
+                                }
+                            }))
+                            .on_send(cx.listener(|this, _ev, window, cx| {
+                                let text = this.input_state.read(cx).value().to_string();
+                                if !text.trim().is_empty() || !this.pasted_images.is_empty() {
+                                    // Clear the input
+                                    this.input_state.update(cx, |state, cx| {
+                                        state.set_value(SharedString::from(""), window, cx);
                                     });
-                                })
-                                .on_remove_image(cx.listener(|this, idx, _, cx| {
-                                    // Remove the image at the given index
-                                    if *idx < this.pasted_images.len() {
-                                        this.pasted_images.remove(*idx);
-                                        cx.notify();
-                                    }
-                                }))
-                                .on_send(cx.listener(|this, _ev, window, cx| {
-                                    let text = this.input_state.read(cx).value().to_string();
-                                    if !text.trim().is_empty() || !this.pasted_images.is_empty() {
-                                        // Clear the input
-                                        this.input_state.update(cx, |state, cx| {
-                                            state.set_value(SharedString::from(""), window, cx);
-                                        });
 
-                                        // Send the message with images if any
-                                        this.send_message(text, &this.pasted_images, cx);
+                                    // Send the message with images if any
+                                    this.send_message(text, &this.pasted_images, cx);
 
-                                        // Clear pasted images after sending
-                                        this.pasted_images.clear();
-                                        cx.notify();
-                                    }
-                                }))
-                        },
-                    ),
+                                    // Clear pasted images after sending
+                                    this.pasted_images.clear();
+                                    cx.notify();
+                                }
+                            }))
+                    }),
             )
     }
 }

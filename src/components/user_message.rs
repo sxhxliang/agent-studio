@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, Render, RenderOnce, SharedString, Styled, Window,
 };
 
-use agent_client_protocol_schema::{
+use agent_client_protocol::{
     ContentBlock, EmbeddedResource, EmbeddedResourceResource, ResourceLink, SessionId,
     TextResourceContents,
 };

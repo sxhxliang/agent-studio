@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Window,
 };
 
-use agent_client_protocol_schema::{ToolCall, ToolCallContent, ToolCallStatus, ToolKind};
+use agent_client_protocol::{ToolCall, ToolCallContent, ToolCallStatus, ToolKind};
 use gpui_component::{
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
@@ -53,7 +53,7 @@ impl ToolCallStatusExt for ToolCallStatus {
 fn extract_text_from_content(content: &ToolCallContent) -> Option<String> {
     match content {
         ToolCallContent::Content(c) => match &c.content {
-            agent_client_protocol_schema::ContentBlock::Text(text) => Some(text.text.clone()),
+            agent_client_protocol::ContentBlock::Text(text) => Some(text.text.clone()),
             _ => None,
         },
         ToolCallContent::Diff(diff) => Some(format!(

@@ -1,8 +1,7 @@
 /// UI Components for ConversationPanel
-
 use gpui::{
-    div, prelude::*, px, Context, Entity, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    div, prelude::*, px, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -10,13 +9,11 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
 
-use agent_client_protocol_schema::{
-    ContentBlock, ToolCall, ToolCallContent, ToolCallStatus,
-};
+use agent_client_protocol::{ContentBlock, ToolCall, ToolCallContent, ToolCallStatus};
 
-use crate::{ShowToolCallDetail, UserMessageData};
-use super::types::{get_file_icon, ResourceInfo, ToolCallStatusExt, ToolKindExt};
 use super::helpers::extract_xml_content;
+use super::types::{get_file_icon, ResourceInfo, ToolCallStatusExt, ToolKindExt};
+use crate::{ShowToolCallDetail, UserMessageData};
 
 // ============================================================================
 // Stateful Resource Item
@@ -158,7 +155,7 @@ impl ToolCallItemState {
     /// Update this tool call with fields from a ToolCallUpdate
     pub fn apply_update(
         &mut self,
-        update_fields: agent_client_protocol_schema::ToolCallUpdateFields,
+        update_fields: agent_client_protocol::ToolCallUpdateFields,
         cx: &mut Context<Self>,
     ) {
         log::debug!("Applying update to tool call: {:?}", update_fields);
@@ -179,7 +176,7 @@ impl ToolCallItemState {
     }
 
     /// Get the tool call ID for matching updates
-    pub fn tool_call_id(&self) -> &agent_client_protocol_schema::ToolCallId {
+    pub fn tool_call_id(&self) -> &agent_client_protocol::ToolCallId {
         &self.tool_call.tool_call_id
     }
 
@@ -187,7 +184,7 @@ impl ToolCallItemState {
     /// For Read tools, formats as: filename#L<offset>-<offset+limit>
     /// For other tools, returns the original title
     fn get_display_title(&self) -> String {
-        use agent_client_protocol_schema::ToolKind;
+        use agent_client_protocol::ToolKind;
 
         // Only format Read tool calls
         if !matches!(self.tool_call.kind, ToolKind::Read) {
@@ -207,14 +204,8 @@ impl ToolCallItemState {
             if let Some(raw_input) = self.tool_call.raw_input.as_ref() {
                 // raw_input is a serde_json::Value, so we need to parse it as an object
                 if let Some(raw_obj) = raw_input.as_object() {
-                    let offset = raw_obj
-                        .get("offset")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(1);
-                    let limit = raw_obj
-                        .get("limit")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(100);
+                    let offset = raw_obj.get("offset").and_then(|v| v.as_i64()).unwrap_or(1);
+                    let limit = raw_obj.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
 
                     let end_line = offset + limit - 1;
                     return format!("Read ({}#L{}-L{})", filename, offset, end_line);
@@ -222,7 +213,7 @@ impl ToolCallItemState {
             }
 
             // If we have location but no line info, just return filename
-            return format!("{}", filename);
+            return filename.to_string();
         }
 
         // Fallback to original title
