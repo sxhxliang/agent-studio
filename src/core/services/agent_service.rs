@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use agent_client_protocol as acp;
+use agent_client_protocol::{self as acp, PromptResponse};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 
@@ -149,12 +149,12 @@ impl AgentService {
         agent_name: &str,
         session_id: &str,
         prompt: Vec<acp::ContentBlock>,
-    ) -> Result<()> {
+    ) -> Result<PromptResponse> {
         let agent_handle = self.get_agent_handle(agent_name)?;
 
         let request = acp::PromptRequest::new(acp::SessionId::from(session_id.to_string()), prompt);
 
-        agent_handle
+        let result = agent_handle
             .prompt(request)
             .await
             .map_err(|e| anyhow!("Failed to send prompt: {}", e))?;
@@ -163,7 +163,7 @@ impl AgentService {
         self.update_session_activity(agent_name, session_id);
 
         log::debug!("Sent prompt to agent {} session {}", agent_name, session_id);
-        Ok(())
+        Ok(result)
     }
 
     // ========== Cleanup Operations ==========

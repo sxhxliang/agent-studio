@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use agent_client_protocol::{ContentBlock, ContentChunk, ImageContent, SessionUpdate, TextContent};
+use agent_client_protocol::{ContentBlock, ContentChunk, ImageContent, PromptResponse, SessionUpdate, TextContent};
 use anyhow::{anyhow, Result};
 
 use crate::core::event_bus::session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
@@ -75,7 +75,7 @@ impl MessageService {
         agent_name: &str,
         session_id: &str,
         content_blocks: Vec<ContentBlock>,
-    ) -> Result<()> {
+    ) -> Result<PromptResponse> {
         // 1. Verify session exists
         if self
             .agent_service
@@ -91,12 +91,12 @@ impl MessageService {
         }
 
         // 3. Send prompt to agent
-        self.agent_service
+        let result =  self.agent_service
             .send_prompt(agent_name, session_id, content_blocks)
             .await
             .map_err(|e| anyhow!("Failed to send message: {}", e))?;
 
-        Ok(())
+        Ok(result)
     }
 
     /// Publish a user message to the event bus (immediate UI feedback)

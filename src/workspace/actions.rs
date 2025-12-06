@@ -449,14 +449,6 @@ impl DockWorkspace {
 
             // Add image contents - convert schema::ImageContent to agent_client_protocol::ImageContent
             for (image_content, _filename) in images.iter() {
-                // let acp_image = acp::ImageContent::new(data, mime_type)
-                // let acp_image = acp::ImageContent {
-                //     annotations: None,
-                //     data: image_content.data.clone(),
-                //     mime_type: image_content.mime_type.clone(),
-                //     uri: image_content.uri.clone(),
-                //     meta: None,
-                // };
                 prompt_blocks.push(acp::ContentBlock::Image(image_content.clone()));
             }
             log::debug!("Built {} content blocks for prompt", prompt_blocks.len());
@@ -466,10 +458,10 @@ impl DockWorkspace {
                 .send_message_to_session(&agent_name, &session_id_for_send, prompt_blocks)
                 .await
             {
-                Ok(_) => {
+                Ok(response) => {
                     log::info!(
-                        "Message sent successfully to session {}",
-                        session_id_for_send
+                        "Message sent successfully to session {}, Response: {:?}",
+                        session_id_for_send, response
                     );
                 }
                 Err(e) => {

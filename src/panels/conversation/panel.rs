@@ -1,6 +1,5 @@
 use gpui::{
-    div, prelude::*, px, App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, Styled, Window,
+    App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render, ScrollHandle, SharedString, Styled, Window, div, http_client::http::response, prelude::*, px
 };
 use gpui_component::{
     h_flex, input::InputState, scroll::ScrollableElement, v_flex, ActiveTheme, Icon, IconName,
@@ -780,7 +779,7 @@ impl ConversationPanel {
                     PromptRequest::new(SessionId::from(session_id.to_string()), prompt_blocks);
 
                 match agent_handle.prompt(request).await {
-                    Ok(_) => {
+                    Ok(response) => {
                         log::info!("Prompt sent successfully to session: {}", session_id);
                     }
                     Err(e) => {
