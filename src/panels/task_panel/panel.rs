@@ -20,10 +20,10 @@ use gpui_component::{
 };
 use std::rc::Rc;
 
-use crate::core::event_bus::WorkspaceUpdateEvent;
 use crate::core::services::WorkspaceService;
+use crate::core::{event_bus::WorkspaceUpdateEvent, services::SessionStatus};
 use crate::panels::dock_panel::DockPanel;
-use crate::schemas::workspace_schema::{TaskStatus, WorkspaceTask};
+use crate::schemas::workspace_schema::WorkspaceTask;
 use crate::{utils, AppState, ShowConversationPanel, ShowWelcomePanel};
 
 // ============================================================================
@@ -960,33 +960,42 @@ impl TaskPanel {
     // Render - Status helpers
     // ========================================================================
 
-    fn render_status_badge(&self, status: &TaskStatus, cx: &Context<Self>) -> impl IntoElement {
+    fn render_status_badge(&self, status: &SessionStatus, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (label, color) = match status {
-            TaskStatus::Pending => ("等待中", theme.muted_foreground),
-            TaskStatus::InProgress => ("进行中", gpui::rgb(0x22c55e).into()),
-            TaskStatus::Completed => ("已完成", gpui::rgb(0x22c55e).into()),
-            TaskStatus::Failed => ("失败", gpui::rgb(0xef4444).into()),
+            SessionStatus::Active => ("待输入", theme.muted_foreground),
+            SessionStatus::Idle => ("等待中", theme.muted_foreground),
+            SessionStatus::Pending => ("进行中", theme.muted_foreground),
+            SessionStatus::InProgress => ("进行中", gpui::rgb(0x22c55e).into()),
+            SessionStatus::Completed => ("已完成", gpui::rgb(0x22c55e).into()),
+            SessionStatus::Failed => ("失败", gpui::rgb(0xef4444).into()),
+            SessionStatus::Closed => ("关闭", gpui::rgb(0xef4444).into()),
         };
 
         div().text_xs().text_color(color).child(label)
     }
 
-    fn status_icon(&self, status: &TaskStatus) -> IconName {
+    fn status_icon(&self, status: &SessionStatus) -> IconName {
         match status {
-            TaskStatus::Pending => IconName::Asterisk,
-            TaskStatus::InProgress => IconName::Loader,
-            TaskStatus::Completed => IconName::CircleCheck,
-            TaskStatus::Failed => IconName::CircleX,
+            SessionStatus::Active => IconName::Asterisk,
+            SessionStatus::Idle => IconName::Asterisk,
+            SessionStatus::Pending => IconName::Asterisk,
+            SessionStatus::InProgress => IconName::Loader,
+            SessionStatus::Completed => IconName::CircleCheck,
+            SessionStatus::Failed => IconName::CircleX,
+            SessionStatus::Closed => IconName::CircleX,
         }
     }
 
-    fn status_color(&self, status: &TaskStatus) -> gpui::Hsla {
+    fn status_color(&self, status: &SessionStatus) -> gpui::Hsla {
         match status {
-            TaskStatus::Pending => gpui::rgb(0x6b7280).into(),
-            TaskStatus::InProgress => gpui::rgb(0x3b82f6).into(),
-            TaskStatus::Completed => gpui::rgb(0x22c55e).into(),
-            TaskStatus::Failed => gpui::rgb(0xef4444).into(),
+            SessionStatus::Active => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Idle => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Pending => gpui::rgb(0x6b7280).into(),
+            SessionStatus::InProgress => gpui::rgb(0x3b82f6).into(),
+            SessionStatus::Completed => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Failed => gpui::rgb(0xef4444).into(),
+            SessionStatus::Closed => gpui::rgb(0xef4444).into(),
         }
     }
 }

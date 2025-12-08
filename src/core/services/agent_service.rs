@@ -13,6 +13,7 @@ use std::{
 use agent_client_protocol::{self as acp, PromptResponse};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::core::agent::{AgentHandle, AgentManager};
 use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
@@ -36,13 +37,16 @@ pub struct AgentSessionInfo {
     pub status: SessionStatus,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum SessionStatus {
+    #[default]
     Active,
     Idle,
     InProgress,
     Pending,
+    Completed,
     Closed,
+    Failed,
 }
 
 impl AgentService {
@@ -197,7 +201,7 @@ impl AgentService {
             .await
             .map_err(|e| anyhow!("Failed to send prompt: {}", e))?;
 
-        self.update_session_status(agent_name, session_id, SessionStatus::Pending);
+        self.update_session_status(agent_name, session_id, SessionStatus::Completed);
         // Update activity time
         self.update_session_activity(agent_name, session_id);
 

@@ -894,6 +894,8 @@ impl ConversationPanel {
             SessionStatus::Pending => (IconName::LoaderCircle, cx.theme().warning),
             SessionStatus::Idle => (IconName::Moon, cx.theme().muted_foreground),
             SessionStatus::Closed => (IconName::CircleX, cx.theme().red),
+            SessionStatus::Completed => (IconName::CircleCheck, cx.theme().success),
+            SessionStatus::Failed => (IconName::CircleX, cx.theme().red),
         };
 
         let status_text = format!("{:?}", status_info.status);

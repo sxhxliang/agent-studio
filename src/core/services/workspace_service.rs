@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::core::event_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
-use crate::schemas::workspace_schema::{TaskStatus, Workspace, WorkspaceConfig, WorkspaceTask};
+use crate::core::services::SessionStatus;
+use crate::schemas::workspace_schema::{Workspace, WorkspaceConfig, WorkspaceTask};
 
 /// Service for managing workspaces and tasks
 ///
@@ -251,7 +252,7 @@ impl WorkspaceService {
     }
 
     /// Update task status
-    pub async fn update_task_status(&self, task_id: &str, status: TaskStatus) -> Result<()> {
+    pub async fn update_task_status(&self, task_id: &str, status: SessionStatus) -> Result<()> {
         {
             let mut config = self.config.write().await;
 

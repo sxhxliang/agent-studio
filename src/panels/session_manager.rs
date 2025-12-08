@@ -176,8 +176,10 @@ impl SessionManagerPanel {
         let theme = cx.theme();
         match status {
             SessionStatus::Active => theme.success,
+            SessionStatus::Completed => theme.success,
             SessionStatus::Idle => theme.warning,
             SessionStatus::Closed => theme.muted,
+            SessionStatus::Failed => theme.muted,
             SessionStatus::InProgress => theme.info,
             SessionStatus::Pending => theme.info,
         }
@@ -190,6 +192,8 @@ impl SessionManagerPanel {
             SessionStatus::Idle => "Idle",
             SessionStatus::Closed => "Closed",
             SessionStatus::InProgress => "InProgress",
+            SessionStatus::Completed => "Completed",
+            SessionStatus::Failed => "Failed",
             SessionStatus::Pending => "Pending",
         }
     }
