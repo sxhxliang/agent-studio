@@ -7,10 +7,12 @@ use gpui_component::{
 
 // Use the published ACP schema crate
 use agent_client_protocol::{ContentChunk, ImageContent, SessionUpdate, ToolCall};
+use chrono::{DateTime, Utc};
 
 use crate::{
     app::actions::AddCodeSelection, panels::dock_panel::DockPanel, AgentMessage, AgentTodoList,
     AppState, ChatInputBox, SendMessageToSession,
+    core::services::SessionStatus,
 };
 
 // Import from submodules
@@ -20,6 +22,15 @@ use super::{
     rendered_item::{create_agent_message_data, RenderedItem},
     types::ResourceInfo,
 };
+
+/// Session status information for display
+#[derive(Clone, Debug)]
+pub struct SessionStatusInfo {
+    pub agent_name: String,
+    pub status: SessionStatus,
+    pub last_active: DateTime<Utc>,
+    pub message_count: usize,
+}
 
 /// Conversation panel that displays SessionUpdate messages from ACP
 pub struct ConversationPanel {
@@ -38,6 +49,8 @@ pub struct ConversationPanel {
     pasted_images: Vec<(ImageContent, String)>,
     /// List of code selections from editor
     code_selections: Vec<AddCodeSelection>,
+    /// Session status information for display
+    session_status: Option<SessionStatusInfo>,
 }
 
 impl ConversationPanel {
@@ -63,6 +76,7 @@ impl ConversationPanel {
         Self::subscribe_to_updates(&entity, Some(session_id.clone()), cx);
         Self::subscribe_to_permissions(&entity, Some(session_id.clone()), cx);
         Self::subscribe_to_code_selections(&entity, cx);
+        Self::subscribe_to_status_updates(&entity, Some(session_id.clone()), cx);
         log::info!("✅ ConversationPanel created for session: {}", session_id);
         entity
     }
@@ -95,6 +109,7 @@ impl ConversationPanel {
             input_state,
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
+            session_status: None,
         }
     }
 
@@ -121,6 +136,7 @@ impl ConversationPanel {
             input_state,
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
+            session_status: None,
         }
     }
 
@@ -394,6 +410,100 @@ impl ConversationPanel {
                 cx.notify();
             },
             cx,
+        );
+    }
+
+    /// Subscribe to WorkspaceUpdateBus to receive session status updates
+    pub fn subscribe_to_status_updates(
+        entity: &Entity<Self>,
+        session_filter: Option<String>,
+        cx: &mut App,
+    ) {
+        let weak_entity = entity.downgrade();
+        let workspace_bus = AppState::global(cx).workspace_bus.clone();
+
+        // Create unbounded channel for cross-thread communication
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<
+            crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent,
+        >();
+
+        let filter_log = session_filter.clone();
+        let filter_log2 = session_filter.clone();
+        let filter_log3 = session_filter.clone();
+
+        // Subscribe to workspace bus, send status updates to channel in callback
+        workspace_bus.lock().unwrap().subscribe(move |event| {
+            // Only handle SessionStatusUpdated events
+            if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } = event {
+                // Filter by session_id if specified
+                if let Some(ref filter_id) = session_filter {
+                    if session_id != filter_id {
+                        return; // Skip this status update
+                    }
+                }
+
+                // Send to channel
+                let _ = tx.send(event.clone());
+                log::debug!(
+                    "Session status update sent to channel: session_id={}",
+                    session_id
+                );
+            }
+        });
+
+        // Spawn background task to receive from channel and update entity
+        cx.spawn(async move |cx| {
+            log::info!(
+                "Starting status update background task for session: {}",
+                filter_log2.as_deref().unwrap_or("all")
+            );
+            while let Some(event) = rx.recv().await {
+                if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated {
+                    session_id,
+                    agent_name,
+                    status,
+                    last_active,
+                    message_count,
+                } = event
+                {
+                    log::debug!(
+                        "Status update background task received for session: {}",
+                        session_id
+                    );
+                    let weak = weak_entity.clone();
+                    let _ = cx.update(|cx| {
+                        if let Some(entity) = weak.upgrade() {
+                            entity.update(cx, |this, cx| {
+                                log::debug!(
+                                    "Processing session status update: session_id={}, status={:?}",
+                                    session_id,
+                                    status
+                                );
+                                // Update session status
+                                this.session_status = Some(SessionStatusInfo {
+                                    agent_name,
+                                    status,
+                                    last_active,
+                                    message_count,
+                                });
+                                cx.notify(); // Trigger re-render
+                            });
+                        } else {
+                            log::warn!("Entity dropped, skipping status update");
+                        }
+                    });
+                }
+            }
+            log::info!(
+                "Status update background task ended for session: {}",
+                filter_log.as_deref().unwrap_or("all")
+            );
+        })
+        .detach();
+
+        log::info!(
+            "Subscribed to workspace bus for status updates: {}",
+            filter_log3.as_deref().unwrap_or("all sessions")
         );
     }
 
@@ -756,6 +866,127 @@ impl ConversationPanel {
 
         window.dispatch_action(Box::new(action), cx);
     }
+
+    /// Render the status bar at the bottom of the conversation panel
+    fn render_status_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let status_info = self.session_status.as_ref()?;
+
+        // Format last active time
+        let now = chrono::Utc::now();
+        let duration = now.signed_duration_since(status_info.last_active);
+        let time_str = if duration.num_seconds() < 60 {
+            "just now".to_string()
+        } else if duration.num_minutes() < 60 {
+            format!("{}m ago", duration.num_minutes())
+        } else if duration.num_hours() < 24 {
+            format!("{}h ago", duration.num_hours())
+        } else {
+            format!("{}d ago", duration.num_days())
+        };
+
+        // Status icon and color based on session status
+        let (status_icon, status_color) = match status_info.status {
+            SessionStatus::Active => (IconName::CircleCheck, cx.theme().success),
+            SessionStatus::InProgress => (IconName::Loader, cx.theme().primary),
+            SessionStatus::Pending => (IconName::LoaderCircle, cx.theme().warning),
+            SessionStatus::Idle => (IconName::Moon, cx.theme().muted_foreground),
+            SessionStatus::Closed => (IconName::CircleX, cx.theme().red),
+        };
+
+        let status_text = format!("{:?}", status_info.status);
+
+        Some(
+            div()
+                .flex_none()
+                .w_full()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().muted.opacity(0.3))
+                .px_4()
+                .py_2()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .child(
+                            // Left side: agent name and status
+                            h_flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            Icon::new(IconName::Bot)
+                                                .size(px(14.))
+                                                .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_weight(gpui::FontWeight::MEDIUM)
+                                                .text_color(cx.theme().foreground)
+                                                .child(status_info.agent_name.clone()),
+                                        ),
+                                )
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(Icon::new(status_icon).size(px(12.)).text_color(status_color))
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(status_color)
+                                                .child(status_text),
+                                        ),
+                                ),
+                        )
+                        .child(
+                            // Right side: last active time and message count
+                            h_flex()
+                                .items_center()
+                                .gap_4()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(
+                                            Icon::new(IconName::Info)
+                                                .size(px(12.))
+                                                .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(time_str),
+                                        ),
+                                )
+                                .when(status_info.message_count > 0, |this| {
+                                    this.child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                Icon::new(IconName::File)
+                                                    .size(px(12.))
+                                                    .text_color(cx.theme().muted_foreground),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(format!("{}", status_info.message_count)),
+                                            ),
+                                    )
+                                }),
+                        ),
+                ),
+        )
+    }
 }
 
 impl DockPanel for ConversationPanel {
@@ -888,6 +1119,9 @@ impl Render for ConversationPanel {
                     .pb_3() // Add padding at bottom so messages don't get hidden behind input box
                     .child(children),
             )
+            .when_some(self.render_status_bar(cx), |this, status_bar| {
+                this.child(status_bar)
+            })
             .child(
                 // Chat input box at bottom (fixed, not scrollable)
                 div()

@@ -261,6 +261,10 @@ impl TaskPanel {
                 WorkspaceUpdateEvent::TaskUpdated { task_id } => {
                     log::debug!("TaskPanel received TaskUpdated: {}", task_id);
                 }
+                WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } => {
+                    log::debug!("TaskPanel received SessionStatusUpdated: {}", session_id);
+                    // TaskPanel doesn't need to react to session status updates
+                }
             });
     }
 

@@ -178,6 +178,8 @@ impl SessionManagerPanel {
             SessionStatus::Active => theme.success,
             SessionStatus::Idle => theme.warning,
             SessionStatus::Closed => theme.muted,
+            SessionStatus::InProgress => theme.info,
+            SessionStatus::Pending => theme.info,
         }
     }
 
@@ -187,6 +189,8 @@ impl SessionManagerPanel {
             SessionStatus::Active => "Active",
             SessionStatus::Idle => "Idle",
             SessionStatus::Closed => "Closed",
+            SessionStatus::InProgress => "InProgress",
+            SessionStatus::Pending => "Pending",
         }
     }
 }

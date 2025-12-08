@@ -100,7 +100,10 @@ impl AppState {
         };
 
         // Initialize services when agent_manager is set
-        let agent_service = Arc::new(AgentService::new(manager.clone()));
+        let mut agent_service = AgentService::new(manager.clone());
+        agent_service.set_workspace_bus(self.workspace_bus.clone());
+        let agent_service = Arc::new(agent_service);
+
         let persistence_service = Arc::new(PersistenceService::new(sessions_dir));
         let message_service = Arc::new(MessageService::new(
             self.session_bus.clone(),

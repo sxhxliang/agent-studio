@@ -15,12 +15,15 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 
 use crate::core::agent::{AgentHandle, AgentManager};
+use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
 
 /// Agent service - manages agents and their sessions
 pub struct AgentService {
     agent_manager: Arc<AgentManager>,
     /// Stores agent -> (session_id -> session_info) mapping (multiple sessions per agent)
     sessions: Arc<RwLock<HashMap<String, HashMap<String, AgentSessionInfo>>>>,
+    /// Workspace event bus for publishing status updates
+    workspace_bus: Option<WorkspaceUpdateBusContainer>,
 }
 
 /// Agent session information
@@ -37,6 +40,8 @@ pub struct AgentSessionInfo {
 pub enum SessionStatus {
     Active,
     Idle,
+    InProgress,
+    Pending,
     Closed,
 }
 
@@ -45,7 +50,14 @@ impl AgentService {
         Self {
             agent_manager,
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            workspace_bus: None,
         }
+    }
+
+    /// Set the workspace event bus for publishing status updates
+    pub fn set_workspace_bus(&mut self, bus: WorkspaceUpdateBusContainer) {
+        log::info!("AgentService: Setting workspace event bus");
+        self.workspace_bus = Some(bus);
     }
 
     // ========== Agent Operations ==========
@@ -140,6 +152,27 @@ impl AgentService {
             }
         }
     }
+    pub fn update_session_status(&self, agent_name: &str, session_id: &str, status: SessionStatus) {
+        if let Some(agent_sessions) = self.sessions.write().unwrap().get_mut(agent_name) {
+            if let Some(info) = agent_sessions.get_mut(session_id) {
+                log::info!("Updating session status for {}:{} to {:?}", agent_name, session_id, &status);
+                info.status = status.clone();
+
+                // Publish status update to workspace bus
+                if let Some(ref workspace_bus) = self.workspace_bus {
+                    let event = WorkspaceUpdateEvent::SessionStatusUpdated {
+                        session_id: session_id.to_string(),
+                        agent_name: agent_name.to_string(),
+                        status,
+                        last_active: info.last_active,
+                        message_count: 0, // TODO: Track actual message count
+                    };
+                    workspace_bus.lock().unwrap().publish(event);
+                    log::debug!("Published session status update to workspace bus");
+                }
+            }
+        }
+    }
 
     // ========== Prompt Operations ==========
 
@@ -151,7 +184,7 @@ impl AgentService {
         prompt: Vec<acp::ContentBlock>,
     ) -> Result<PromptResponse> {
         let agent_handle = self.get_agent_handle(agent_name)?;
-
+        self.update_session_status(agent_name, session_id, SessionStatus::InProgress);
         let request = acp::PromptRequest::new(acp::SessionId::from(session_id.to_string()), prompt);
 
         let result = agent_handle
@@ -159,6 +192,7 @@ impl AgentService {
             .await
             .map_err(|e| anyhow!("Failed to send prompt: {}", e))?;
 
+        self.update_session_status(agent_name, session_id, SessionStatus::Pending);
         // Update activity time
         self.update_session_activity(agent_name, session_id);
 

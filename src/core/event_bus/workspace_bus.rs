@@ -1,5 +1,9 @@
 use std::sync::{Arc, Mutex};
 
+use chrono::{DateTime, Utc};
+
+use crate::core::services::SessionStatus;
+
 /// Workspace update events
 #[derive(Clone, Debug)]
 pub enum WorkspaceUpdateEvent {
@@ -14,6 +18,14 @@ pub enum WorkspaceUpdateEvent {
     WorkspaceAdded { workspace_id: String },
     /// A workspace was removed
     WorkspaceRemoved { workspace_id: String },
+    /// A session status was updated
+    SessionStatusUpdated {
+        session_id: String,
+        agent_name: String,
+        status: SessionStatus,
+        last_active: DateTime<Utc>,
+        message_count: usize,
+    },
 }
 
 /// Event bus for workspace updates
