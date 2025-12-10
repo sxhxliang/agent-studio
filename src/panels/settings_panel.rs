@@ -135,15 +135,14 @@ impl SettingsPanel {
         cx.new(|cx| Self::new(window, cx))
     }
 
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.set_global::<AppSettings>(AppSettings::default());
 
         // Initialize with empty state - will be loaded async
-        // Agent configs will be loaded when the page is rendered
         let agent_configs = HashMap::new();
         let upload_dir = String::new();
 
-        Self {
+        let panel = Self {
             focus_handle: cx.focus_handle(),
             group_variant: GroupBoxVariant::Outline,
             size: Size::default(),
@@ -151,6 +150,84 @@ impl SettingsPanel {
             update_manager: UpdateManager::default(),
             agent_configs,
             upload_dir,
+        };
+
+        // Load agent configs asynchronously
+        let weak_entity = cx.entity().downgrade();
+        if let Some(service) = AppState::global(cx).agent_config_service() {
+            let service = service.clone();
+            cx.spawn_in(window, async move |_this, window| {
+                let agents = service.list_agents().await;
+                let upload_dir = service.get_upload_dir().await;
+
+                _ = window.update(|_window, cx| {
+                    if let Some(entity) = weak_entity.upgrade() {
+                        entity.update(cx, |this, cx| {
+                            this.agent_configs = agents.into_iter().collect();
+                            this.upload_dir = upload_dir.to_string_lossy().to_string();
+                            cx.notify();
+                        });
+                    }
+                });
+            }).detach();
+        }
+
+        // Subscribe to AgentConfigBus for dynamic updates
+        let agent_config_bus = AppState::global(cx).agent_config_bus.clone();
+        let weak_entity = cx.entity().downgrade();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        agent_config_bus.subscribe(move |event| {
+            let _ = tx.send(event.clone());
+        });
+
+        cx.spawn_in(window, async move |_this, window| {
+            while let Some(event) = rx.recv().await {
+                if let Some(entity) = weak_entity.upgrade() {
+                    _ = window.update(|_window, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.on_agent_config_event(&event, cx);
+                        });
+                    });
+                } else {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        panel
+    }
+
+    /// Handle agent configuration events
+    fn on_agent_config_event(
+        &mut self,
+        event: &crate::core::event_bus::agent_config_bus::AgentConfigEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::core::event_bus::agent_config_bus::AgentConfigEvent;
+
+        log::info!("[SettingsPanel] Received agent config event: {:?}", event);
+
+        // Reload all configs from service asynchronously
+        if let Some(service) = AppState::global(cx).agent_config_service() {
+            let service = service.clone();
+            let weak_entity = cx.entity().downgrade();
+
+            cx.spawn(async move |_entity, cx| {
+                let agents = service.list_agents().await;
+                let upload_dir = service.get_upload_dir().await;
+
+                _ = cx.update(|cx| {
+                    if let Some(entity) = weak_entity.upgrade() {
+                        entity.update(cx, |this, cx| {
+                            this.agent_configs = agents.into_iter().collect();
+                            this.upload_dir = upload_dir.to_string_lossy().to_string();
+                            cx.notify();
+                        });
+                    }
+                });
+            }).detach();
         }
     }
 
@@ -600,31 +677,66 @@ impl SettingsPanel {
                         .title("Configured Agents")
                         .item(SettingItem::render({
                             let view = view.clone();
-                            move |_options, _window, cx| {
+                            move |_options, window, cx| {
                                 let agent_configs = view.read(cx).agent_configs.clone();
 
-                                if agent_configs.is_empty() {
-                                    return v_flex()
-                                        .w_full()
-                                        .p_4()
-                                        .items_center()
-                                        .child(
-                                            Label::new("No agents configured. Please edit config.json to add agents.")
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground)
-                                        )
-                                        .into_any();
-                                }
-
-                                v_flex()
+                                let mut content = v_flex()
                                     .w_full()
-                                    .gap_2()
-                                    .children(agent_configs.iter().enumerate().map(|(idx, (name, config))| {
-                                        let mut details = v_flex()
+                                    .gap_3()
+                                    .child(
+                                        // Add New Agent button
+                                        h_flex()
+                                            .w_full()
+                                            .justify_end()
+                                            .child(
+                                                Button::new("add-agent-btn")
+                                                    .label("Add New Agent")
+                                                    .icon(IconName::Plus)
+                                                    .small()
+                                                    .on_click({
+                                                        move |_, window, cx| {
+                                                            // TODO: Show add agent dialog
+                                                            log::info!("Add new agent clicked");
+                                                            // For now, dispatch a sample action
+                                                            window.dispatch_action(
+                                                                Box::new(crate::AddAgent {
+                                                                    name: "new-agent".to_string(),
+                                                                    command: "python".to_string(),
+                                                                    args: vec![],
+                                                                    env: std::collections::HashMap::new(),
+                                                                }),
+                                                                cx
+                                                            );
+                                                        }
+                                                    })
+                                            )
+                                    );
+
+                                if agent_configs.is_empty() {
+                                    content = content.child(
+                                        h_flex()
+                                            .w_full()
+                                            .p_4()
+                                            .justify_center()
+                                            .child(
+                                                Label::new("No agents configured. Click 'Add New Agent' to get started.")
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                            )
+                                    );
+                                } else {
+                                    for (idx, (name, config)) in agent_configs.iter().enumerate() {
+                                        let name_clone = name.clone();
+                                        let name_for_restart = name.clone();
+                                        let name_for_remove = name.clone();
+
+                                        let mut agent_info = v_flex()
+                                            .flex_1()
                                             .gap_1()
                                             .child(
                                                 Label::new(name.clone())
                                                     .text_sm()
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
                                             )
                                             .child(
                                                 Label::new(format!("Command: {}", config.command))
@@ -632,42 +744,77 @@ impl SettingsPanel {
                                                     .text_color(cx.theme().muted_foreground)
                                             );
 
-                                        // Add args if not empty
                                         if !config.args.is_empty() {
-                                            details = details.child(
+                                            agent_info = agent_info.child(
                                                 Label::new(format!("Args: {}", config.args.join(" ")))
                                                     .text_xs()
                                                     .text_color(cx.theme().muted_foreground)
                                             );
                                         }
 
-                                        h_flex()
-                                            .w_full()
-                                            .items_center()
-                                            .justify_between()
-                                            .p_2()
-                                            .rounded(px(4.))
-                                            .bg(cx.theme().secondary)
-                                            .child(details)
-                                            .child(
-                                                Label::new(format!("Agent {}/{}", idx + 1, agent_configs.len()))
+                                        if !config.env.is_empty() {
+                                            agent_info = agent_info.child(
+                                                Label::new(format!("Env vars: {} defined", config.env.len()))
                                                     .text_xs()
                                                     .text_color(cx.theme().muted_foreground)
-                                            )
-                                    }))
-                                    .child(
-                                        h_flex()
-                                            .w_full()
-                                            .justify_center()
-                                            .p_2()
-                                            .mt_2()
-                                            .child(
-                                                Label::new("Note: Agent management via UI coming soon. Currently managed through config.json")
-                                                    .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                            )
-                                    )
-                                    .into_any()
+                                            );
+                                        }
+
+                                        content = content.child(
+                                            h_flex()
+                                                .w_full()
+                                                .items_start()
+                                                .justify_between()
+                                                .p_3()
+                                                .gap_3()
+                                                .rounded(px(6.))
+                                                .bg(cx.theme().secondary)
+                                                .border_1()
+                                                .border_color(cx.theme().border)
+                                                .child(agent_info)
+                                                .child(
+                                                    // Action buttons column
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(
+                                                            Button::new(("restart-btn", idx))
+                                                                .label("Restart")
+                                                                .icon(IconName::LoaderCircle)
+                                                                .outline()
+                                                                .small()
+                                                                .on_click(move |_, window, cx| {
+                                                                    log::info!("Restart agent: {}", name_for_restart);
+                                                                    window.dispatch_action(
+                                                                        Box::new(crate::RestartAgent {
+                                                                            name: name_for_restart.clone(),
+                                                                        }),
+                                                                        cx
+                                                                    );
+                                                                })
+                                                        )
+                                                        .child(
+                                                            Button::new(("remove-btn", idx))
+                                                                .label("Remove")
+                                                                .icon(IconName::Minus)
+                                                                .outline()
+                                                                .small()
+                                                                .on_click(move |_, window, cx| {
+                                                                    log::info!("Remove agent: {}", name_for_remove);
+                                                                    window.dispatch_action(
+                                                                        Box::new(crate::RemoveAgent {
+                                                                            name: name_for_remove.clone(),
+                                                                        }),
+                                                                        cx
+                                                                    );
+                                                                })
+                                                        )
+                                                )
+                                        );
+                                    }
+                                }
+
+                                content.into_any()
                             }
                         })),
                 ]),
