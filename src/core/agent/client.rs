@@ -423,10 +423,12 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             }
             AgentCommand::Prompt { request, respond } => {
+                log::info!("Agent {} received prompt command", agent_name);
                 let result = conn.prompt(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             AgentCommand::Cancel { request, respond } => {
+                log::info!("Agent {} received cancel command", agent_name);
                 let result = conn.cancel(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
@@ -435,6 +437,7 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             },
             AgentCommand::SetSessionMode { request, respond } => {
+                log::info!("Agent {} received set session mode command", agent_name);
                 let result = conn.set_session_mode(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
