@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use gpui::{App, Context, Entity, WeakEntity};
+use gpui::{App, Context, Entity};
 
 use crate::app::actions::AddCodeSelection;
 

@@ -117,14 +117,12 @@ mod tests {
         let call_count = Arc::new(AtomicUsize::new(0));
 
         let count_clone = call_count.clone();
-        bus.subscribe(move |event| {
-            match event {
-                AgentConfigEvent::AgentAdded { name, .. } => {
-                    assert_eq!(name, "test-agent");
-                    count_clone.fetch_add(1, Ordering::SeqCst);
-                }
-                _ => {}
+        bus.subscribe(move |event| match event {
+            AgentConfigEvent::AgentAdded { name, .. } => {
+                assert_eq!(name, "test-agent");
+                count_clone.fetch_add(1, Ordering::SeqCst);
             }
+            _ => {}
         });
 
         let config = AgentProcessConfig {

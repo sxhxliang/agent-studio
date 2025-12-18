@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gpui::{App, SharedString};
-use gpui_component::{scroll::ScrollbarShow, ActiveTheme, Theme, ThemeRegistry};
+use gpui_component::{ActiveTheme, Theme, ThemeRegistry, scroll::ScrollbarShow};
 use serde::{Deserialize, Serialize};
 
 use crate::app::actions::{SwitchTheme, SwitchThemeMode};

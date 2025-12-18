@@ -1,22 +1,23 @@
 use gpui::{
-    div, prelude::FluentBuilder, px, AnyElement, App, ElementId, Entity, Focusable,
-    InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window,
+    AnyElement, App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use std::rc::Rc;
 
 use gpui_component::{
+    ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     list::{List, ListDelegate, ListState},
     popover::Popover,
     select::{Select, SelectState},
-    v_flex, ActiveTheme, Disableable, Icon, IconName, Sizable,
+    v_flex,
 };
 
 use agent_client_protocol::ImageContent;
 
-use crate::app::actions::{AddCodeSelection, CancelSession};
+use crate::app::actions::AddCodeSelection;
 use crate::core::services::SessionStatus;
 
 /// A reusable chat input component with context controls and send button.
@@ -34,6 +35,7 @@ pub struct ChatInputBox {
     input_state: Entity<InputState>,
     title: Option<String>,
     on_send: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
+    on_cancel: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
     context_list: Option<AnyElement>,
     context_list_focus: Option<gpui::FocusHandle>,
     context_popover_open: bool,
@@ -47,8 +49,8 @@ pub struct ChatInputBox {
     on_remove_image: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
     on_remove_code_selection: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
     on_paste: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
-    session_status: Option<SessionStatus>,      // Session status for button state
-    session_id: Option<String>,                 // Session ID for cancel action
+    session_status: Option<SessionStatus>, // Session status for button state
+    session_id: Option<String>,            // Session ID for cancel action
 }
 
 impl ChatInputBox {
@@ -59,6 +61,7 @@ impl ChatInputBox {
             input_state,
             title: None,
             on_send: None,
+            on_cancel: None,
             context_list: None,
             context_list_focus: None,
             context_popover_open: false,
@@ -89,6 +92,15 @@ impl ChatInputBox {
         F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     {
         self.on_send = Some(Box::new(callback));
+        self
+    }
+
+    /// Set a callback for when the cancel button is clicked (when session is in progress)
+    pub fn on_cancel<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    {
+        self.on_cancel = Some(Box::new(callback));
         self
     }
 
@@ -199,25 +211,26 @@ impl ChatInputBox {
 
 impl RenderOnce for ChatInputBox {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        log::debug!(
-            "[ChatInputBox::render] Rendering with {} code_selections and {} pasted_images",
-            self.code_selections.len(),
-            self.pasted_images.len()
-        );
+        // log::debug!(
+        //     "[ChatInputBox::render] Rendering with {} code_selections and {} pasted_images",
+        //     self.code_selections.len(),
+        //     self.pasted_images.len()
+        // );
 
         // Log code selections details
-        for (idx, selection) in self.code_selections.iter().enumerate() {
-            log::debug!(
-                "[ChatInputBox::render] Code selection {}: {}:{}~{}",
-                idx,
-                selection.file_path,
-                selection.start_line,
-                selection.end_line
-            );
-        }
+        // for (idx, selection) in self.code_selections.iter().enumerate() {
+        //     log::debug!(
+        //         "[ChatInputBox::render] Code selection {}: {}:{}~{}",
+        //         idx,
+        //         selection.file_path,
+        //         selection.start_line,
+        //         selection.end_line
+        //     );
+        // }
 
         let theme = cx.theme();
         let on_send = self.on_send;
+        let on_cancel = self.on_cancel;
         let on_new_session = self.on_new_session;
         let on_paste_callback = self.on_paste.clone();
         let input_state_for_paste = self.input_state.clone();
@@ -368,7 +381,8 @@ impl RenderOnce for ChatInputBox {
                                         .unwrap_or(&selection.file_path);
 
                                     // Format the display text as "filename:start_line~end_line"
-                                    let display_text = if selection.start_line == selection.end_line {
+                                    let display_text = if selection.start_line == selection.end_line
+                                    {
                                         format!("{}:{}", filename, selection.start_line)
                                     } else {
                                         format!(
@@ -472,16 +486,16 @@ impl RenderOnce for ChatInputBox {
                             )
                             .child({
                                 // Determine button icon and color based on session status
-                                let (icon, is_in_progress) = match self.session_status {
+                                let (btn, is_in_progress) = match self.session_status {
                                     Some(SessionStatus::InProgress) => {
-                                        (Icon::new(crate::assets::Icon::SquarePause), true)
+                                        ( Button::new("cancel")
+                                    .icon(Icon::new(crate::assets::Icon::SquarePause)), true)
                                     },
-                                    _ => (Icon::new(IconName::ArrowUp), false),
+                                    _ => ( Button::new("send")
+                                    .icon(Icon::new(IconName::ArrowUp)), false),
                                 };
 
-                                let mut btn = Button::new("send")
-                                    .icon(icon)
-                                    .rounded_full()
+                                let mut btn = btn.rounded_full()
                                     .small()
                                     .disabled(is_empty && !is_in_progress);
 
@@ -513,17 +527,14 @@ impl RenderOnce for ChatInputBox {
 
                                 // Handle button click
                                 if is_in_progress {
-                                    // When in progress, dispatch CancelSession action
-                                    if let Some(session_id) = self.session_id {
-                                        btn = btn.on_click(move |_ev, window, cx| {
-                                            log::info!("Dispatching CancelSession action for session: {}", session_id);
-                                            window.dispatch_action(
-                                                Box::new(CancelSession {
-                                                    session_id: session_id.clone(),
-                                                }),
-                                                cx,
-                                            );
+                                    // When in progress, call the on_cancel callback
+                                    if let Some(on_cancel_handler) = on_cancel {
+                                        btn = btn.on_click(move |ev, window, cx| {
+                                            log::info!("ChatInputBox: Cancel button clicked for session");
+                                            on_cancel_handler(ev, window, cx);
                                         });
+                                    } else {
+                                        log::warn!("ChatInputBox: Cannot cancel - on_cancel handler not set");
                                     }
                                 } else if let Some(handler) = on_send {
                                     // Normal send behavior

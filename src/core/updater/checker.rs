@@ -1,5 +1,5 @@
 use super::version::Version;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -118,7 +118,9 @@ impl UpdateChecker {
         // })
 
         // Mock implementation for demonstration
-        Err(anyhow!("Update checking not yet implemented. Please add reqwest dependency and implement HTTP client."))
+        Err(anyhow!(
+            "Update checking not yet implemented. Please add reqwest dependency and implement HTTP client."
+        ))
     }
 }
 

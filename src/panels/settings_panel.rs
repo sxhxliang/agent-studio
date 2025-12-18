@@ -1,9 +1,10 @@
 use gpui::{
-    px, App, AppContext, Axis, Context, Element, Entity, FocusHandle, Focusable, Global,
-    IntoElement, ParentElement as _, Render, SharedString, Styled, Window,
+    App, AppContext, Axis, Context, Element, Entity, FocusHandle, Focusable, Global, IntoElement,
+    ParentElement as _, Render, SharedString, Styled, Window, px,
 };
 
 use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable, Size, Theme, ThemeMode, WindowExt as _,
     button::Button,
     dialog::DialogButtonProps,
     group_box::GroupBoxVariant,
@@ -15,15 +16,20 @@ use gpui_component::{
         SettingItem, SettingPage, Settings,
     },
     text::TextView,
-    v_flex, ActiveTheme, Icon, IconName, Sizable, Size, Theme, ThemeMode, WindowExt as _,
+    v_flex,
 };
 
 use crate::{
-    app::actions::{AddAgent, RemoveAgent, RestartAgent, UpdateAgent},
-    core::{config::AgentProcessConfig, updater::{UpdateCheckResult, UpdateManager, Version}},
     AppState,
+    app::actions::{
+        AddAgent, ChangeConfigPath, ReloadAgentConfig, RemoveAgent, RestartAgent, UpdateAgent,
+    },
+    core::{
+        config::AgentProcessConfig,
+        updater::{UpdateCheckResult, UpdateManager, Version},
+    },
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 struct AppSettings {
     auto_switch_theme: bool,
@@ -85,6 +91,7 @@ pub struct SettingsPanel {
     // Agent configuration state
     agent_configs: HashMap<String, AgentProcessConfig>,
     upload_dir: String,
+    config_path: String,
 }
 
 struct OpenURLSettingField {
@@ -144,6 +151,7 @@ impl SettingsPanel {
         // Initialize with empty state - will be loaded async
         let agent_configs = HashMap::new();
         let upload_dir = String::new();
+        let config_path = String::new();
 
         let panel = Self {
             focus_handle: cx.focus_handle(),
@@ -153,6 +161,7 @@ impl SettingsPanel {
             update_manager: UpdateManager::default(),
             agent_configs,
             upload_dir,
+            config_path,
         };
 
         // Load agent configs asynchronously
@@ -172,8 +181,37 @@ impl SettingsPanel {
                         });
                     }
                 });
-            }).detach();
+            })
+            .detach();
         }
+
+        // Load config path from AppState
+        let config_path = AppState::global(cx)
+            .agent_config_service()
+            .and_then(|_| {
+                // Get config path from Settings or default
+                Some(
+                    std::env::current_dir()
+                        .ok()?
+                        .join("config.json")
+                        .to_string_lossy()
+                        .to_string(),
+                )
+            })
+            .unwrap_or_default();
+
+        let weak_entity_path = cx.entity().downgrade();
+        cx.spawn_in(window, async move |_this, window| {
+            _ = window.update(|_window, cx| {
+                if let Some(entity) = weak_entity_path.upgrade() {
+                    entity.update(cx, |this, cx| {
+                        this.config_path = config_path;
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
 
         // Subscribe to AgentConfigBus for dynamic updates
         let agent_config_bus = AppState::global(cx).agent_config_bus.clone();
@@ -217,13 +255,14 @@ impl SettingsPanel {
         };
 
         // Get existing config if editing
-        let existing_config = agent_name.as_ref().and_then(|name| {
-            self.agent_configs.get(name).cloned()
-        });
+        let existing_config = agent_name
+            .as_ref()
+            .and_then(|name| self.agent_configs.get(name).cloned());
 
         // Create input states
         let name_input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder("Agent name (e.g., Claude Code)");
+            let mut state =
+                InputState::new(window, cx).placeholder("Agent name (e.g., Claude Code)");
             if let Some(name) = &agent_name {
                 state.set_value(name.clone(), window, cx);
             }
@@ -231,7 +270,8 @@ impl SettingsPanel {
         });
 
         let command_input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder("Command (e.g., claude-code-acp)");
+            let mut state =
+                InputState::new(window, cx).placeholder("Command (e.g., claude-code-acp)");
             if let Some(config) = &existing_config {
                 state.set_value(config.command.clone(), window, cx);
             }
@@ -251,7 +291,9 @@ impl SettingsPanel {
             let mut state = InputState::new(window, cx)
                 .placeholder("Environment variables (KEY=VALUE, one per line)");
             if let Some(config) = &existing_config {
-                let env_text = config.env.iter()
+                let env_text = config
+                    .env
+                    .iter()
                     .map(|(k, v)| format!("{}={}", k, v))
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -267,7 +309,7 @@ impl SettingsPanel {
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text(if is_edit { "Update" } else { "Add" })
-                        .cancel_text("Cancel")
+                        .cancel_text("Cancel"),
                 )
                 .on_ok({
                     let name_input = name_input.clone();
@@ -285,7 +327,7 @@ impl SettingsPanel {
                         // Validate inputs
                         if name.is_empty() {
                             log::warn!("Agent name cannot be empty");
-                            return false;  // Don't close dialog
+                            return false; // Don't close dialog
                         }
 
                         if command.is_empty() {
@@ -323,7 +365,7 @@ impl SettingsPanel {
                                     args,
                                     env,
                                 }),
-                                cx
+                                cx,
                             );
                         } else {
                             window.dispatch_action(
@@ -333,11 +375,11 @@ impl SettingsPanel {
                                     args,
                                     env,
                                 }),
-                                cx
+                                cx,
                             );
                         }
 
-                        true  // Close dialog
+                        true // Close dialog
                     }
                 })
                 .child(
@@ -348,40 +390,55 @@ impl SettingsPanel {
                         .child(
                             v_flex()
                                 .gap_2()
-                                .child(Label::new("Agent Name").text_sm().font_weight(gpui::FontWeight::SEMIBOLD))
                                 .child(
-                                    Input::new(&name_input)
-                                        .disabled(is_edit)  // Can't change name when editing
+                                    Label::new("Agent Name")
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD),
                                 )
+                                .child(
+                                    Input::new(&name_input).disabled(is_edit), // Can't change name when editing
+                                ),
                         )
                         .child(
                             v_flex()
                                 .gap_2()
-                                .child(Label::new("Command").text_sm().font_weight(gpui::FontWeight::SEMIBOLD))
+                                .child(
+                                    Label::new("Command")
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD),
+                                )
                                 .child(Input::new(&command_input))
                                 .child(
                                     Label::new("Full path or command name in PATH")
                                         .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
+                        )
+                        .child(
+                            v_flex()
+                                .gap_2()
+                                .child(
+                                    Label::new("Arguments (optional)")
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD),
                                 )
+                                .child(Input::new(&args_input)),
                         )
                         .child(
                             v_flex()
                                 .gap_2()
-                                .child(Label::new("Arguments (optional)").text_sm().font_weight(gpui::FontWeight::SEMIBOLD))
-                                .child(Input::new(&args_input))
-                        )
-                        .child(
-                            v_flex()
-                                .gap_2()
-                                .child(Label::new("Environment Variables (optional)").text_sm().font_weight(gpui::FontWeight::SEMIBOLD))
+                                .child(
+                                    Label::new("Environment Variables (optional)")
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD),
+                                )
                                 .child(Input::new(&env_input))
                                 .child(
                                     Label::new("One per line, format: KEY=VALUE")
                                         .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                )
-                        )
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
+                        ),
                 )
         });
     }
@@ -434,6 +491,35 @@ impl SettingsPanel {
         });
     }
 
+    /// Show file picker to select config file
+    fn show_config_file_picker(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let weak_entity = cx.entity().downgrade();
+
+        // Use rfd to open file dialog
+        cx.spawn(async move |_this, cx| {
+            let task = rfd::AsyncFileDialog::new()
+                .set_title("Select Config File")
+                .add_filter("JSON", &["json"])
+                .set_file_name("config.json")
+                .pick_file();
+
+            if let Some(file) = task.await {
+                let path = file.path().to_path_buf();
+                log::info!("Selected config file: {:?}", path);
+
+                // Dispatch action to change config path
+                _ = cx.update(|cx| {
+                    if let Some(entity) = weak_entity.upgrade() {
+                        entity.update(cx, |this, cx| {
+                            cx.dispatch_action(&ChangeConfigPath { path });
+                        });
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
     /// Handle agent configuration events
     fn on_agent_config_event(
         &mut self,
@@ -462,7 +548,8 @@ impl SettingsPanel {
                         });
                     }
                 });
-            }).detach();
+            })
+            .detach();
         }
     }
 
@@ -803,7 +890,7 @@ impl SettingsPanel {
                             "Check for Updates",
                             SettingField::render({
                                 let view = view.clone();
-                                move |options, window, _cx| {
+                                move |options, _window, _cx| {
                                     Button::new("check-updates")
                                         .icon(IconName::LoaderCircle)
                                         .label("Check Now")
@@ -883,7 +970,70 @@ impl SettingsPanel {
                 .groups(vec![
                     SettingGroup::new()
                         .title("Configuration")
-                        .item(
+                        .items(vec![
+                            SettingItem::new(
+                                "Config File Path",
+                                SettingField::render({
+                                    let view = view.clone();
+                                    move |_options, _window, cx| {
+                                        let config_path = view.read(cx).config_path.clone();
+                                        let display = if config_path.is_empty() {
+                                            "Not configured".to_string()
+                                        } else {
+                                            config_path
+                                        };
+
+                                        v_flex()
+                                            .w_full()
+                                            .gap_2()
+                                            .child(
+                                                gpui::div()
+                                                    .w_full()
+                                                    .overflow_x_hidden()
+                                                    .child(
+                                                        Label::new(display)
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .whitespace_nowrap()
+                                                    )
+                                            )
+                                            .child(
+                                                h_flex()
+                                                    .gap_2()
+                                                    .child(
+                                                        Button::new("browse-config")
+                                                            .label("Browse...")
+                                                            .icon(IconName::Folder)
+                                                            .outline()
+                                                            .small()
+                                                            .on_click({
+                                                                let view = view.clone();
+                                                                move |_, window, cx| {
+                                                                    view.update(cx, |this, cx| {
+                                                                        this.show_config_file_picker(window, cx);
+                                                                    });
+                                                                }
+                                                            })
+                                                    )
+                                                    .child(
+                                                        Button::new("reload-config")
+                                                            .label("Reload")
+                                                            .icon(IconName::LoaderCircle)
+                                                            .outline()
+                                                            .small()
+                                                            .on_click(move |_, window, cx| {
+                                                                window.dispatch_action(
+                                                                    Box::new(ReloadAgentConfig),
+                                                                    cx
+                                                                );
+                                                            })
+                                                    )
+                                            )
+                                            .into_any()
+                                    }
+                                }),
+                            )
+                            .description("Path to agent configuration file (config.json)"),
                             SettingItem::new(
                                 "Upload Directory",
                                 SettingField::render({
@@ -897,17 +1047,21 @@ impl SettingsPanel {
                                         };
 
                                         gpui::div()
+                                            .w_full()
+                                            .min_w(px(0.))
+                                            .overflow_x_hidden()
                                             .child(
                                                 Label::new(display)
                                                     .text_sm()
                                                     .text_color(cx.theme().muted_foreground)
+                                                    .whitespace_nowrap()
                                             )
                                             .into_any()
                                     }
                                 }),
                             )
                             .description("Directory for uploaded files (edit via config.json)"),
-                        ),
+                        ]),
                     SettingGroup::new()
                         .title("Configured Agents")
                         .item(SettingItem::render({

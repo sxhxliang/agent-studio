@@ -6,19 +6,19 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     thread,
 };
 
 use agent_client_protocol::{self as acp, Agent as _};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{error, warn};
 use tokio::{
     runtime::Builder as RuntimeBuilder,
-    sync::{mpsc, oneshot, RwLock},
+    sync::{RwLock, mpsc, oneshot},
     task::LocalSet,
 };
 
@@ -285,11 +285,11 @@ enum AgentCommand {
         respond: oneshot::Sender<Result<acp::LoadSessionResponse>>,
     },
     #[cfg(feature = "unstable")]
-    SetSessionModel{
+    SetSessionModel {
         request: acp::SetSessionModelRequest,
         respond: oneshot::Sender<Result<acp::SetSessionModelResponse>>,
     },
-    SetSessionMode{
+    SetSessionMode {
         request: acp::SetSessionModeRequest,
         respond: oneshot::Sender<Result<acp::SetSessionModeResponse>>,
     },
@@ -423,24 +423,33 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             }
             AgentCommand::Prompt { request, respond } => {
+                log::info!("Agent {} received prompt command", agent_name);
                 let result = conn.prompt(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             AgentCommand::Cancel { request, respond } => {
+                log::info!("Agent {} received cancel command", agent_name);
                 let result = conn.cancel(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             AgentCommand::LoadSession { request, respond } => {
                 let result = conn.load_session(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
-            },
+            }
             AgentCommand::SetSessionMode { request, respond } => {
-                let result = conn.set_session_mode(request).await.map_err(|err| anyhow!(err));
+                log::info!("Agent {} received set session mode command", agent_name);
+                let result = conn
+                    .set_session_mode(request)
+                    .await
+                    .map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             #[cfg(feature = "unstable")]
             AgentCommand::SetSessionModel { request, respond } => {
-                let result = conn.set_session_model(request).await.map_err(|err| anyhow!(err));
+                let result = conn
+                    .set_session_model(request)
+                    .await
+                    .map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             AgentCommand::Shutdown { respond } => {

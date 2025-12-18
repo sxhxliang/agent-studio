@@ -40,7 +40,7 @@ pub enum Icon {
     FolderSync,
     Monitor,
     Trash2,
-    SquarePause
+    SquarePause,
 }
 
 impl IconNamed for Icon {
@@ -48,15 +48,15 @@ impl IconNamed for Icon {
         match self {
             Icon::Claude => "logo/claude.svg",
             Icon::Cursor => "logo/cursor.svg",
-            Icon::DeepSeek =>"logo/deepseek.svg",
-            Icon::Gemini =>"logo/gemini.svg",
-            Icon::Kimi =>"logo/kimi.svg",
-            Icon::MCP =>"logo/mcp.svg",
-            Icon::Minimax =>"logo/minimax.svg",
-            Icon::Moonshot =>"logo/moonshot.svg",
-            Icon::OpenAI =>"logo/openai.svg",
-            Icon::Qwen =>"logo/qwen.svg",
-            Icon::Zai =>"logo/zai.svg",
+            Icon::DeepSeek => "logo/deepseek.svg",
+            Icon::Gemini => "logo/gemini.svg",
+            Icon::Kimi => "logo/kimi.svg",
+            Icon::MCP => "logo/mcp.svg",
+            Icon::Minimax => "logo/minimax.svg",
+            Icon::Moonshot => "logo/moonshot.svg",
+            Icon::OpenAI => "logo/openai.svg",
+            Icon::Qwen => "logo/qwen.svg",
+            Icon::Zai => "logo/zai.svg",
             Icon::FolderSync => "icons2/folder-sync.svg",
             Icon::Monitor => "icons2/monitor.svg",
             Icon::Trash2 => "icons2/trash-2.svg",

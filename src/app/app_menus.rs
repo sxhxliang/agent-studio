@@ -2,8 +2,8 @@ use gpui::{App, Menu, MenuItem, SharedString};
 use gpui_component::{ThemeMode, ThemeRegistry};
 
 use crate::{
-    app::actions::{SwitchTheme, SwitchThemeMode},
     About, CloseWindow, Open, Quit, SelectLocale, ToggleSearch,
+    app::actions::{SwitchTheme, SwitchThemeMode},
 };
 
 pub fn init(title: impl Into<SharedString>, cx: &mut App) {

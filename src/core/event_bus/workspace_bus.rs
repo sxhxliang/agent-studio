@@ -14,6 +14,11 @@ pub enum WorkspaceUpdateEvent {
     },
     /// A task was updated
     TaskUpdated { task_id: String },
+    /// A task was removed
+    TaskRemoved {
+        workspace_id: String,
+        task_id: String,
+    },
     /// A new workspace was added
     WorkspaceAdded { workspace_id: String },
     /// A workspace was removed

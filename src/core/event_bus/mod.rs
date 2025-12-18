@@ -8,7 +8,7 @@ pub mod workspace_bus;
 // Re-export event bus types
 pub use agent_config_bus::{AgentConfigBusContainer, AgentConfigEvent};
 pub use code_selection_bus::{
-    subscribe_entity_to_code_selections, CodeSelectionBusContainer, CodeSelectionEvent,
+    CodeSelectionBusContainer, CodeSelectionEvent, subscribe_entity_to_code_selections,
 };
 pub use permission_bus::{PermissionBusContainer, PermissionRequestEvent};
 pub use session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};

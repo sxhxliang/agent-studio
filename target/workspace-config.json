@@ -6,135 +6,28 @@
       "path": "/Users/shihua/Code/AIAgent/gpui-component/agent-studio",
       "created_at": 1764686280,
       "last_accessed": 1764686280
-    },
-    {
-      "id": "f3cedffc-d357-432b-b81e-ea6c35fcfa10",
-      "name": "Claude Code Rust",
-      "path": "/Users/shihua/Code/AIAgent/gpui-component",
-      "created_at": 1764695138,
-      "last_accessed": 1764695138
     }
   ],
   "tasks": [
     {
-      "id": "e515d0cf-f7b9-49a3-adf1-c93954cebce8",
+      "id": "4e962e10-dec0-45da-aa8f-584aaebe9c30",
       "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "你好",
+      "name": "当前具备什么功能",
       "agent_name": "Iflow",
       "mode": "Auto",
-      "session_id": "3c8751ef-13b3-40bb-82a3-bf06733566c6",
+      "session_id": "89fabc87-4cae-4350-8d79-425ed45d8c93",
       "status": "InProgress",
-      "created_at": 1764689328
+      "created_at": 1766076901
     },
     {
-      "id": "1b43af67-cbd4-4154-8400-cda6cc1e7ba1",
+      "id": "20894d02-f4e4-4cc1-ac92-329f72dad8e1",
       "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "你有啥能力",
+      "name": "会话面板没有消息时 中间显示默认提示",
       "agent_name": "Iflow",
       "mode": "Auto",
-      "session_id": "a13d71f2-dc9c-4723-9ddf-fc53623fc48a",
-      "status": "InProgress",
-      "created_at": 1764690297
-    },
-    {
-      "id": "812238b3-bc1b-4eba-9adf-8b3f64ce2791",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "介绍本项目功能",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "703195d3-8d95-4cb8-88d6-8dcb1e6f3258",
-      "status": "InProgress",
-      "created_at": 1764690761
-    },
-    {
-      "id": "6f1750bb-ee18-4f81-b7cc-eecd33e8f8a3",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "为本项目UI提供优化建议",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "8b0d7837-3405-4235-9fb1-ad53eee55780",
-      "status": "InProgress",
-      "created_at": 1764690868
-    },
-    {
-      "id": "c6a9f8df-c6b8-45ab-9bf9-f6ca462f9336",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "为本项目设计3个功能点，提升用户使用AI Agent的体验",
-      "agent_name": "Claude Code",
-      "mode": "Auto",
-      "session_id": "019ae03e-fa96-727e-8c20-796af8fa179a",
-      "status": "InProgress",
-      "created_at": 1764698869
-    },
-    {
-      "id": "19c4cc7c-38a0-474f-928f-a05be6e3abe7",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "本项目设计3个功能点，提升用户使用AI Agent的体验",
-      "agent_name": "Claude Code",
-      "mode": "Auto",
-      "session_id": "019ae046-0680-70c8-99a7-0286454d0ced",
-      "status": "InProgress",
-      "created_at": 1764699283
-    },
-    {
-      "id": "863665a1-e421-4fe3-b863-855bfb64b19a",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "本项目设计3个功能点，提升用户使用AI Agent的体验",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "236f9186-f276-49ff-9a43-d006adb47ea6",
-      "status": "InProgress",
-      "created_at": 1764699346
-    },
-    {
-      "id": "5a180cbb-fab0-43ad-9042-48392875f0fa",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "目前会话消息能持久化了，希望点击左侧任务会话，ConversationPanel加载对应的session记录（target/sessions目录下jsonl文件）并显示",
-      "agent_name": "Claude Code",
-      "mode": "Auto",
-      "session_id": "019ae426-9b86-71bf-a7d5-d8f37cca7ef5",
-      "status": "InProgress",
-      "created_at": 1764764333
-    },
-    {
-      "id": "5a65b2ac-5d94-42fa-b98d-02021ed3a1b8",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "介绍一下本项目",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "5ad3835c-f58b-4916-a982-e66979277e2c",
-      "status": "InProgress",
-      "created_at": 1764816351
-    },
-    {
-      "id": "50f7d4f6-016b-4d8e-a194-92b6db9e0329",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "介绍一下本项目",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "67f8501e-3e97-4aa0-a210-0261668bb71f",
-      "status": "InProgress",
-      "created_at": 1764830853
-    },
-    {
-      "id": "40bf0f90-2fb2-4a6c-a441-1ea15a2eb28c",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "介绍一下",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "67f8501e-3e97-4aa0-a210-0261668bb71f",
-      "status": "InProgress",
-      "created_at": 1764830882
-    },
-    {
-      "id": "7fe64b3f-8106-4e5d-9017-f3295cf96594",
-      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
-      "name": "介绍一下本项目",
-      "agent_name": "Iflow",
-      "mode": "Auto",
-      "session_id": "31606d49-8b8a-4241-805c-2140057a424f",
-      "status": "InProgress",
-      "created_at": 1765270676
+      "session_id": "8c0eb056-d680-4793-a047-d008ea25e65a",
+      "status": "Completed",
+      "created_at": 1766077283
     }
   ],
   "active_workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10"

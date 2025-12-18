@@ -6,26 +6,27 @@
 //! - Tree view (by workspace) and timeline view (by date)
 
 use gpui::{
-    div, prelude::FluentBuilder, px, App, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window,
+    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
+    ActiveTheme, Icon, IconName, InteractiveElementExt, Selectable, Sizable, StyledExt,
     button::{Button, ButtonGroup, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
-    v_flex, ActiveTheme, Icon, IconName, Selectable, Sizable, StyledExt,
+    v_flex,
 };
-use rand::Rng;
+use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::core::event_bus::WorkspaceUpdateEvent;
 use crate::core::services::WorkspaceService;
+use crate::core::{event_bus::WorkspaceUpdateEvent, services::SessionStatus};
 use crate::panels::dock_panel::DockPanel;
-use crate::schemas::workspace_schema::{TaskStatus, WorkspaceTask};
-use crate::{utils, AppState, ShowConversationPanel, ShowWelcomePanel};
+use crate::schemas::workspace_schema::WorkspaceTask;
+use crate::{AppState, ShowConversationPanel, ShowWelcomePanel, utils};
 
 // ============================================================================
 // Constants - Layout spacing
@@ -62,13 +63,9 @@ pub struct TaskPanel {
     selected_task_id: Option<String>,
     view_mode: ViewMode,
     _subscriptions: Vec<Subscription>,
-    use_real_data: bool,
     /// Search input state
     search_input: Entity<InputState>,
-    /// Shared callback for removing workspace from dropdown menu
-    remove_workspace_callback: Rc<dyn Fn(String) + 'static>,
-    /// Shared callback for removing task from context menu
-    remove_task_callback: Rc<dyn Fn(String) + 'static>,
+    load_generation: u64,
 }
 
 impl DockPanel for TaskPanel {
@@ -91,83 +88,20 @@ impl DockPanel for TaskPanel {
 
 impl TaskPanel {
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
-        // Create async channels to communicate between menus and TaskPanel
-        let (ws_tx, mut ws_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-        let remove_workspace_callback = {
-            let tx = ws_tx.clone();
-            Rc::new(move |workspace_id: String| {
-                let _ = tx.send(workspace_id);
-            })
-        };
-
-        let remove_task_callback = {
-            let tx = task_tx.clone();
-            Rc::new(move |task_id: String| {
-                let _ = tx.send(task_id);
-            })
-        };
-
-        let entity =
-            cx.new(|cx| Self::new(window, cx, remove_workspace_callback, remove_task_callback));
-
-        // Poll for workspace remove requests
-        let entity_weak = entity.downgrade();
-        cx.spawn(async move |cx| {
-            while let Some(workspace_id) = ws_rx.recv().await {
-                if let Some(entity) = entity_weak.upgrade() {
-                    cx.update(|cx| {
-                        entity.update(cx, |this, cx| {
-                            this.remove_workspace(workspace_id, cx);
-                        });
-                    })
-                    .ok();
-                } else {
-                    break;
-                }
-            }
-        })
-        .detach();
-
-        // Poll for task remove requests
-        let entity_weak = entity.downgrade();
-        cx.spawn(async move |cx| {
-            while let Some(task_id) = task_rx.recv().await {
-                if let Some(entity) = entity_weak.upgrade() {
-                    cx.update(|cx| {
-                        entity.update(cx, |this, cx| {
-                            this.remove_task(task_id, cx);
-                        });
-                    })
-                    .ok();
-                } else {
-                    break;
-                }
-            }
-        })
-        .detach();
+        let entity = cx.new(|cx| Self::new(window, cx));
 
         if let Some(workspace_service) = AppState::global(cx).workspace_service() {
             Self::load_workspace_data(&entity, workspace_service.clone(), cx);
             Self::subscribe_to_workspace_updates(&entity, cx);
         } else {
-            Self::load_random_data(&entity, cx);
+            log::warn!("WorkspaceService not available, TaskPanel will remain empty");
         }
 
         entity
     }
 
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        remove_workspace_callback: Rc<dyn Fn(String) + 'static>,
-        remove_task_callback: Rc<dyn Fn(String) + 'static>,
-    ) -> Self {
-        let search_input = cx.new(|cx| {
-            let state = InputState::new(window, cx);
-            state
-        });
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search_input = cx.new(|cx| InputState::new(window, cx));
 
         // Subscribe to search input changes to trigger re-render
         let search_subscription = cx.subscribe(
@@ -183,10 +117,8 @@ impl TaskPanel {
             selected_task_id: None,
             view_mode: ViewMode::Tree,
             _subscriptions: vec![search_subscription],
-            use_real_data: false,
             search_input,
-            remove_workspace_callback,
-            remove_task_callback,
+            load_generation: 0,
         }
     }
 
@@ -199,34 +131,55 @@ impl TaskPanel {
         workspace_service: std::sync::Arc<WorkspaceService>,
         cx: &mut App,
     ) {
+        let generation = entity.update(cx, |this, _| {
+            this.load_generation = this.load_generation.wrapping_add(1);
+            this.load_generation
+        });
+
         let entity_clone = entity.clone();
         cx.spawn(async move |cx| {
-            let workspaces_list = workspace_service.list_workspaces().await;
             let config = workspace_service.get_config().await;
+            let workspaces_list = config.workspaces;
+            let tasks = config.tasks;
+
+            let mut tasks_by_workspace: HashMap<String, Vec<Rc<WorkspaceTask>>> = HashMap::new();
+            for task in tasks {
+                tasks_by_workspace
+                    .entry(task.workspace_id.clone())
+                    .or_default()
+                    .push(Rc::new(task));
+            }
 
             cx.update(|cx| {
                 entity_clone.update(cx, |this, cx| {
-                    this.use_real_data = true;
+                    if this.load_generation != generation {
+                        return;
+                    }
+
+                    let previously_expanded: HashMap<String, bool> = this
+                        .workspaces
+                        .iter()
+                        .map(|w| (w.id.clone(), w.is_expanded))
+                        .collect();
+
                     this.workspaces = workspaces_list
                         .into_iter()
                         .map(|ws| {
-                            let tasks = config
-                                .tasks
-                                .iter()
-                                .filter(|t| t.workspace_id == ws.id)
-                                .map(|t| Rc::new(t.clone()))
-                                .collect();
+                            let tasks = tasks_by_workspace.remove(&ws.id).unwrap_or_default();
 
                             WorkspaceGroup {
                                 id: ws.id.clone(),
                                 name: ws.name.clone(),
                                 tasks,
-                                is_expanded: true,
+                                is_expanded: previously_expanded
+                                    .get(&ws.id)
+                                    .copied()
+                                    .unwrap_or(true),
                             }
                         })
                         .collect();
 
-                    this.select_first_task();
+                    this.ensure_selected_task_valid();
                     cx.notify();
                 });
             })
@@ -235,140 +188,182 @@ impl TaskPanel {
         .detach();
     }
 
-    fn subscribe_to_workspace_updates(_entity: &Entity<Self>, cx: &mut App) {
+    fn subscribe_to_workspace_updates(entity: &Entity<Self>, cx: &mut App) {
         let workspace_bus = AppState::global(cx).workspace_bus.clone();
+        let workspace_service = match AppState::global(cx).workspace_service() {
+            Some(service) => service.clone(),
+            None => {
+                log::warn!("WorkspaceService not available for subscription");
+                return;
+            }
+        };
 
-        workspace_bus
-            .lock()
-            .unwrap()
-            .subscribe(move |event| match event {
-                WorkspaceUpdateEvent::WorkspaceAdded { workspace_id } => {
-                    log::debug!("TaskPanel received WorkspaceAdded: {}", workspace_id);
-                }
-                WorkspaceUpdateEvent::WorkspaceRemoved { workspace_id } => {
-                    log::debug!("TaskPanel received WorkspaceRemoved: {}", workspace_id);
-                }
-                WorkspaceUpdateEvent::TaskCreated {
-                    workspace_id,
-                    task_id,
-                } => {
-                    log::debug!(
-                        "TaskPanel received TaskCreated: {} in {}",
-                        task_id,
-                        workspace_id
-                    );
-                }
-                WorkspaceUpdateEvent::TaskUpdated { task_id } => {
-                    log::debug!("TaskPanel received TaskUpdated: {}", task_id);
-                }
-                WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } => {
-                    log::debug!("TaskPanel received SessionStatusUpdated: {}", session_id);
-                    // TaskPanel doesn't need to react to session status updates
-                }
-            });
-    }
+        let entity_weak = entity.downgrade();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-    fn load_random_data(entity: &Entity<Self>, cx: &mut App) {
-        let workspaces = Self::generate_random_workspaces();
-        entity.update(cx, |this, cx| {
-            this.use_real_data = false;
-            this.workspaces = workspaces;
-            this.select_first_task();
-            cx.notify();
+        // Subscribe to workspace bus
+        workspace_bus.lock().unwrap().subscribe(move |event| {
+            let _ = tx.send(event.clone());
         });
+
+        // Spawn task to process events and update UI
+        cx.spawn(async move |cx| {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    WorkspaceUpdateEvent::WorkspaceAdded { workspace_id } => {
+                        log::debug!("TaskPanel received WorkspaceAdded: {}", workspace_id);
+                        if let Some(entity) = entity_weak.upgrade() {
+                            cx.update(|cx| {
+                                Self::load_workspace_data(&entity, workspace_service.clone(), cx);
+                            })
+                            .ok();
+                        }
+                    }
+                    WorkspaceUpdateEvent::WorkspaceRemoved { workspace_id } => {
+                        log::debug!("TaskPanel received WorkspaceRemoved: {}", workspace_id);
+                        if let Some(entity) = entity_weak.upgrade() {
+                            cx.update(|cx| {
+                                Self::load_workspace_data(&entity, workspace_service.clone(), cx);
+                            })
+                            .ok();
+                        }
+                    }
+                    WorkspaceUpdateEvent::TaskCreated {
+                        workspace_id,
+                        task_id,
+                    } => {
+                        log::debug!(
+                            "TaskPanel received TaskCreated: {} in {}",
+                            task_id,
+                            workspace_id
+                        );
+                        // Reload workspace data to include the new task
+                        if let Some(entity) = entity_weak.upgrade() {
+                            cx.update(|cx| {
+                                Self::load_workspace_data(&entity, workspace_service.clone(), cx);
+                            })
+                            .ok();
+                        }
+                    }
+                    WorkspaceUpdateEvent::TaskRemoved {
+                        workspace_id,
+                        task_id,
+                    } => {
+                        log::debug!(
+                            "TaskPanel received TaskRemoved: {} from {}",
+                            task_id,
+                            workspace_id
+                        );
+                        // Reload workspace data to remove the task from UI
+                        if let Some(entity) = entity_weak.upgrade() {
+                            cx.update(|cx| {
+                                Self::load_workspace_data(&entity, workspace_service.clone(), cx);
+                            })
+                            .ok();
+                        }
+                    }
+                    WorkspaceUpdateEvent::TaskUpdated { task_id } => {
+                        log::debug!("TaskPanel received TaskUpdated: {}", task_id);
+                        if let Some(entity) = entity_weak.upgrade() {
+                            cx.update(|cx| {
+                                Self::load_workspace_data(&entity, workspace_service.clone(), cx);
+                            })
+                            .ok();
+                        }
+                    }
+                    WorkspaceUpdateEvent::SessionStatusUpdated {
+                        session_id, status, ..
+                    } => {
+                        log::debug!("TaskPanel received SessionStatusUpdated: {}", session_id);
+                        if let Some(entity) = entity_weak.upgrade() {
+                            let session_id = session_id.clone();
+                            let status = status.clone();
+                            cx.update(|cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.update_task_status_by_session_id(&session_id, status, cx);
+                                });
+                            })
+                            .ok();
+                        }
+                    }
+                }
+            }
+        })
+        .detach();
     }
 
-    fn select_first_task(&mut self) {
-        if let Some(first_workspace) = self.workspaces.first() {
-            if let Some(first_task) = first_workspace.tasks.first() {
-                self.selected_task_id = Some(first_task.id.clone());
+    fn ensure_selected_task_valid(&mut self) {
+        let selected_is_valid = self.selected_task_id.as_ref().is_some_and(|id| {
+            self.workspaces
+                .iter()
+                .flat_map(|w| w.tasks.iter())
+                .any(|t| &t.id == id)
+        });
+
+        if selected_is_valid {
+            return;
+        }
+
+        self.selected_task_id = self
+            .workspaces
+            .iter()
+            .flat_map(|w| w.tasks.iter())
+            .next()
+            .map(|t| t.id.clone());
+    }
+
+    fn update_task_status_by_session_id(
+        &mut self,
+        session_id: &str,
+        status: SessionStatus,
+        cx: &mut Context<Self>,
+    ) {
+        let mut updated = false;
+        let mut task_id_to_update: Option<String> = None;
+
+        // Update local state for immediate UI feedback
+        for workspace in &mut self.workspaces {
+            for task in &mut workspace.tasks {
+                if task.session_id.as_deref() != Some(session_id) {
+                    continue;
+                }
+
+                if task.status == status {
+                    continue;
+                }
+
+                // Store task_id for persistence
+                task_id_to_update = Some(task.id.clone());
+
+                let mut updated_task = (**task).clone();
+                updated_task.status = status.clone();
+                *task = Rc::new(updated_task);
+                updated = true;
             }
         }
-    }
 
-    fn generate_random_workspaces() -> Vec<WorkspaceGroup> {
-        let mut rng = rand::thread_rng();
+        if updated {
+            cx.notify();
 
-        let workspace_names = [
-            "conductor",
-            "melty_home",
-            "swipe",
-            "conductor-docs",
-            "conductor_api",
-            "chorus",
-            "api",
-            "metarquiz-2",
-        ];
-
-        let task_modes = ["Auto", "Ask", "Plan", "Code", "Explain"];
-        let agent_names = ["claude", "gpt-4", "gemini", "copilot"];
-        let sample_messages = [
-            "Implement user authentication",
-            "Fix layout issue on mobile",
-            "Add dark mode support",
-            "Refactor database queries",
-            "Write unit tests",
-            "Update documentation",
-            "Optimize performance",
-            "Add error handling",
-        ];
-
-        workspace_names
-            .iter()
-            .enumerate()
-            .map(|(idx, name)| {
-                let task_count = if idx < 2 { rng.gen_range(2..4) } else { 0 };
-                let tasks: Vec<_> = (0..task_count)
-                    .map(|i| {
-                        let workspace_id = format!("ws-{}", idx);
-                        let task_name =
-                            sample_messages[rng.gen_range(0..sample_messages.len())].to_string();
-                        let agent_name =
-                            agent_names[rng.gen_range(0..agent_names.len())].to_string();
-                        let mode = task_modes[rng.gen_range(0..task_modes.len())].to_string();
-
-                        let mut task =
-                            WorkspaceTask::new(workspace_id.clone(), task_name, agent_name, mode);
-
-                        task.status = match rng.gen_range(0..4) {
-                            0 => TaskStatus::Pending,
-                            1 => TaskStatus::InProgress,
-                            2 => TaskStatus::Completed,
-                            _ => TaskStatus::Failed,
-                        };
-
-                        if task.status == TaskStatus::InProgress {
-                            task.session_id = Some(format!("session-{}-{}", idx, i));
+            // Persist status to JSON file
+            if let Some(task_id) = task_id_to_update {
+                if let Some(workspace_service) = AppState::global(cx).workspace_service() {
+                    let workspace_service = workspace_service.clone();
+                    let status_clone = status.clone();
+                    cx.spawn(async move |_entity, _cx| {
+                        match workspace_service.update_task_status(&task_id, status_clone).await {
+                            Ok(_) => {
+                                log::debug!("Task status persisted: {} -> {:?}", task_id, status);
+                            }
+                            Err(e) => {
+                                log::error!("Failed to persist task status: {}", e);
+                            }
                         }
-
-                        if rng.gen_bool(0.7) {
-                            let messages = [
-                                "Working on it...",
-                                "Almost done",
-                                "Need more information",
-                                "Completed successfully",
-                                "Encountered an error",
-                            ];
-                            task.last_message = Some(SharedString::from(
-                                messages[rng.gen_range(0..messages.len())],
-                            ));
-                        }
-
-                        let days_ago = rng.gen_range(0..30);
-                        task.created_at = chrono::Utc::now() - chrono::Duration::days(days_ago);
-
-                        Rc::new(task)
                     })
-                    .collect();
-
-                WorkspaceGroup {
-                    id: format!("ws-{}", idx),
-                    name: name.to_string(),
-                    is_expanded: idx < 2,
-                    tasks,
+                    .detach();
                 }
-            })
-            .collect()
+            }
+        }
     }
 
     // ========================================================================
@@ -418,6 +413,26 @@ impl TaskPanel {
         .detach();
     }
 
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let workspace_service = match AppState::global(cx).workspace_service() {
+            Some(service) => service.clone(),
+            None => {
+                log::warn!("WorkspaceService not available");
+                return;
+            }
+        };
+
+        cx.spawn(async move |entity, cx| {
+            cx.update(|cx| {
+                if let Some(entity_strong) = entity.upgrade() {
+                    Self::load_workspace_data(&entity_strong, workspace_service.clone(), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn remove_workspace(&mut self, workspace_id: String, cx: &mut Context<Self>) {
         let workspace_service = match AppState::global(cx).workspace_service() {
             Some(service) => service.clone(),
@@ -451,23 +466,26 @@ impl TaskPanel {
     }
 
     fn remove_task(&mut self, task_id: String, cx: &mut Context<Self>) {
-        // Remove task from local state
-        for workspace in &mut self.workspaces {
-            workspace.tasks.retain(|t| t.id != task_id);
-        }
+        let workspace_service = match AppState::global(cx).workspace_service() {
+            Some(service) => service.clone(),
+            None => {
+                log::warn!("WorkspaceService not available");
+                return;
+            }
+        };
 
-        // Clear selection if the removed task was selected
-        if self.selected_task_id.as_ref() == Some(&task_id) {
-            self.selected_task_id = None;
-        }
-
-        // TODO: If using real data, also remove from WorkspaceService
-        // if let Some(workspace_service) = AppState::global(cx).workspace_service() {
-        //     // workspace_service.remove_task(&task_id).await
-        // }
-
-        log::info!("Removed task: {}", task_id);
-        cx.notify();
+        cx.spawn(async move |entity, cx| {
+            match workspace_service.remove_task(&task_id).await {
+                Ok(_) => {
+                    log::info!("Successfully removed task: {}", task_id);
+                    // The UI will be updated via the TaskRemoved event
+                }
+                Err(e) => {
+                    log::error!("Failed to remove task: {}", e);
+                }
+            }
+        })
+        .detach();
     }
 
     fn select_task(&mut self, task_id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -626,7 +644,10 @@ impl TaskPanel {
                         Button::new("refresh")
                             .ghost()
                             .small()
-                            .icon(Icon::new(crate::assets::Icon::FolderSync)),
+                            .icon(Icon::new(crate::assets::Icon::FolderSync))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.refresh(cx);
+                            })),
                     )
                     .child(
                         Button::new("monitor")
@@ -649,6 +670,7 @@ impl TaskPanel {
 
     fn render_tree_view(&self, cx: &Context<Self>) -> impl IntoElement {
         let filtered_workspaces = self.get_filtered_workspaces(cx);
+        let entity = cx.entity().clone();
 
         div()
             .id("task-tree-scroll")
@@ -657,23 +679,21 @@ impl TaskPanel {
             .children(
                 filtered_workspaces
                     .iter()
-                    .map(|workspace| self.render_workspace_group(workspace, cx)),
+                    .map(|workspace| self.render_workspace_group(workspace, entity.clone(), cx)),
             )
     }
 
     fn render_workspace_group(
         &self,
         workspace: &WorkspaceGroup,
+        entity: Entity<Self>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
         let workspace_id = workspace.id.clone();
-        let workspace_id_for_toggle = workspace_id.clone();
-        let workspace_id_for_menu = workspace_id.clone();
         let is_expanded = workspace.is_expanded;
         let workspace_name = workspace.name.clone();
         let task_count = workspace.tasks.len();
-        let remove_callback = self.remove_workspace_callback.clone();
 
         v_flex()
             .w_full()
@@ -688,8 +708,11 @@ impl TaskPanel {
                     .py_2()
                     .cursor_pointer()
                     .hover(|s| s.bg(theme.accent.opacity(0.3)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_workspace(workspace_id_for_toggle.clone(), cx);
+                    .on_click(cx.listener({
+                        let workspace_id = workspace_id.clone();
+                        move |this, _, _, cx| {
+                            this.toggle_workspace(workspace_id.clone(), cx);
+                        }
                     }))
                     .child(
                         h_flex()
@@ -724,10 +747,12 @@ impl TaskPanel {
                                         .child(format!("{}", task_count)),
                                 )
                             })
-                            .child(
+                            .child({
+                                let workspace_id = workspace_id.clone();
+                                let entity = entity.clone();
                                 Button::new(SharedString::from(format!(
                                     "workspace-menu-{}",
-                                    workspace_id_for_menu
+                                    workspace_id
                                 )))
                                 .icon(IconName::Ellipsis)
                                 .ghost()
@@ -735,18 +760,23 @@ impl TaskPanel {
                                 .on_click(|_, _, cx| cx.stop_propagation())
                                 .dropdown_menu(
                                     move |menu, _, _| {
-                                        let workspace_id = workspace_id_for_menu.clone();
-                                        let callback = remove_callback.clone();
+                                        let workspace_id = workspace_id.clone();
+                                        let entity = entity.clone();
                                         menu.item(
                                             PopupMenuItem::new("移除工作区")
                                                 .icon(Icon::new(crate::assets::Icon::Trash2))
-                                                .on_click(move |_, _, _| {
-                                                    callback(workspace_id.clone());
+                                                .on_click(move |_, _, cx| {
+                                                    entity.update(cx, |this, cx| {
+                                                        this.remove_workspace(
+                                                            workspace_id.clone(),
+                                                            cx,
+                                                        );
+                                                    });
                                                 }),
                                         )
                                     },
-                                ),
-                            ),
+                                )
+                            }),
                     ),
             )
             // Expanded children
@@ -756,7 +786,7 @@ impl TaskPanel {
                         workspace
                             .tasks
                             .iter()
-                            .map(|task| self.render_task_item(task, cx)),
+                            .map(|task| self.render_task_item(task, entity.clone(), cx)),
                     )
             })
     }
@@ -799,13 +829,15 @@ impl TaskPanel {
             )
     }
 
-    fn render_task_item(&self, task: &Rc<WorkspaceTask>, cx: &Context<Self>) -> impl IntoElement {
+    fn render_task_item(
+        &self,
+        task: &Rc<WorkspaceTask>,
+        entity: Entity<Self>,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let theme = cx.theme();
         let task_id = task.id.clone();
-        let task_id_for_click = task_id.clone();
-        let task_id_for_menu = task_id.clone();
         let is_selected = self.selected_task_id.as_ref() == Some(&task_id);
-        let remove_callback = self.remove_task_callback.clone();
 
         v_flex()
             .id(SharedString::from(format!("task-{}", task_id)))
@@ -819,9 +851,48 @@ impl TaskPanel {
             .when(!is_selected, |s| {
                 s.hover(|s| s.bg(theme.accent.opacity(0.5)))
             })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.select_task(task_id_for_click.clone(), window, cx);
+            .on_click(cx.listener({
+                let task_id = task_id.clone();
+                move |this, _, window, cx| {
+                    this.select_task(task_id.clone(), window, cx);
+                }
             }))
+            .on_double_click(cx.listener({
+                let task_id = task_id.clone();
+                move |this, _, window, cx| {
+                    log::debug!("====== >>> Double click on task");
+                    this.select_task(task_id.clone(), window, cx);
+                }
+            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener({
+                    // let session_id = session_id.clone();
+                    move |_this, event: &MouseDownEvent, window, cx| {
+                        if event.click_count == 2 {
+                            // 双击：打开新的会话面板
+                            // let action = match session_id.as_ref() {
+                            //     Some(id) => ShowConversationPanel::with_session(id.clone()),
+                            //     None => ShowConversationPanel::new(),
+                            // };
+                            // window.dispatch_action(Box::new(action), cx);
+                        }
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener({
+                    let task_id = task_id.clone();
+                    move |this, event: &gpui::MouseUpEvent, window, cx| {
+                        if event.click_count == 1 {
+                            log::debug!("====== >>> 单击  click on task");
+                        } else if event.click_count == 2 {
+                            log::debug!("====== >>> 双击  click on task");
+                        }
+                    }
+                }),
+            )
             // First row: status icon + task name + mode
             .child(
                 h_flex()
@@ -891,13 +962,15 @@ impl TaskPanel {
             )
             // Right-click context menu
             .context_menu(move |menu, _, _| {
-                let task_id = task_id_for_menu.clone();
-                let callback = remove_callback.clone();
+                let task_id = task_id.clone();
+                let entity = entity.clone();
                 menu.item(
                     PopupMenuItem::new("删除任务")
                         .icon(Icon::new(crate::assets::Icon::Trash2))
-                        .on_click(move |_, _, _| {
-                            callback(task_id.clone());
+                        .on_click(move |_, _, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.remove_task(task_id.clone(), cx);
+                            });
                         }),
                 )
             })
@@ -911,6 +984,7 @@ impl TaskPanel {
         use chrono::{Duration, Local};
 
         let filtered_workspaces = self.get_filtered_workspaces(cx);
+        let entity = cx.entity().clone();
 
         let mut all_tasks: Vec<Rc<WorkspaceTask>> = filtered_workspaces
             .iter()
@@ -941,13 +1015,13 @@ impl TaskPanel {
             .min_h_0()
             .overflow_y_scrollbar()
             .when(!today.is_empty(), |this| {
-                this.child(self.render_time_group("今天", &today, cx))
+                this.child(self.render_time_group("今天", &today, entity.clone(), cx))
             })
             .when(!yesterday.is_empty(), |this| {
-                this.child(self.render_time_group("昨天", &yesterday, cx))
+                this.child(self.render_time_group("昨天", &yesterday, entity.clone(), cx))
             })
             .when(!older.is_empty(), |this| {
-                this.child(self.render_time_group("更早", &older, cx))
+                this.child(self.render_time_group("更早", &older, entity.clone(), cx))
             })
     }
 
@@ -955,6 +1029,7 @@ impl TaskPanel {
         &self,
         label: &str,
         tasks: &[&Rc<WorkspaceTask>],
+        entity: Entity<Self>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -979,18 +1054,18 @@ impl TaskPanel {
             .children(
                 tasks
                     .iter()
-                    .map(|task| self.render_timeline_task_item(task, cx)),
+                    .map(|task| self.render_timeline_task_item(task, entity.clone(), cx)),
             )
     }
 
     fn render_timeline_task_item(
         &self,
         task: &Rc<WorkspaceTask>,
+        entity: Entity<Self>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
         let task_id = task.id.clone();
-        let task_id_for_click = task_id.clone();
         let is_selected = self.selected_task_id.as_ref() == Some(&task_id);
 
         v_flex()
@@ -1006,8 +1081,11 @@ impl TaskPanel {
             .when(!is_selected, |s| {
                 s.hover(|s| s.bg(theme.accent.opacity(0.5)))
             })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.select_task(task_id_for_click.clone(), window, cx);
+            .on_click(cx.listener({
+                let task_id = task_id.clone();
+                move |this, _, window, cx| {
+                    this.select_task(task_id.clone(), window, cx);
+                }
             }))
             .child(
                 h_flex()
@@ -1053,39 +1131,62 @@ impl TaskPanel {
                     }),
             )
             .child(self.render_status_badge(&task.status, cx))
+            // Right-click context menu
+            .context_menu(move |menu, _, _| {
+                let task_id = task_id.clone();
+                let entity = entity.clone();
+                menu.item(
+                    PopupMenuItem::new("删除任务")
+                        .icon(Icon::new(crate::assets::Icon::Trash2))
+                        .on_click(move |_, _, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.remove_task(task_id.clone(), cx);
+                            });
+                        }),
+                )
+            })
     }
 
     // ========================================================================
     // Render - Status helpers
     // ========================================================================
 
-    fn render_status_badge(&self, status: &TaskStatus, cx: &Context<Self>) -> impl IntoElement {
+    fn render_status_badge(&self, status: &SessionStatus, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let (label, color) = match status {
-            TaskStatus::Pending => ("等待中", theme.muted_foreground),
-            TaskStatus::InProgress => ("进行中", gpui::rgb(0x22c55e).into()),
-            TaskStatus::Completed => ("已完成", gpui::rgb(0x22c55e).into()),
-            TaskStatus::Failed => ("失败", gpui::rgb(0xef4444).into()),
+            SessionStatus::Active => ("待输入", theme.muted_foreground),
+            SessionStatus::Idle => ("等待中", theme.muted_foreground),
+            SessionStatus::Pending => ("进行中", theme.muted_foreground),
+            SessionStatus::InProgress => ("进行中", gpui::rgb(0x22c55e).into()),
+            SessionStatus::Completed => ("已完成", gpui::rgb(0x22c55e).into()),
+            SessionStatus::Failed => ("失败", gpui::rgb(0xef4444).into()),
+            SessionStatus::Closed => ("关闭", gpui::rgb(0xef4444).into()),
         };
 
         div().text_xs().text_color(color).child(label)
     }
 
-    fn status_icon(&self, status: &TaskStatus) -> IconName {
+    fn status_icon(&self, status: &SessionStatus) -> IconName {
         match status {
-            TaskStatus::Pending => IconName::Asterisk,
-            TaskStatus::InProgress => IconName::Loader,
-            TaskStatus::Completed => IconName::CircleCheck,
-            TaskStatus::Failed => IconName::CircleX,
+            SessionStatus::Active => IconName::Asterisk,
+            SessionStatus::Idle => IconName::Asterisk,
+            SessionStatus::Pending => IconName::Asterisk,
+            SessionStatus::InProgress => IconName::Loader,
+            SessionStatus::Completed => IconName::CircleCheck,
+            SessionStatus::Failed => IconName::CircleX,
+            SessionStatus::Closed => IconName::CircleX,
         }
     }
 
-    fn status_color(&self, status: &TaskStatus) -> gpui::Hsla {
+    fn status_color(&self, status: &SessionStatus) -> gpui::Hsla {
         match status {
-            TaskStatus::Pending => gpui::rgb(0x6b7280).into(),
-            TaskStatus::InProgress => gpui::rgb(0x3b82f6).into(),
-            TaskStatus::Completed => gpui::rgb(0x22c55e).into(),
-            TaskStatus::Failed => gpui::rgb(0xef4444).into(),
+            SessionStatus::Active => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Idle => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Pending => gpui::rgb(0x6b7280).into(),
+            SessionStatus::InProgress => gpui::rgb(0x3b82f6).into(),
+            SessionStatus::Completed => gpui::rgb(0x22c55e).into(),
+            SessionStatus::Failed => gpui::rgb(0xef4444).into(),
+            SessionStatus::Closed => gpui::rgb(0xef4444).into(),
         }
     }
 }

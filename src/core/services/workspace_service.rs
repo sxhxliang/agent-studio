@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::core::event_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
-use crate::schemas::workspace_schema::{TaskStatus, Workspace, WorkspaceConfig, WorkspaceTask};
+use crate::core::services::SessionStatus;
+use crate::schemas::workspace_schema::{Workspace, WorkspaceConfig, WorkspaceTask};
 
 /// Service for managing workspaces and tasks
 ///
@@ -251,7 +252,7 @@ impl WorkspaceService {
     }
 
     /// Update task status
-    pub async fn update_task_status(&self, task_id: &str, status: TaskStatus) -> Result<()> {
+    pub async fn update_task_status(&self, task_id: &str, status: SessionStatus) -> Result<()> {
         {
             let mut config = self.config.write().await;
 
@@ -299,5 +300,29 @@ impl WorkspaceService {
     pub async fn get_all_tasks(&self) -> Vec<WorkspaceTask> {
         let config = self.config.read().await;
         config.tasks.clone()
+    }
+
+    /// Remove a task by ID
+    pub async fn remove_task(&self, task_id: &str) -> Result<()> {
+        let workspace_id = {
+            let mut config = self.config.write().await;
+
+            let task = config
+                .remove_task(task_id)
+                .context("Task not found")?;
+
+            task.workspace_id.clone()
+        };
+
+        self.save_config().await?;
+
+        // Publish TaskRemoved event
+        self.publish_event(WorkspaceUpdateEvent::TaskRemoved {
+            workspace_id: workspace_id.clone(),
+            task_id: task_id.to_string(),
+        });
+
+        log::info!("Removed task: {}", task_id);
+        Ok(())
     }
 }

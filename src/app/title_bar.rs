@@ -1,20 +1,20 @@
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, px, AnyElement, App, AppContext, Context, Corner, Entity, FocusHandle,
-    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, SharedString,
-    Styled as _, Subscription, Window,
+    AnyElement, App, AppContext, Context, Corner, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString, Styled as _, Subscription,
+    Window, actions, div, px,
 };
 use gpui_component::{
+    ActiveTheme as _, IconName, PixelsExt, Sizable as _, Theme, TitleBar, WindowExt as _,
     badge::Badge,
     button::{Button, ButtonVariants as _},
     menu::AppMenuBar,
     menu::DropdownMenu as _,
     scroll::ScrollbarShow,
-    ActiveTheme as _, IconName, PixelsExt, Sizable as _, Theme, TitleBar, WindowExt as _,
 };
 
-use crate::{app_menus, SelectFont, SelectRadius, SelectScrollbarShow};
+use crate::{SelectFont, SelectRadius, SelectScrollbarShow, app_menus};
 
 actions!(title_bar, [OpenSettings]);
 
@@ -56,8 +56,8 @@ impl AppTitleBar {
     fn on_action_open_settings(
         &mut self,
         _: &OpenSettings,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
     ) {
         // SettingsWindow::open(window, cx).detach();
     }

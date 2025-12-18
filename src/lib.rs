@@ -5,7 +5,6 @@ mod core;
 mod i18n;
 mod panels;
 mod schemas;
-mod task_data;
 mod utils;
 pub mod workspace;
 pub use app::key_binding;
@@ -45,8 +44,8 @@ pub use app::{
     app_menus, menu, themes, title_bar,
 };
 use gpui::{
-    div, px, size, AnyView, App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement,
-    Pixels, Render, SharedString, Size, Styled, Window, WindowBounds, WindowKind, WindowOptions,
+    AnyView, App, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Pixels, Render,
+    SharedString, Size, Styled, Window, WindowBounds, WindowKind, WindowOptions, div, px, size,
 };
 // Re-export from other modules
 pub use menu::UIMenu;
@@ -68,8 +67,9 @@ pub use agent_client_protocol::{
 };
 
 use gpui_component::{
-    dock::{register_panel, PanelControl, PanelInfo},
-    v_flex, Root, TitleBar,
+    Root, TitleBar,
+    dock::{PanelControl, PanelInfo, register_panel},
+    v_flex,
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -210,6 +210,7 @@ pub fn init(cx: &mut App) {
     cx.on_action(workspace::actions::restart_agent);
     cx.on_action(workspace::actions::reload_agent_config);
     cx.on_action(workspace::actions::set_upload_dir);
+    cx.on_action(workspace::actions::change_config_path);
 
     register_panel(cx, PANEL_NAME, |_, _, info, window, cx| {
         let story_state = match info {

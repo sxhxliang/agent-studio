@@ -1,8 +1,9 @@
 use gpui::{
-    App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px
+    App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
+    Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    h_flex, input::InputState, scroll::ScrollableElement, v_flex, ActiveTheme, Icon, IconName,
+    ActiveTheme, Icon, IconName, h_flex, input::InputState, scroll::ScrollableElement, v_flex,
 };
 
 // Use the published ACP schema crate
@@ -10,16 +11,15 @@ use agent_client_protocol::{ContentChunk, ImageContent, SessionUpdate, ToolCall}
 use chrono::{DateTime, Utc};
 
 use crate::{
-    app::actions::AddCodeSelection, panels::dock_panel::DockPanel, AgentMessage, AgentTodoList,
-    AppState, ChatInputBox, SendMessageToSession,
-    core::services::SessionStatus,
+    AgentMessage, AgentTodoList, AppState, CancelSession, ChatInputBox, SendMessageToSession,
+    app::actions::AddCodeSelection, core::services::SessionStatus, panels::dock_panel::DockPanel,
 };
 
 // Import from submodules
 use super::{
     components::{ResourceItemState, ToolCallItemState, UserMessageView},
     helpers::{extract_text_from_content, get_element_id, session_update_type_name},
-    rendered_item::{create_agent_message_data, RenderedItem},
+    rendered_item::{RenderedItem, create_agent_message_data},
     types::ResourceInfo,
 };
 
@@ -260,7 +260,7 @@ impl ConversationPanel {
                         entity.update(cx, |this, cx| {
                             let index = this.next_index;
                             this.next_index += 1;
-                            log::info!("Processing update type: {:?}", update);
+                            // log::debug!("Processing update type: {:?}", update);
                             Self::add_update_to_list(&mut this.rendered_items, update, index, cx);
 
                             cx.notify(); // Trigger re-render immediately
@@ -479,6 +479,15 @@ impl ConversationPanel {
                                     session_id,
                                     status
                                 );
+
+                                // Mark last message as complete when session completes or becomes idle
+                                if matches!(status, SessionStatus::Completed | SessionStatus::Idle) {
+                                    if let Some(last_item) = this.rendered_items.last_mut() {
+                                        last_item.mark_complete();
+                                        log::debug!("Marked last message as complete due to status change to {:?}", status);
+                                    }
+                                }
+
                                 // Update session status
                                 this.session_status = Some(SessionStatusInfo {
                                     agent_name,
@@ -856,7 +865,10 @@ impl ConversationPanel {
             return;
         };
 
-        log::info!("Dispatching SendMessageToSession action for session: {}", session_id);
+        log::info!(
+            "Dispatching SendMessageToSession action for session: {}",
+            session_id
+        );
 
         // Create action and dispatch to workspace
         let action = SendMessageToSession {
@@ -866,6 +878,32 @@ impl ConversationPanel {
         };
 
         window.dispatch_action(Box::new(action), cx);
+    }
+
+    /// Send a message to the current session
+    /// Dispatches SendMessageToSession action to workspace for handling
+    fn send_cancel_message(&self, window: &mut Window, cx: &mut Context<Self>) {
+        // Only send if we have a session_id
+        let Some(ref session_id) = self.session_id else {
+            log::warn!("Cannot cancel session: no session_id");
+            return;
+        };
+
+        log::info!(
+            "[ConversationPanel] BEFORE dispatch_action: CancelSession for session: {}",
+            session_id
+        );
+
+        let action = CancelSession {
+            session_id: session_id.clone(),
+        };
+
+        window.dispatch_action(Box::new(action), cx);
+
+        log::info!(
+            "[ConversationPanel] AFTER dispatch_action: CancelSession for session: {}",
+            session_id
+        );
     }
 
     /// Render the status bar at the bottom of the conversation panel
@@ -892,6 +930,8 @@ impl ConversationPanel {
             SessionStatus::Pending => (IconName::LoaderCircle, cx.theme().warning),
             SessionStatus::Idle => (IconName::Moon, cx.theme().muted_foreground),
             SessionStatus::Closed => (IconName::CircleX, cx.theme().red),
+            SessionStatus::Completed => (IconName::CircleCheck, cx.theme().success),
+            SessionStatus::Failed => (IconName::CircleX, cx.theme().red),
         };
 
         let status_text = format!("{:?}", status_info.status);
@@ -936,7 +976,11 @@ impl ConversationPanel {
                                     h_flex()
                                         .items_center()
                                         .gap_1()
-                                        .child(Icon::new(status_icon).size(px(12.)).text_color(status_color))
+                                        .child(
+                                            Icon::new(status_icon)
+                                                .size(px(12.))
+                                                .text_color(status_color),
+                                        )
                                         .child(
                                             div()
                                                 .text_xs()
@@ -980,7 +1024,10 @@ impl ConversationPanel {
                                                 div()
                                                     .text_xs()
                                                     .text_color(cx.theme().muted_foreground)
-                                                    .child(format!("{}", status_info.message_count)),
+                                                    .child(format!(
+                                                        "{}",
+                                                        status_info.message_count
+                                                    )),
                                             ),
                                     )
                                 }),
@@ -1028,7 +1075,7 @@ impl Focusable for ConversationPanel {
 
 impl Render for ConversationPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut children = v_flex().p_4().gap_6().bg(cx.theme().background);
+        let mut children = v_flex().p_4().gap_3().bg(cx.theme().background);
 
         for item in &self.rendered_items {
             match item {
@@ -1109,6 +1156,7 @@ impl Render for ConversationPanel {
         // Main layout: vertical flex with scroll area on top and input box at bottom
         v_flex()
             .size_full()
+            .track_focus(&self.focus_handle) // CRITICAL: Track focus to enable action propagation
             .child(
                 // Scrollable message area - takes remaining space
                 div()
@@ -1137,7 +1185,9 @@ impl Render for ConversationPanel {
                         ChatInputBox::new("chat-input", self.input_state.clone())
                             .pasted_images(self.pasted_images.clone())
                             .code_selections(self.code_selections.clone())
-                            .session_status(self.session_status.as_ref().map(|info| info.status.clone()))
+                            .session_status(
+                                self.session_status.as_ref().map(|info| info.status.clone()),
+                            )
                             .session_id(self.session_id.clone())
                             .on_paste(move |window, cx| {
                                 entity.update(cx, |this, cx| {
@@ -1174,6 +1224,11 @@ impl Render for ConversationPanel {
                                     this.code_selections.clear();
                                     cx.notify();
                                 }
+                            }))
+                            .on_cancel(cx.listener(|this, _ev, window, cx| {
+                                log::info!("[ConversationPanel] on_cancel callback triggered");
+                                this.send_cancel_message(window, cx);
+                                cx.notify();
                             }))
                     }),
             )

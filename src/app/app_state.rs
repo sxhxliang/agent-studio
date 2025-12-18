@@ -8,7 +8,9 @@ use crate::{
         AgentConfigBusContainer, CodeSelectionBusContainer, PermissionBusContainer,
         SessionUpdateBusContainer, WorkspaceUpdateBusContainer,
     },
-    core::services::{AgentConfigService, AgentService, MessageService, PersistenceService, WorkspaceService},
+    core::services::{
+        AgentConfigService, AgentService, MessageService, PersistenceService, WorkspaceService,
+    },
 };
 
 /// Welcome session info - stores the session created when user selects an agent
@@ -93,7 +95,11 @@ impl AppState {
     }
 
     /// Set the AgentManager after async initialization
-    pub fn set_agent_manager(&mut self, manager: Arc<AgentManager>, initial_config: crate::core::config::Config) {
+    pub fn set_agent_manager(
+        &mut self,
+        manager: Arc<AgentManager>,
+        initial_config: crate::core::config::Config,
+    ) {
         log::info!("Setting AgentManager");
 
         // Determine sessions directory path
@@ -135,7 +141,9 @@ impl AppState {
         self.message_service = Some(message_service);
         self.agent_config_service = agent_config_service;
 
-        log::info!("Initialized service layer (AgentService, MessageService, PersistenceService, AgentConfigService)");
+        log::info!(
+            "Initialized service layer (AgentService, MessageService, PersistenceService, AgentConfigService)"
+        );
     }
 
     /// Set the config path for AgentConfigService

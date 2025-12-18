@@ -1,6 +1,6 @@
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
-    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
+    App, AppContext, Context, ElementId, Entity, IntoElement, ParentElement, Render, RenderOnce,
+    SharedString, Styled, Window, div, prelude::FluentBuilder as _, px,
 };
 
 use agent_client_protocol::{
@@ -8,9 +8,10 @@ use agent_client_protocol::{
     TextResourceContents,
 };
 use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
+    h_flex, v_flex,
 };
 
 /// User message data structure based on ACP's PromptRequest format

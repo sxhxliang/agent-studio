@@ -1,12 +1,13 @@
 use agent_client_protocol::{self as acp, PermissionOption, PermissionOptionKind};
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext, Context, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Window,
+    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    Window, div, prelude::FluentBuilder as _, px,
 };
 
 use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
-    h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
+    h_flex, v_flex,
 };
 
 use crate::AppState;

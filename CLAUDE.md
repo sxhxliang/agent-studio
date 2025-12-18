@@ -4,513 +4,130 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the `agentx` Agent Studio application, part of the gpui-component workspace. It demonstrates building a full-featured desktop application with GPUI Component, showcasing:
+AgentX (version 0.5.0) is a full-featured desktop AI agent studio built with GPUI Component. It demonstrates professional-grade desktop application patterns including:
 
-- A dock-based layout system with multiple panels (left, right, bottom, center)
-- Custom title bar with menu integration and panel management
-- Code editor with LSP support (diagnostics, completion, hover, code actions)
-- AI conversation UI components (agent messages, user messages, tool calls, todo lists)
-- Task list panel with collapsible sections and mock data loading
-- Chat input panel with context controls
-- Persistent layout state management with versioning
-- Theme support and customization
+- **Dock-based layout system** with persistent state and versioning
+- **Real-time agent communication** via Agent Client Protocol (ACP)
+- **Event-driven architecture** with thread-safe publish-subscribe pattern
+- **Service layer** separating business logic from UI components
+- **Code editor** with LSP integration and tree-sitter syntax highlighting
+- **Multi-session management** with session persistence to JSONL files
+- **Auto-update system** with version checking and download capabilities
+- **Theme system** with light/dark mode support
+
+The application is part of the gpui-component workspace and serves as both a working agent studio and a comprehensive example of GPUI Component patterns.
 
 ## Architecture
 
-### Application Structure
-
-- **Main Entry**: `src/main.rs` initializes the app, loads config, and spawns the AgentManager
-- **DockWorkspace** (`src/workspace/mod.rs`): The root container managing the dock area, title bar, and layout persistence
-- **Panels Module** (`src/panels/`): All panel implementations organized in dedicated directory
-- **Core Infrastructure** (`src/core/`): Agent client, event buses, and configuration management
-- **Dock System**: Uses `DockArea` from gpui-component for flexible panel layout
-- **App Module** (`src/app/`): Contains modular application components (actions, menus, themes, title bar)
-
-### Directory Structure (Post-Refactoring)
+### High-Level Structure
 
 ```
 src/
-├── app/                   # Application-level modules
-│   ├── actions.rs        # Centralized action definitions
-│   ├── app_state.rs      # Global application state
-│   ├── menu.rs           # Menu system
-│   ├── themes.rs         # Theme management
-│   └── title_bar.rs      # Custom title bar
+├── app/                    # Application layer
+│   ├── actions.rs         # Centralized action definitions
+│   ├── app_state.rs       # Global application state
+│   ├── menu.rs            # Menu system
+│   ├── themes.rs          # Theme management
+│   └── title_bar.rs       # Custom title bar
 │
-├── panels/                # All panel implementations
-│   ├── dock_panel.rs     # DockPanel trait and container
-│   ├── code_editor.rs    # Code editor with LSP
-│   ├── conversation.rs   # Mock conversation panel
-│   ├── conversation/ # ACP-enabled conversation (modularized)
-│   │   ├── panel.rs      # Main panel logic (1215 lines)
-│   │   ├── types.rs      # Reusable types and traits (94 lines)
-│   │   └── mod.rs        # Module exports
-│   ├── task_list.rs      # Task list panel
-│   ├── chat_input.rs     # Chat input panel
-│   ├── welcome_panel.rs  # Welcome screen
-│   └── settings_window.rs # Settings UI
+├── core/                   # Core infrastructure
+│   ├── agent/             # Agent process management
+│   │   └── client.rs      # AgentManager, AgentHandle, GuiClient
+│   ├── event_bus/         # Publish-subscribe event distribution
+│   │   ├── session_bus.rs           # Session update events
+│   │   ├── permission_bus.rs        # Permission request events
+│   │   ├── workspace_bus.rs         # Workspace status events
+│   │   ├── code_selection_bus.rs    # Code selection events
+│   │   └── agent_config_bus.rs      # Agent config change events
+│   ├── services/          # Business logic layer
+│   │   ├── agent_service.rs         # Agent/session management
+│   │   ├── message_service.rs       # Message handling & event publishing
+│   │   ├── persistence_service.rs   # JSONL session persistence
+│   │   ├── workspace_service.rs     # Workspace state management
+│   │   ├── agent_config_service.rs  # Dynamic agent configuration
+│   │   └── config_watcher.rs        # File system watching
+│   ├── updater/           # Application update system
+│   │   ├── checker.rs     # Check for new versions
+│   │   ├── downloader.rs  # Download updates
+│   │   └── version.rs     # Version parsing and comparison
+│   └── config.rs          # Configuration types
 │
-├── core/                  # Core infrastructure
-│   ├── agent/            # Agent client management
-│   │   ├── client.rs     # AgentManager, AgentHandle
-│   │   └── mod.rs
-│   ├── event_bus/        # Event distribution system
-│   │   ├── session_bus.rs      # Session updates
-│   │   ├── permission_bus.rs   # Permission requests
-│   │   └── mod.rs
-│   ├── services/         # Business logic services (NEW)
-│   │   ├── agent_service.rs    # Agent and session management
-│   │   ├── message_service.rs  # Message sending and subscription
-│   │   └── mod.rs
-│   ├── config.rs         # Configuration types
-│   └── mod.rs
+├── panels/                 # UI panels (dockable)
+│   ├── dock_panel.rs      # DockPanel trait & container
+│   ├── conversation/      # ACP-enabled conversation UI
+│   ├── code_editor/       # LSP-enabled code editor
+│   ├── task_panel/        # Task management
+│   ├── welcome_panel.rs   # Welcome screen
+│   ├── session_manager.rs # Multi-session manager
+│   ├── settings_panel.rs  # Application settings
+│   └── tool_call_detail_panel.rs  # Tool call details
 │
 ├── components/            # Reusable UI components
-│   ├── agent_message.rs
-│   ├── user_message.rs
-│   ├── tool_call_item.rs
-│   ├── agent_todo_list.rs
-│   └── ...
+│   ├── agent_message.rs   # AI agent messages with markdown
+│   ├── user_message.rs    # User messages with attachments
+│   ├── tool_call_item.rs  # Tool call visualization
+│   ├── agent_todo_list.rs # Todo list component
+│   ├── chat_input_box.rs  # Chat input with file upload
+│   └── permission_request.rs  # Permission request UI
 │
 ├── workspace/             # Workspace management
-│   ├── mod.rs            # DockWorkspace implementation
-│   └── actions.rs        # Workspace action handlers
+│   ├── mod.rs             # DockWorkspace with layout persistence
+│   └── actions.rs         # Workspace-specific actions
 │
 ├── schemas/               # Data models
-│   ├── conversation_schema.rs
-│   └── task_schema.rs
-│
 ├── utils/                 # Utility functions
-├── lib.rs                # Library entry point
-└── main.rs               # Application entry point
+├── lib.rs                 # Library entry & initialization
+└── main.rs                # Application entry point
 ```
 
-### Key Components
+### Key Design Patterns
 
-1. **DockWorkspace** (`src/workspace/mod.rs`):
-   - Manages the main dock area with version-controlled layout persistence
-   - Saves layout state to `target/docks-agentx.json` (debug) or `docks-agentx.json` (release)
-   - Handles layout loading, saving (debounced by 10 seconds), and version migration
-   - Provides actions for adding panels and toggling visibility via dropdown menu in title bar
-   - Handles session-based panel creation via `AddSessionPanel` action
+#### 1. Service Layer Pattern
 
-2. **Panel System** (`src/panels/dock_panel.rs`):
-   - `DockPanelContainer`: Wrapper for panels implementing the `Panel` trait from gpui-component
-   - `DockPanel`: Custom trait that panels implement to define title, description, behavior
-   - `panel<S: DockPanel>()`: Factory method to create panels of any DockPanel type
-   - `panel_for_session()`: Specialized method to create session-specific ConversationPanel instances
-   - Panel registration happens in `init()` via `register_panel()` with deserialization from saved state
-   - All panels are registered under the name `"DockPanelContainer"` with state determining the actual panel type
-
-3. **App Module** (`src/app/`):
-   - **actions.rs**: Centralized action definitions with comprehensive documentation (workspace, task list, UI settings, themes, menus)
-   - **app_state.rs**: Global application state, including service layer references
-   - **menu.rs**: Application menu setup and handling
-   - **themes.rs**: Theme configuration and switching
-   - **title_bar.rs**: Custom application title bar component
-   - **app_menus.rs**: Menu construction and organization
-
-4. **Service Layer** (`src/core/services/`) - **NEW as of 2025-12-01**:
-   - **AgentService** (`agent_service.rs`): Manages agents and their sessions using the Aggregate Root pattern
-     - `list_agents()`: List all available agents
-     - `create_session(agent_name)`: Create a new session for an agent
-     - `get_or_create_session(agent_name)`: Get existing or create new session (recommended)
-     - `get_active_session(agent_name)`: Get the active session ID
-     - `send_prompt(agent_name, session_id, prompt)`: Send a prompt to an agent
-     - `close_session(agent_name)`: Close an agent's session
-   - **MessageService** (`message_service.rs`): Handles message sending and event bus interaction
-     - `send_user_message(agent_name, message)`: Complete flow - creates/reuses session, publishes to event bus, sends prompt
-     - `publish_user_message(session_id, message)`: Publish user message to event bus for immediate UI feedback
-     - `subscribe_session_updates(session_id)`: Subscribe to session updates with automatic filtering
-   - **Architecture Benefits**:
-     - Separates business logic from UI components
-     - Eliminates ~150 lines of duplicate code across components
-     - Centralizes session management (one active session per agent)
-     - Simplifies testing (services can be tested independently)
-     - Unified error handling with `anyhow::Result`
-
-5. **Conversation UI Components** (`src/components/`):
-   - **AgentMessage** (`agent_message.rs`): Displays AI agent responses with markdown support and streaming capability
-   - **UserMessage** (`user_message.rs`): Shows user messages with text and file/resource attachments
-   - **ToolCallItem** (`tool_call_item.rs`): Renders tool calls with status badges (pending, running, success, error)
-   - **AgentTodoList** (`agent_todo_list.rs`): Interactive todo list with status tracking (pending, in_progress, completed)
-   - **ChatInputBox** (`chat_input_box.rs`): Reusable input component with send functionality
-   - **TaskListItem** (`task_list_item.rs`): Individual task item display component
-   - All components follow a builder pattern for configuration
-
-5. **Panel Implementations** (`src/panels/`):
-   - **ConversationPanel** (`conversation.rs`): Mock conversation UI showcasing all message types
-   - **ConversationPanel** (`conversation_acp/`): **ACP-enabled conversation panel** with real-time event bus integration
-     - Modularized into `panel.rs` (main logic), `types.rs` (reusable helpers), and `mod.rs`
-     - Uses **MessageService** for unified message sending (session creation, event publishing, prompt sending)
-   - **CodeEditorPanel** (`code_editor/`): High-performance code editor with LSP integration and tree-sitter
-     - Modularized into subdirectory with separate modules for LSP providers, storage, and panel logic
-   - **ListTaskPanel** (`task_list/`): Task list with collapsible sections
-     - Modularized into subdirectory with separate types, delegate, and panel logic
-   - **WelcomePanel** (`welcome_panel.rs`): Welcome screen for new sessions
-
-6. **Core Infrastructure** (`src/core/`):
-   - **Agent Module** (`agent/client.rs`): `AgentManager` and `AgentHandle` for spawning and managing agent processes
-   - **Event Bus** (`event_bus/`): Thread-safe publish-subscribe system
-     - `session_bus.rs`: Session update distribution
-     - `permission_bus.rs`: Permission request handling
-   - **Configuration** (`config.rs`): Agent and application configuration types
-
-### Layout Persistence
-
-The dock layout system uses versioned states:
-- Current version: 5 (defined in `MAIN_DOCK_AREA` in `src/workspace/mod.rs`)
-- When version mismatch detected, prompts user to reset to default layout
-- Layout automatically saved 10 seconds after changes (debounced)
-- Layout saved on app quit via `on_app_quit` hook
-- State includes panel positions, sizes, active tabs, and visibility
-
-## Development Commands
-
-### Build and Run
-
-```bash
-# Run from the agentx directory
-cargo run
-
-# Run with info logging
-RUST_LOG=info cargo run
-
-# Or from the workspace root (parent directory of agent-studio)
-cd ../.. && cargo run --example agentx
-
-# Run the full component gallery (workspace root)
-cd ../.. && cargo run
-```
-
-### Build Only
-
-```bash
-cargo build
-
-# Check for compilation errors without building binaries
-cargo check
-```
-
-### Development with Performance Profiling (macOS)
-
-```bash
-# Enable Metal HUD to see FPS and GPU metrics
-MTL_HUD_ENABLED=1 cargo run
-
-# Profile with samply (requires: cargo install samply)
-samply record cargo run
-```
-
-### Logging
-
-The application uses `tracing` for logging. Control log levels via `RUST_LOG`:
-
-```bash
-# Enable trace logging for gpui-component
-RUST_LOG=gpui_component=trace cargo run
-
-# Enable debug logging for everything
-RUST_LOG=debug cargo run
-```
-
-## GPUI Component Integration
-
-### Initialization Pattern
-
-Always call `gpui_component::init(cx)` before using any GPUI Component features. This Agent Studio extends initialization with custom setup:
+Business logic is separated from UI through services in `src/core/services/`. All services are accessed through `AppState`:
 
 ```rust
-pub fn init(cx: &mut App) {
-    // Set up logging first
-    tracing_subscriber::registry()...
-
-    // Initialize gpui-component (required)
-    gpui_component::init(cx);
-
-    // Initialize app-specific state and modules
-    AppState::init(cx);
-    themes::init(cx);
-    editor::init();
-    menu::init(cx);
-
-    // Bind keybindings
-    cx.bind_keys([...]);
-
-    // Register custom panels
-    register_panel(cx, PANEL_NAME, |_, _, info, window, cx| {
-        // Panel factory logic
-    });
-}
+// Access services through global AppState
+let message_service = AppState::global(cx).message_service()?;
+let agent_service = AppState::global(cx).agent_service()?;
+let workspace_service = AppState::global(cx).workspace_service()?;
 ```
 
-### Root Element Requirement
+**Services:**
+- **AgentService**: Manages agent lifecycle and sessions (Aggregate Root pattern)
+- **MessageService**: Handles message sending and event bus integration
+- **PersistenceService**: Saves/loads session history to JSONL files
+- **WorkspaceService**: Manages workspace state and panel visibility
+- **AgentConfigService**: Dynamic agent configuration with hot-reloading
+- **ConfigWatcher**: Watches config file for changes
 
-The first level element in a window must be a `Root` from gpui-component:
+#### 2. Event Bus Architecture
 
-```rust
-cx.new(|cx| Root::new(view, window, cx))
-```
-
-This provides essential UI layers (sheets, dialogs, notifications). For custom title bars, use `DockRoot` pattern (see `src/lib.rs:167`).
-
-### Creating Custom Panels
-
-To add a new panel type:
-
-1. Create your panel file in `src/panels/` directory
-
-2. Implement the `DockPanel` trait (defined in `src/panels/dock_panel.rs`):
-   - `klass()`: Returns the panel type name (auto-implemented from type name)
-   - `title()`: Panel display name (static)
-   - `description()`: Panel description (static)
-   - `new_view()`: Create the panel view entity (returns `Entity<impl Render>`)
-   - Optional: `closable()`, `zoomable()`, `title_bg()`, `paddings()`, `on_active()`
-
-3. Add to the match statement in `create_panel_view()` in `src/lib.rs` to handle panel creation
-
-4. Add to default layout in `reset_default_layout()` or `init_default_layout()` in `src/workspace/mod.rs`
-
-5. Export from `src/panels/mod.rs`:
-   ```rust
-   mod my_panel;
-   pub use my_panel::MyPanel;
-   ```
-
-Example panel structure:
-```rust
-// src/panels/my_panel.rs
-use gpui::*;
-use crate::panels::dock_panel::DockPanel;
-
-pub struct MyPanel {
-    focus_handle: FocusHandle,
-}
-
-impl DockPanel for MyPanel {
-    fn title() -> &'static str { "My Panel" }
-    fn description() -> &'static str { "Description here" }
-    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render> {
-        cx.new(|cx| Self::new(window, cx))
-    }
-}
-```
-
-**For large panels**, consider creating a subdirectory:
-```
-src/panels/my_panel/
-├── mod.rs       # Export MyPanel
-├── panel.rs     # Main implementation
-├── types.rs     # Shared types
-└── helpers.rs   # Utility functions
-```
-
-Note: The `klass()` method is auto-implemented and will extract "MyPanel" from the full type name.
-
-## Key Concepts
-
-### Dock Placement
-
-Panels can be added to four dock areas: `Center`, `Left`, `Right`, `Bottom`
-
-Dock areas are collapsible (except Center) and support resizing.
-
-### Window Management
-
-- Window bounds are centered and sized to 85% of display (max 1600x1200)
-- Minimum window size: 480x320 pixels
-- Custom titlebar on macOS/Windows via `TitleBar::title_bar_options()`
-- Client decorations on Linux with transparent background
-
-### State Management
-
-- **Global state** via `AppState` for tracking invisible panels
-- **Panel state** serialization via `dump()` and deserialization via panel registry
-- **Layout state** includes panel positions, sizes, active tabs, and version
-- **Mock data** loaded from `mock_tasks.json` for the task list panel
-
-### Message Components Architecture
-
-The conversation UI uses a builder pattern with type-safe components:
-
-- **UserMessage**: `MessageContent::text()` and `MessageContent::resource()` for attachments
-- **AgentMessage**: Supports streaming via `add_chunk()`, completed state, thinking indicator
-- **ToolCallItem**: Status progression (pending → running → success/error)
-- **AgentTodoList**: Entries with priority (high/normal/low) and status tracking
-
-All components are exported from `src/components/mod.rs` for easy reuse.
-
-### Actions System
-
-The application uses a centralized action system defined in `src/app/actions.rs`:
-
-**Action Categories:**
-1. **Workspace Actions** - Panel management and dock operations
-   - `AddPanel(DockPlacement)`: Add panel to specific dock area
-   - `TogglePanelVisible(SharedString)`: Show/hide panels
-   - `AddSessionPanel { session_id, placement }`: Create session-specific conversation panels
-   - `ToggleDockToggleButton`: Toggle dock button visibility
-
-2. **Task List Actions** - Task and session management
-   - `SelectedAgentTask`: Handle task selection
-   - `AddSessionToList { session_id, task_name }`: Add new sessions to task list
-
-3. **UI Settings Actions** - Interface customization
-   - `SelectScrollbarShow(ScrollbarShow)`: Change scrollbar display mode
-   - `SelectLocale(SharedString)`: Switch interface language
-   - `SelectFont(usize)`: Change editor/UI font
-   - `SelectRadius(usize)`: Adjust component border radius
-
-4. **General Application Actions** - Core app operations
-   - `CreateTaskFromWelcome(SharedString)`: Create tasks from welcome panel
-   - `About`, `Open`, `Quit`, `CloseWindow`: Standard app operations
-   - `ToggleSearch`, `Tab`, `TabPrev`: Navigation
-   - `ShowWelcomePanel`, `ShowConversationPanel`: Panel navigation
-
-5. **Theme Actions** - Appearance customization
-   - `SwitchTheme(SharedString)`: Change color theme
-   - `SwitchThemeMode(ThemeMode)`: Toggle light/dark mode
-
-All actions are fully documented with Chinese and English comments explaining their purpose and parameters.
-
-### Service Layer Usage (NEW - 2025-12-01)
-
-The application now uses a service layer to separate business logic from UI components. Services are accessed through `AppState`:
-
-#### Using MessageService
-
-**Send a message** (automatically creates/reuses session, publishes to event bus, sends prompt):
-```rust
-// In a UI component
-let message_service = AppState::global(cx)
-    .message_service()
-    .expect("MessageService not initialized");
-
-cx.spawn(async move |_this, _cx| {
-    match message_service.send_user_message(&agent_name, message).await {
-        Ok(session_id) => {
-            log::info!("Message sent successfully to session {}", session_id);
-        }
-        Err(e) => {
-            log::error!("Failed to send message: {}", e);
-        }
-    }
-}).detach();
-```
-
-**Send a message to an existing session** (when you need to ensure panel is subscribed first):
-```rust
-// Recommended pattern for creating panels:
-// 1. Get or create session
-let agent_service = AppState::global(cx).agent_service().unwrap();
-let session_id = agent_service.get_or_create_session(&agent_name).await?;
-
-// 2. Create panel (panel subscribes to session)
-let conversation_panel = DockPanelContainer::panel_for_session(session_id.clone(), window, cx);
-
-// 3. Send message to session (panel will receive it)
-let message_service = AppState::global(cx).message_service().unwrap();
-message_service.send_message_to_session(&agent_name, &session_id, message).await?;
-```
-
-**Subscribe to session updates** (automatic filtering):
-```rust
-let message_service = AppState::global(cx).message_service().unwrap();
-
-// Subscribe to a specific session (automatic filtering)
-let mut rx = message_service.subscribe_session_updates(Some(session_id));
-
-// Or subscribe to all sessions
-let mut rx = message_service.subscribe_session_updates(None);
-
-cx.spawn(async move |cx| {
-    while let Some(update) = rx.recv().await {
-        // Handle update (already filtered by session_id if specified)
-        // Process the update...
-    }
-}).detach();
-```
-
-#### Using AgentService
-
-**Get or create a session**:
-```rust
-let agent_service = AppState::global(cx).agent_service().unwrap();
-
-// Recommended: automatically reuses existing active session
-let session_id = agent_service.get_or_create_session(&agent_name).await?;
-
-// Or explicitly create a new session
-let session_id = agent_service.create_session(&agent_name).await?;
-```
-
-**Check for active session**:
-```rust
-if let Some(session_id) = agent_service.get_active_session(&agent_name) {
-    log::info!("Agent {} has active session: {}", agent_name, session_id);
-}
-```
-
-**Service Initialization**: Services are automatically initialized in `AppState::set_agent_manager()` when the AgentManager is ready.
-
-### Event Bus Architecture (SessionUpdateBus)
-
-The application uses a centralized event bus for real-time message distribution between components:
-
-#### Core Components
-
-1. **SessionUpdateBus** (`src/core/event_bus/session_bus.rs`)
-   - Thread-safe publish-subscribe pattern
-   - `SessionUpdateEvent`: Contains `session_id` and `SessionUpdate` data
-   - `subscribe()`: Register callbacks for events
-   - `publish()`: Broadcast events to all subscribers
-   - Wrapped in `SessionUpdateBusContainer` (Arc<Mutex<>>) for cross-thread safety
-
-2. **GuiClient** (`src/core/agent/client.rs`)
-   - Implements `acp::Client` trait
-   - Receives agent notifications via `session_notification()`
-   - **Publishes** to session bus when agent sends updates
-   - Used by `AgentManager` to bridge agent I/O threads to GPUI main thread
-
-3. **ConversationPanel** (`src/panels/conversation_acp/panel.rs`)
-   - **Subscribes** to session bus on initialization
-   - Uses `tokio::sync::mpsc::unbounded_channel` for cross-thread communication
-   - Real-time rendering: subscription callback → channel → `cx.spawn()` → `cx.update()` → `cx.notify()`
-   - Zero-delay updates (no polling required)
-
-4. **ChatInputPanel** (`src/panels/chat_input.rs`)
-   - Publishes user messages to session bus immediately
-   - Provides instant visual feedback before agent response
-   - Uses unique `chunk_id` with UUID to identify local messages
-
-#### Message Flow
+Thread-safe publish-subscribe pattern connects components across threads:
 
 ```
-User Input → ChatInputPanel
+User Input → ChatInputBox
   ├─→ Immediate publish to session_bus (user message)
   │    └─→ ConversationPanel displays instantly
   └─→ agent_handle.prompt()
-       └─→ Agent processes
+       └─→ Agent processes (separate thread)
             └─→ GuiClient.session_notification()
                  └─→ session_bus.publish()
                       └─→ ConversationPanel subscription
-                           └─→ channel.send()
-                                └─→ cx.spawn() background task
-                                     └─→ cx.update() + cx.notify()
-                                          └─→ Real-time render
+                           └─→ tokio::channel → cx.spawn() → cx.update()
+                                └─→ Real-time UI update
 ```
 
-#### Key Implementation Details
+**Event Buses:**
+- **SessionUpdateBus**: Agent messages, tool calls, thinking updates
+- **PermissionBus**: Permission requests from agents
+- **WorkspaceBus**: Workspace status changes
+- **CodeSelectionBus**: Code selection events for editor integration
+- **AgentConfigBus**: Agent configuration changes
 
-- **Cross-thread safety**: Agent I/O threads → GPUI main thread via channels
-- **No polling**: Events trigger immediate renders through `cx.notify()`
-- **Session isolation**: Each session has a unique ID for message routing
-- **Scalability**: Unbounded channel prevents blocking on UI updates
-
-#### Usage Example
-
+**Cross-thread Communication:**
 ```rust
-// Subscribe to session bus (in ConversationPanel)
+// Subscribe to events (in UI component)
 let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 session_bus.subscribe(move |event| {
     let _ = tx.send((*event.update).clone());
@@ -520,150 +137,564 @@ cx.spawn(|mut cx| async move {
     while let Some(update) = rx.recv().await {
         cx.update(|cx| {
             entity.update(cx, |this, cx| {
-                // Process update and trigger render
-                cx.notify();
+                // Process update
+                cx.notify();  // Trigger re-render
             });
         });
     }
 }).detach();
 
-// Publish to session bus (in ChatInputPanel or GuiClient)
-let event = SessionUpdateEvent {
+// Publish events (from any thread)
+session_bus.publish(SessionUpdateEvent {
     session_id: session_id.clone(),
-    update: Arc::new(SessionUpdate::UserMessageChunk(...)),
-};
-session_bus.publish(event);
+    update: Arc::new(SessionUpdate::AgentMessage(...)),
+});
 ```
 
-## Testing
+#### 3. DockPanel System
 
-Run the complete story gallery from workspace root:
+All panels implement `DockPanel` trait for consistent behavior:
+
+```rust
+pub trait DockPanel: 'static + Sized {
+    fn title() -> &'static str;
+    fn description() -> &'static str;
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render>;
+
+    // Optional customization
+    fn closable() -> bool { true }
+    fn zoomable() -> bool { true }
+    fn paddings() -> Pixels { px(16.) }
+}
+```
+
+Panels are wrapped in `DockPanelContainer` and registered for serialization/deserialization.
+
+#### 4. Message Persistence
+
+Session updates are automatically persisted to `target/sessions/{session_id}.jsonl`:
+
+```jsonl
+{"timestamp":"2025-12-10T10:30:45Z","update":{"UserMessage":{"content":"..."}}}
+{"timestamp":"2025-12-10T10:30:47Z","update":{"AgentMessage":{"content":"..."}}}
+```
+
+Persistence is handled by `PersistenceService` which subscribes to the session bus.
+
+## Development Commands
+
+### Build and Run
 
 ```bash
-cd ../.. && cargo run
+# Run application (from agent-studio directory)
+cargo run
+
+# Run with logging
+RUST_LOG=info cargo run
+
+# Run from workspace root
+cd ../.. && cargo run --example agentx
+
+# Build without running
+cargo build
+
+# Check for compilation errors (fast)
+cargo check
+
+# Release build (optimized)
+cargo build --release
 ```
 
-This displays all GPUI components in a comprehensive gallery interface.
+### Development with Logging
 
-The Agent Studio itself serves as a test bed for:
-- Dock layout persistence and restoration
-- Panel lifecycle management
-- Custom UI components (messages, todos, tool calls)
-- LSP integration in code editor
-- Theme switching and customization
+Control log verbosity with `RUST_LOG` environment variable:
 
-## Workspace Structure
+```bash
+# General info logging
+RUST_LOG=info cargo run
+
+# Debug specific modules
+RUST_LOG=info,agentx::core::services=debug cargo run
+RUST_LOG=info,agentx::panels::conversation=debug cargo run
+
+# Debug event buses
+RUST_LOG=info,agentx::core::event_bus=debug cargo run
+
+# Combined debugging (services + panels)
+RUST_LOG=info,agentx::core=debug,agentx::panels=debug cargo run
+
+# Trace all updates
+RUST_LOG=trace cargo run
+```
+
+### Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with logging
+RUST_LOG=debug cargo test
+
+# Run specific test
+cargo test test_name
+```
+
+### Performance Profiling (macOS)
+
+```bash
+# Enable Metal HUD for FPS/GPU metrics
+MTL_HUD_ENABLED=1 cargo run
+
+# Profile with samply (requires: cargo install samply)
+samply record cargo run --release
+```
+
+### Code Quality
+
+```bash
+# Lint with clippy
+cargo clippy
+
+# Format code
+cargo fmt
+
+# Generate documentation
+cargo doc --open
+```
+
+## GPUI Component Integration
+
+### Initialization Pattern
+
+AgentX extends GPUI Component initialization in `src/lib.rs`:
+
+```rust
+pub fn init(cx: &mut App) {
+    // 1. Set up logging
+    tracing_subscriber::registry()...
+
+    // 2. Initialize gpui-component (required)
+    gpui_component::init(cx);
+
+    // 3. Initialize app-specific state
+    AppState::init(cx);        // Global state with event buses
+    themes::init(cx);          // Theme system
+    menu::init(cx);            // Menu system
+
+    // 4. Register custom panels
+    register_panel(cx, PANEL_NAME, |_, _, info, window, cx| {
+        // Panel factory based on saved state
+    });
+
+    // 5. Bind keybindings
+    cx.bind_keys([...]);
+}
+```
+
+### Root Element Requirement
+
+The first element in a window must be `Root` from gpui-component:
+
+```rust
+cx.new(|cx| Root::new(view, window, cx))
+```
+
+This provides essential UI layers (sheets, dialogs, notifications). For custom title bars, use `DockRoot` pattern.
+
+### Window Management
+
+Windows are created with consistent sizing:
+
+```rust
+// Window defaults: 85% of display, max 1600x1200, min 480x320
+create_new_window("Title", |window, cx| {
+    // Create view
+}, cx);
+```
+
+## Key Concepts
+
+### Using the Service Layer
+
+#### MessageService
+
+**Send a message** (creates session if needed, publishes to event bus, sends to agent):
+
+```rust
+let message_service = AppState::global(cx).message_service()?;
+
+cx.spawn(async move |_this, _cx| {
+    match message_service.send_user_message(&agent_name, message).await {
+        Ok(session_id) => log::info!("Message sent to {}", session_id),
+        Err(e) => log::error!("Failed: {}", e),
+    }
+}).detach();
+```
+
+**Subscribe to session updates** (with automatic filtering):
+
+```rust
+let message_service = AppState::global(cx).message_service()?;
+
+// Subscribe to specific session only
+let mut rx = message_service.subscribe_session_updates(Some(session_id));
+
+// Or subscribe to all sessions
+let mut rx = message_service.subscribe_session_updates(None);
+
+cx.spawn(async move |cx| {
+    while let Some(update) = rx.recv().await {
+        // Handle filtered update
+    }
+}).detach();
+```
+
+#### AgentService
+
+**Get or create a session**:
+
+```rust
+let agent_service = AppState::global(cx).agent_service()?;
+
+// Recommended: reuses existing active session
+let session_id = agent_service.get_or_create_session(&agent_name).await?;
+
+// Or explicitly create new session
+let session_id = agent_service.create_session(&agent_name).await?;
+```
+
+**List all agents**:
+
+```rust
+let agents = agent_service.list_agents().await;
+```
+
+**Close a session**:
+
+```rust
+agent_service.close_session(&agent_name).await?;
+```
+
+#### PersistenceService
+
+Session persistence is automatic via `MessageService.init_persistence()`. To load history:
+
+```rust
+let persistence_service = AppState::global(cx).persistence_service()?;
+let messages = persistence_service.load_session_history(&session_id).await?;
+```
+
+### Layout Persistence
+
+The dock layout is automatically saved to:
+- `target/docks-agentx.json` (debug builds)
+- `docks-agentx.json` (release builds)
+
+Layout includes:
+- Panel positions and sizes
+- Active tabs
+- Dock visibility
+- Version number (for migration)
+
+Saving is debounced by 10 seconds and also triggered on app quit.
+
+### Actions System
+
+All actions are centralized in `src/app/actions.rs`. Categories include:
+
+**Workspace Actions:**
+- `AddPanel(DockPlacement)`: Add panel to dock
+- `TogglePanelVisible(SharedString)`: Show/hide panels
+- `AddSessionPanel { session_id, placement }`: Create conversation panel
+
+**Session Actions:**
+- `NewSessionConversationPanel`: Create new session
+- `SendMessageToSession { session_id, message }`: Send message
+- `CancelSession`: Cancel active session
+
+**Agent Management:**
+- `AddAgent`, `UpdateAgent`, `RemoveAgent`: Manage agent configs
+- `RestartAgent`: Restart agent process
+- `ReloadAgentConfig`: Hot-reload configuration
+
+**UI Actions:**
+- `SelectFont`, `SelectLocale`, `SelectRadius`, `SelectScrollbarShow`
+- `ShowWelcomePanel`, `ShowConversationPanel`, `ShowToolCallDetail`
+
+### Update System
+
+AgentX includes automatic update checking:
+
+```rust
+use crate::core::updater::{UpdateManager, UpdateCheckResult};
+
+let manager = UpdateManager::new()?;
+
+// Check for updates
+match manager.check_for_updates().await {
+    UpdateCheckResult::UpdateAvailable(info) => {
+        println!("New version: {}", info.version);
+
+        // Download update
+        let path = manager.download_update(&info, Some(progress_callback)).await?;
+    }
+    UpdateCheckResult::UpToDate => println!("Already up to date"),
+    UpdateCheckResult::Error(e) => eprintln!("Check failed: {}", e),
+}
+```
+
+## Creating Custom Panels
+
+### Step 1: Implement DockPanel Trait
+
+Create a new file in `src/panels/`:
+
+```rust
+// src/panels/my_panel.rs
+use gpui::*;
+use crate::panels::dock_panel::DockPanel;
+
+pub struct MyPanel {
+    focus_handle: FocusHandle,
+    // ... your state
+}
+
+impl DockPanel for MyPanel {
+    fn title() -> &'static str { "My Panel" }
+
+    fn description() -> &'static str { "Description for panel dropdown" }
+
+    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render> {
+        cx.new(|cx| Self::new(window, cx))
+    }
+
+    // Optional overrides
+    fn closable() -> bool { true }
+    fn zoomable() -> bool { true }
+    fn paddings() -> Pixels { px(12.) }
+}
+
+impl MyPanel {
+    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self {
+            focus_handle: cx.focus_handle(),
+        }
+    }
+}
+
+impl Render for MyPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child("My Panel Content")
+    }
+}
+
+impl Focusable for MyPanel {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+```
+
+### Step 2: Register Panel
+
+In `src/lib.rs`, add to `create_panel_view()` match statement:
+
+```rust
+"MyPanel" => {
+    let view = MyPanel::new_view(window, cx);
+    Some(view.into())
+}
+```
+
+### Step 3: Export from Module
+
+In `src/panels/mod.rs`:
+
+```rust
+mod my_panel;
+pub use my_panel::MyPanel;
+```
+
+In `src/lib.rs` exports:
+
+```rust
+pub use panels::MyPanel;
+```
+
+### Step 4: Add to Default Layout (Optional)
+
+In `src/workspace/mod.rs`, add to `init_default_layout()`:
+
+```rust
+dock_area.push_panel_to_stack(
+    DockPanelContainer::panel::<MyPanel>(window, cx).into(),
+    DockPlacement::Left,
+);
+```
+
+### For Large Panels: Use Subdirectory Structure
+
+```
+src/panels/my_panel/
+├── mod.rs       # Export MyPanel
+├── panel.rs     # Main implementation
+├── types.rs     # Shared types
+├── components.rs  # UI components
+└── helpers.rs   # Utility functions
+```
+
+## Coding Conventions
+
+### GPUI Patterns
+
+**Entity Creation:**
+- Use `cx.new()` for creating entities (not `cx.build()`)
+- Prefer `Entity<T>` over raw views for state management
+- Use GPUI's reactive patterns: subscriptions, notifications, actions
+
+**Entity Lifecycle (Critical):**
+
+❌ **WRONG** - Creating entities in `render()`:
+```rust
+fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    let widget = cx.new(|cx| Widget::new(...)); // Dies after render!
+    v_flex().child(widget)
+}
+```
+
+✅ **CORRECT** - Creating entities in constructor:
+```rust
+struct MyPanel {
+    widget: Entity<Widget>,  // Stored in struct
+}
+
+impl MyPanel {
+    fn new(window: &mut Window, cx: &mut App) -> Self {
+        Self {
+            widget: cx.new(|cx| Widget::new(...)),  // Lives with panel
+        }
+    }
+}
+
+fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    v_flex().child(self.widget.clone())  // Reference stored entity
+}
+```
+
+**Why**: Entities created in `render()` are dropped immediately after the method returns, breaking event handlers.
+
+### UI Conventions
+
+- **Mouse cursor**: Use `default` not `pointer` for buttons (desktop convention)
+- **Component size**: Default to `md` size (consistent with macOS/Windows)
+- **Sizing**: Use `px()` for pixels, `rems()` for font-relative sizing
+- **Layout**: Use flexbox: `v_flex()`, `h_flex()` with `.gap()`, `.p()` modifiers
+
+### Component Design
+
+- Follow builder pattern: `.label()`, `.icon()`, `.ghost()`, `.on_click()`
+- Keep components stateless when possible (implement `RenderOnce`)
+- For stateful components, use `Entity<T>` and implement `Render`
+- Implement `Focusable` for interactive panels
+
+### Code Organization
+
+- **Reusable UI components** → `src/components/`
+- **Dockable panels** → `src/panels/`
+- **Business logic** → `src/core/services/`
+- **Actions** → `src/app/actions.rs` (centralized)
+- **Event buses** → `src/core/event_bus/`
+
+Large files should be modularized into subdirectories with focused modules.
+
+## Configuration
+
+### Agent Configuration
+
+Create `config.json` in the project root:
+
+```json
+{
+  "agent_servers": [
+    {
+      "name": "my-agent",
+      "command": "/path/to/agent/executable",
+      "args": ["--arg1", "value1"]
+    }
+  ]
+}
+```
+
+Configuration supports hot-reloading via `ConfigWatcher` - changes are automatically detected and agents are restarted.
+
+### Settings
+
+Override default settings via command-line:
+
+```bash
+cargo run -- --config /path/to/config.json
+```
+
+**Available Settings** (defined in `src/core/config.rs`):
+- `config_path`: Path to agent configuration file
+- Agent server configurations
+- UI preferences (accessed via settings panel)
+
+### Data Storage
+
+Runtime data is stored in the `target/` directory (debug) or project root (release):
+
+- `docks-agentx.json`: Layout state
+- `sessions/{session_id}.jsonl`: Session history (one JSON per line)
+- `state.json`: Application state
+- `workspace-config.json`: Workspace configuration
+
+## Workspace Context
 
 This Agent Studio is part of a Cargo workspace at `../../`:
 
 - `crates/ui`: Core gpui-component library
 - `crates/story`: Story framework and component gallery
-- `crates/macros`: Procedural macros for GPUI components
-- `crates/assets`: Asset handling and management
+- `crates/macros`: Procedural macros
+- `crates/assets`: Asset handling
 - `examples/agentx`: This Agent Studio application
 - `examples/hello_world`, `examples/input`, etc.: Other examples
-- `crates/ui/src/icon.rs`: IconName definitions for the Icon component
-- `crates/story/src/*.rs`: Component examples and documentation
 
-### Important Files in agentx
+Run the complete component gallery from workspace root:
 
-**Core Entry Points:**
-- `src/main.rs`: Application entry, loads config, initializes AgentManager, spawns workspace
-- `src/lib.rs`: Core initialization, panel registration, DockRoot, AppState with event buses
-
-**Workspace & Layout:**
-- `src/workspace/mod.rs`: DockWorkspace implementation, layout persistence, panel management
-- `src/workspace/actions.rs`: Workspace action handlers
-
-**Panels** (all in `src/panels/`):
-- `dock_panel.rs`: DockPanel trait, DockPanelContainer, panel factory methods
-- `conversation_acp/`: ACP-enabled conversation panel (modularized)
-  - `panel.rs`: Main panel implementation (1215 lines)
-  - `types.rs`: Reusable helper traits and types (94 lines)
-  - `mod.rs`: Module exports
-- `code_editor.rs`: Code editor with LSP integration (1052 lines)
-- `task_list.rs`: Task list panel with collapsible sections (797 lines)
-- `conversation.rs`: Mock conversation panel (for demonstration)
-- `chat_input.rs`: Chat input panel, publishes to session bus
-- `welcome_panel.rs`: Welcome screen for new sessions
-- `settings_window.rs`: Settings UI
-
-**Core Infrastructure** (all in `src/core/`):
-- `agent/client.rs`: AgentManager, AgentHandle, GuiClient, PermissionStore
-- `event_bus/session_bus.rs`: Session update event bus
-- `event_bus/permission_bus.rs`: Permission request event bus
-- `config.rs`: Configuration types (AgentProcessConfig, Config, Settings)
-
-**Application Modules** (all in `src/app/`):
-- `actions.rs`: **Centralized action definitions** for all app operations
-- `app_state.rs`: Global application state with event bus containers
-- `menu.rs`: Application menu setup and handlers
-- `themes.rs`: Theme configuration and switching
-- `title_bar.rs`: Custom application title bar
-- `app_menus.rs`: Menu construction
-
-**UI Components** (all in `src/components/`):
-- `agent_message.rs`: AI agent message display
-- `user_message.rs`: User message display with attachments
-- `tool_call_item.rs`: Tool call display with status
-- `agent_todo_list.rs`: Todo list component
-- `chat_input_box.rs`: Reusable input component
-- `task_list_item.rs`: Task item display
-- `permission_request.rs`: Permission request UI
-
-**Data & Schemas:**
-- `src/schemas/`: Schema definitions for conversations and tasks
-- `mock_tasks.json`: Mock task data for the task list panel
-- `mock_conversation_acp.json`: Mock conversation data for testing
-- `config.json`: Agent configuration file 
+```bash
+cd ../.. && cargo run
+```
 
 ## Dependencies
 
-Key dependencies defined in `Cargo.toml`:
+Key dependencies from `Cargo.toml`:
 
-### Core Framework
-- `gpui = "0.2.2"`: Core GPUI framework for UI rendering
-- `gpui-component`: UI component library (workspace member)
-- `gpui-component-assets`: Asset integration (workspace member)
+**Core Framework:**
+- `gpui = "0.2.2"`: Core GPUI framework
+- `gpui-component`: UI component library (workspace)
 
-### Language Support
-- `tree-sitter-navi = "0.2.2"`: Syntax highlighting for the code editor
-- `lsp-types`: Language Server Protocol type definitions
-- `color-lsp = "0.2.0"`: LSP implementation for color support
+**Agent Communication:**
+- `agent-client-protocol = "0.9.0"`: ACP protocol
+- `tokio = "1.48.0"`: Async runtime (with process, fs, io-util)
+- `tokio-util = "0.7.17"`: Stream compatibility
 
-### Utilities
-- `serde`, `serde_json`: Serialization for layout persistence and mock data
-- `rand = "0.8"`: Random number generation for UI demos
-- `autocorrect = "2.14.2"`: Text correction utilities
-- `chrono = "0.4"`: Date and time handling
-- `smol`: Async runtime utilities
-- `tracing`, `tracing-subscriber`: Logging and diagnostics
+**Language Support:**
+- `tree-sitter-navi = "0.2.2"`: Syntax highlighting
+- `lsp-types`: Language Server Protocol
+- `color-lsp = "0.2.0"`: Color support
 
-### Workspace Dependencies
+**Utilities:**
+- `serde`, `serde_json`: Serialization
+- `uuid = "1.11"`: Unique IDs
+- `chrono = "0.4"`: Date/time
+- `tracing`, `tracing-subscriber`: Logging
+- `reqwest_client`: HTTP requests (for updates)
 
-All workspace-level dependencies are defined in the root `Cargo.toml` and shared across examples.
-
-### AgentX-specific Dependencies
-
-- `uuid = { version = "1.11", features = ["v4"] }`: For generating unique message chunk IDs
-- `tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "process"] }`: Async runtime for agent processes
-- `tokio-util = { version = "0.7.17", features = ["compat"] }`: Tokio utilities for stream compatibility
-- `agent-client-protocol = "0.7.0"`: ACP protocol types for agent communication
-- `agent-client-protocol-schema = "0.7.0"`: Schema definitions for session updates
-
-## Event Bus Best Practices
-
-### When to Use the Session Bus
-
-1. **Real-time UI updates** - Agent responses, tool calls, status changes
-2. **Cross-component communication** - Chat input → Conversation panel
-3. **Session-scoped events** - Messages tied to specific agent sessions
-
-### When NOT to Use the Session Bus
-
-1. **Global UI state** - Use AppState or GPUI global state instead
-2. **Synchronous operations** - Direct function calls are simpler
-3. **Local component state** - Use Entity state management
+## Important Patterns
 
 ### Threading Model
 
@@ -671,259 +702,76 @@ All workspace-level dependencies are defined in the root `Cargo.toml` and shared
 - **GPUI main thread**: All UI rendering and entity updates
 - **Bridge**: `tokio::sync::mpsc::unbounded_channel` + `cx.spawn()`
 
-### Debugging Tips
+Never call GPUI APIs directly from agent threads. Always use channels + `cx.spawn()`.
 
-Enable debug logging to trace message flow:
-```bash
-# General info logging
-RUST_LOG=info cargo run
+### Error Handling
 
-# Core infrastructure
-RUST_LOG=info,agentx::core::agent=debug cargo run
+Services use `anyhow::Result` for unified error handling:
 
-# Specific panels
-RUST_LOG=info,agentx::panels::conversation_acp=debug cargo run
-
-# Event buses
-RUST_LOG=info,agentx::core::event_bus=debug cargo run
-
-# Combined debugging
-RUST_LOG=info,agentx::core=debug,agentx::panels::conversation_acp=debug cargo run
-```
-
-Key log points:
-- `"Published user message to session bus"` - ChatInputPanel
-- `"Subscribed to session bus with channel-based updates"` - ConversationPanel
-- `"Session update sent to channel"` - Subscription callback
-- `"Rendered session update"` - Entity update + render
-
-## Coding Style and Conventions
-
-### GPUI Patterns
-- Use `cx.new()` for creating entities (not `cx.build()` or direct construction)
-- Prefer `Entity<T>` over raw views for state management and lifecycle control
-- Use GPUI's reactive patterns: subscriptions, notifications, actions for communication
-- Implement `Focusable` trait for interactive panels to support focus management
-
-### UI Conventions
-- Mouse cursor: use `default` not `pointer` for buttons (desktop convention, not web)
-- Default component size: `md` for most components (consistent with macOS/Windows)
-- Use `px()` for pixel values, `rems()` for font-relative sizing
-- Apply responsive layout with flexbox: `v_flex()`, `h_flex()`
-
-### Component Design
-- Follow existing patterns for component creation and layout
-- Use builder pattern for component configuration (e.g., `.label()`, `.icon()`, `.ghost()`)
-- Keep components stateless when possible (implement `RenderOnce`)
-- For stateful components, use `Entity<T>` and implement `Render`
-
-### Architecture Guidelines
-- Separate UI components from business logic
-- Use the `DockPanel` trait for all dockable panels
-- Keep panel state serializable for layout persistence
-- Export reusable components from appropriate module files
-
-### Code Organization
-
-**Post-Refactoring Structure (2025-12-01):**
-
-The codebase has been reorganized for better maintainability:
-
-- **Place reusable UI components in `src/components/`**
-- **Keep all panel implementations in `src/panels/`** directory
-  - Large panels can be modularized into subdirectories (e.g., `conversation_acp/`)
-- **Use `mod.rs` files to re-export public APIs**
-- **Group related functionality in submodules:**
-  - `src/app/` - Application-level modules (actions, menus, themes, state)
-  - `src/core/` - Core infrastructure (agents, event buses, config)
-  - `src/workspace/` - Workspace and dock management
-- **All GPUI actions should be defined in `src/app/actions.rs`** with proper documentation
-- **Use the `DockPanel` trait** for all dockable panels - implement only required methods unless customization needed
-
-**Benefits of Current Structure:**
-- ✅ Root directory reduced by 62% (16+ files → 6 files)
-- ✅ Clear module boundaries and responsibilities
-- ✅ Easier to navigate and maintain
-- ✅ Better support for modular refactoring
-
-### Entity Lifecycle Management
-
-**Critical Pattern for Interactive Components:**
-
-When using components like `Collapsible` or any stateful interactive UI elements:
-
-❌ **WRONG** - Creating entities in `render()`:
 ```rust
-fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let collapsible = cx.new(|cx| Collapsible::new(...)); // ❌ Dies after render!
-    v_flex().child(collapsible)
+use anyhow::{Context, Result};
+
+async fn my_operation() -> Result<()> {
+    let data = load_data()
+        .await
+        .context("Failed to load data")?;
+    Ok(())
 }
 ```
 
-✅ **CORRECT** - Creating entities in `new()`:
-```rust
-struct MyPanel {
-    collapsible: Entity<Collapsible>, // ✅ Stored in struct
-}
+### State Management
 
-impl MyPanel {
-    fn new(window: &mut Window, cx: &mut App) -> Self {
-        Self {
-            collapsible: cx.new(|cx| Collapsible::new(...)), // ✅ Lives with panel
-        }
-    }
-}
+- **Global state**: Use `AppState::global(cx)` for cross-component state
+- **Panel state**: Store in panel struct, serializable for persistence
+- **Local UI state**: Use GPUI's reactive state management
 
-fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    v_flex().child(self.collapsible.clone()) // ✅ Reference stored entity
-}
-```
+### When to Use Event Bus vs Direct Calls
 
-**Why:** Entities created in `render()` are dropped immediately after the method returns, causing event handlers to fail. Store them in the parent struct to maintain their lifecycle.
+**Use Event Bus for:**
+- Real-time UI updates from agent threads
+- Cross-component communication without tight coupling
+- Session-scoped events
+- Broadcasts to multiple subscribers
 
-**See also:** `docs/collapsible-entity-lifecycle.md` for detailed explanation.
+**Use Direct Calls for:**
+- Synchronous operations
+- Single-target communication
+- Local component interactions
 
-## Configuration
+## Debugging Tips
 
-### Agent Configuration
+### Enable Detailed Logging
 
-The application loads agent configuration from `config.json` in the project root:
-
-```json
-{
-  "agent_servers": [
-    {
-      "name": "agent-name",
-      "command": "path/to/agent",
-      "args": ["--arg1", "value1"]
-    }
-  ]
-}
-```
-
-**AgentProcessConfig Structure:**
-- `name`: Agent identifier
-- `command`: Executable path or command
-- `args`: Command-line arguments (optional)
-
-The config is loaded asynchronously in `main.rs` and used to initialize the `AgentManager`.
-
-### Settings
-
-Settings can be customized via command-line or environment:
-- Default config path: `config.json`
-- Override with: `--config path/to/config.json`
-
-**Available Settings** (defined in `src/core/config.rs`):
-- `config_path`: Path to agent configuration file
-- Agent server configurations
-- UI preferences (theme, font, locale, scrollbar, radius)
-
----
-
-## Refactoring History
-
-The AgentX codebase has undergone systematic refactoring to improve code organization and maintainability.
-
-### Stage 1: Directory Reorganization (2025-12-01)
-
-**Objective**: Reduce root directory clutter and establish clear module boundaries.
-
-**Changes**:
-- Created `src/panels/` directory for all panel implementations (8 files moved)
-- Created `src/core/` directory for infrastructure:
-  - `core/agent/` - Agent client management (from `acp_client.rs`)
-  - `core/event_bus/` - Event distribution (from `session_bus.rs`, `permission_bus.rs`)
-  - `core/config.rs` - Configuration types
-- Moved 12 files into organized structure
-- Updated all import paths across the codebase
-
-**Results**:
-- ✅ Root directory files reduced by 62% (16+ → 6)
-- ✅ Zero compilation errors
-- ✅ All tests passing
-- ✅ Public API maintained backward compatibility
-
-**Documentation**: See `REFACTORING_STAGE1_SUMMARY.md` for detailed breakdown.
-
-### Stage 2: File Modularization (2025-12-01)
-
-**Objective**: Split large files into manageable, focused modules.
-
-**Changes**:
-- **ConversationPanel** (1309 lines) → `panels/conversation_acp/` directory:
-  - `panel.rs` (1215 lines) - Main panel logic
-  - `types.rs` (94 lines) - Reusable helper traits and types
-  - `mod.rs` (6 lines) - Module exports
-- Extracted reusable code for better testability
-- Simplified ResourceInfo implementation
-
-**Results**:
-- ✅ Single file size reduced by 7% (1309 → 1215 lines)
-- ✅ 94 lines of reusable code extracted
-- ✅ Better separation of concerns
-- ✅ Zero compilation errors
-
-**Documentation**: See `REFACTORING_STAGE2_SUMMARY.md` for detailed breakdown.
-
-### Future Refactoring Opportunities
-
-**Stage 3 (Optional)**: Further file splitting
-- `code_editor.rs` (1052 lines) - Could extract LSP client logic
-- `task_list.rs` (797 lines) - Could separate data loading and rendering
-
-**Stage 4 (Optional)**: Service layer introduction
-- Introduce `SessionService`, `AgentService`, `StateService`
-- Reduce direct dependencies on global `AppState`
-- Improve testability through dependency injection
-
-**Documentation**: See `REFACTORING_PLAN.md` for complete roadmap.
-
----
-
-## Development Best Practices
-
-### Working with Refactored Code
-
-1. **Import Paths**: All core infrastructure is now under `src/core/`:
-   ```rust
-   use crate::core::agent::{AgentManager, AgentHandle};
-   use crate::core::event_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
-   use crate::core::config::Config;
-   ```
-
-2. **Panel Development**: All panels live in `src/panels/`:
-   ```rust
-   use crate::panels::dock_panel::DockPanel;
-   use crate::panels::conversation_acp::ConversationPanel;
-   ```
-
-3. **Modular Panels**: Large panels can be split into subdirectories:
-   ```
-   src/panels/my_panel/
-   ├── mod.rs       # Public exports
-   ├── panel.rs     # Main implementation
-   ├── types.rs     # Shared types
-   └── helpers.rs   # Utility functions
-   ```
-
-4. **Event Bus Usage**: Access through `AppState`:
-   ```rust
-   let session_bus = AppState::global(cx).session_bus.clone();
-   let permission_bus = AppState::global(cx).permission_bus.clone();
-   ```
-
-### Debugging Tips with New Structure
-
-Enable module-specific logging:
 ```bash
-# Core infrastructure
-RUST_LOG=agentx::core::agent=debug cargo run
+# Session bus events
+RUST_LOG=info,agentx::core::event_bus::session_bus=debug cargo run
 
-# Specific panels
-RUST_LOG=agentx::panels::conversation_acp=debug cargo run
+# Service layer
+RUST_LOG=info,agentx::core::services=debug cargo run
 
-# Event buses
-RUST_LOG=agentx::core::event_bus=debug cargo run
+# Specific panel
+RUST_LOG=info,agentx::panels::conversation=debug cargo run
+
+# Everything in core
+RUST_LOG=info,agentx::core=trace cargo run
 ```
 
+### Key Log Messages to Look For
+
+- `"Published user message to session bus"` - ChatInputBox
+- `"Subscribed to session bus"` - ConversationPanel
+- `"Session update sent to channel"` - Event bus callback
+- `"Rendered session update"` - Panel re-render
+- `"Agent spawned successfully"` - AgentManager
+- `"Session created"` - AgentService
+- `"Persisted message to JSONL"` - PersistenceService
+
+### Common Issues
+
+**Panel not updating**: Check event bus subscription is active and `cx.notify()` is called.
+
+**Entity event handlers not working**: Ensure entities are stored in struct, not created in `render()`.
+
+**Agent not responding**: Check agent process logs, verify config.json paths and permissions.
+
+**Layout not saving**: Ensure target directory has write permissions and check for serialization errors.

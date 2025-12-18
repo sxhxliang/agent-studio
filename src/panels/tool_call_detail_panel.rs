@@ -1,9 +1,11 @@
 use std::any;
 
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::*, px
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, prelude::*, px,
 };
-use gpui_component::{h_flex, text::TextView, v_flex, ActiveTheme, Icon, IconName};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, text::TextView, v_flex};
 
 use agent_client_protocol::{ContentBlock, ToolCall, ToolCallContent};
 

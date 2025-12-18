@@ -1,11 +1,13 @@
 /// UI Components for ConversationPanel
 use gpui::{
-    div, prelude::*, px, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window,
+    Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window, div,
+    prelude::*, px,
 };
 use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
+    h_flex, v_flex,
 };
 
 use agent_client_protocol::{
@@ -14,7 +16,7 @@ use agent_client_protocol::{
 };
 
 use super::helpers::extract_xml_content;
-use super::types::{get_file_icon, ResourceInfo, ToolCallStatusExt, ToolKindExt};
+use super::types::{ResourceInfo, ToolCallStatusExt, ToolKindExt, get_file_icon};
 use crate::{ShowToolCallDetail, UserMessageData};
 
 // ============================================================================

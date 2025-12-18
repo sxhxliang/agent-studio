@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::core::agent::AgentManager;
@@ -59,7 +59,9 @@ impl AgentConfigService {
     /// List all configured agents
     pub async fn list_agents(&self) -> Vec<(String, AgentProcessConfig)> {
         let config = self.config.read().await;
-        let mut agents: Vec<_> = config.agent_servers.iter()
+        let mut agents: Vec<_> = config
+            .agent_servers
+            .iter()
             .map(|(name, cfg)| (name.clone(), cfg.clone()))
             .collect();
         agents.sort_by(|a, b| a.0.cmp(&b.0));
@@ -174,7 +176,9 @@ impl AgentConfigService {
         // Update config
         {
             let mut current_config = self.config.write().await;
-            current_config.agent_servers.insert(name.clone(), config.clone());
+            current_config
+                .agent_servers
+                .insert(name.clone(), config.clone());
         }
 
         // Save to file
@@ -211,7 +215,9 @@ impl AgentConfigService {
         // Update config
         {
             let mut current_config = self.config.write().await;
-            current_config.agent_servers.insert(name.to_string(), config.clone());
+            current_config
+                .agent_servers
+                .insert(name.to_string(), config.clone());
         }
 
         // Save to file
@@ -311,13 +317,12 @@ impl AgentConfigService {
         }
 
         // Serialize config
-        let json = serde_json::to_string_pretty(&*config)
-            .context("Failed to serialize configuration")?;
+        let json =
+            serde_json::to_string_pretty(&*config).context("Failed to serialize configuration")?;
 
         // Write to file (atomic write using temp file)
         let temp_path = self.config_path.with_extension("json.tmp");
-        std::fs::write(&temp_path, json)
-            .context("Failed to write configuration to temp file")?;
+        std::fs::write(&temp_path, json).context("Failed to write configuration to temp file")?;
 
         std::fs::rename(&temp_path, &self.config_path)
             .context("Failed to replace configuration file")?;
@@ -333,8 +338,8 @@ impl AgentConfigService {
             .with_context(|| format!("Failed to read config file: {:?}", self.config_path))?;
 
         // Parse config
-        let new_config: Config = serde_json::from_str(&json)
-            .context("Failed to parse configuration file")?;
+        let new_config: Config =
+            serde_json::from_str(&json).context("Failed to parse configuration file")?;
 
         // Update internal config
         {
@@ -343,9 +348,10 @@ impl AgentConfigService {
         }
 
         // Publish reload event
-        self.event_bus.publish(AgentConfigEvent::AgentConfigReloaded {
-            servers: new_config.agent_servers.clone(),
-        });
+        self.event_bus
+            .publish(AgentConfigEvent::AgentConfigReloaded {
+                servers: new_config.agent_servers.clone(),
+            });
 
         log::info!("Configuration reloaded from: {:?}", self.config_path);
         Ok(())
@@ -384,7 +390,11 @@ mod tests {
         let service = create_test_service();
 
         let config = AgentProcessConfig {
-            command: if cfg!(target_os = "windows") { "cmd".to_string() } else { "ls".to_string() },
+            command: if cfg!(target_os = "windows") {
+                "cmd".to_string()
+            } else {
+                "ls".to_string()
+            },
             args: vec![],
             env: HashMap::new(),
         };

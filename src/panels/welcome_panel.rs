@@ -1,20 +1,21 @@
 use gpui::{
-    px, App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement,
-    InteractiveElement, ParentElement, Render, Styled, Subscription, Window,
+    App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, Styled, Subscription, Window, px,
 };
 
 use gpui_component::{
+    ActiveTheme, IndexPath, StyledExt,
     input::InputState,
     list::{ListDelegate, ListItem, ListState},
     select::{SelectEvent, SelectState},
-    v_flex, ActiveTheme, IndexPath, StyledExt,
+    v_flex,
 };
 
 use agent_client_protocol::ImageContent;
 
 use crate::{
-    app::actions::AddCodeSelection, components::ChatInputBox, AppState, CreateTaskFromWelcome,
-    WelcomeSession,
+    AppState, CreateTaskFromWelcome, WelcomeSession, app::actions::AddCodeSelection,
+    components::ChatInputBox,
 };
 
 /// Delegate for the context list in the chat input popover
@@ -737,11 +738,11 @@ impl WelcomePanel {
 
 impl Render for WelcomePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        log::debug!(
-            "[WelcomePanel::render] Rendering with {} code_selections and {} pasted_images",
-            self.code_selections.len(),
-            self.pasted_images.len()
-        );
+        // log::debug!(
+        //     "[WelcomePanel::render] Rendering with {} code_selections and {} pasted_images",
+        //     self.code_selections.len(),
+        //     self.pasted_images.len()
+        // );
 
         v_flex()
             .size_full()

@@ -1,5 +1,5 @@
 use gpui::App;
-pub fn init(cx: &mut App) {
+pub fn init(_cx: &mut App) {
     rust_i18n::i18n!("../locales");
     rust_i18n::set_locale("en");
 }

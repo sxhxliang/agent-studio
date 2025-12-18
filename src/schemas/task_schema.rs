@@ -1,19 +1,7 @@
 use gpui::SharedString;
 use serde::Deserialize;
 
-/// Task status enumeration
-#[derive(Clone, Default, Debug, Deserialize)]
-pub enum TaskStatus {
-    /// Task is pending
-    #[default]
-    Pending,
-    /// Task is currently running
-    InProgress,
-    /// Task completed successfully
-    Completed,
-    /// Task failed to complete
-    Failed,
-}
+use crate::core::services::SessionStatus;
 
 #[derive(Clone, Default, Deserialize)]
 pub struct AgentTask {
@@ -21,7 +9,7 @@ pub struct AgentTask {
     pub task_type: String,
     pub add_new_code_lines: i16,
     pub delete_code_lines: i16,
-    pub status: TaskStatus,
+    pub status: SessionStatus,
 
     /// Optional session ID for ACP-enabled tasks
     #[serde(skip)]
@@ -55,7 +43,7 @@ impl AgentTask {
             task_type: "Default".to_string(),
             add_new_code_lines: 0,
             delete_code_lines: 0,
-            status: TaskStatus::InProgress,
+            status: SessionStatus::InProgress,
             session_id: Some(session_id),
             subtitle: None,
             change_timestamp: 0,

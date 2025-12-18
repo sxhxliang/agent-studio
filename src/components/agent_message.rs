@@ -1,9 +1,9 @@
 use agent_client_protocol::{ContentBlock, ContentChunk, SessionId};
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext, Context, ElementId, Entity, IntoElement,
-    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
+    App, AppContext, Context, ElementId, Entity, IntoElement, ParentElement, Render, RenderOnce,
+    SharedString, Styled, Window, div, prelude::FluentBuilder as _, px,
 };
-use gpui_component::{h_flex, text::TextView, v_flex, ActiveTheme, Icon, IconName};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, text::TextView, v_flex};
 use serde::{Deserialize, Serialize};
 
 /// Extended metadata for agent messages (stored in ContentChunk's meta field)

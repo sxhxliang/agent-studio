@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
 
 /// Progress callback for download operations
@@ -68,7 +68,9 @@ impl UpdateDownloader {
 
         log::info!("Download would save to: {:?}", file_path);
 
-        Err(anyhow!("Download not yet implemented. Please add reqwest dependency and implement HTTP client."))
+        Err(anyhow!(
+            "Download not yet implemented. Please add reqwest dependency and implement HTTP client."
+        ))
     }
 
     /// Extract filename from URL

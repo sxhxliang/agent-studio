@@ -2,6 +2,8 @@ use gpui::SharedString;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::core::services::SessionStatus;
+
 /// Workspace represents a local project folder
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Workspace {
@@ -65,7 +67,7 @@ pub struct WorkspaceTask {
     /// Session ID if a session has been created
     pub session_id: Option<String>,
     /// Task status
-    pub status: TaskStatus,
+    pub status: SessionStatus,
     /// When the task was created
     #[serde(with = "chrono::serde::ts_seconds")]
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -84,7 +86,7 @@ impl WorkspaceTask {
             agent_name,
             mode,
             session_id: None,
-            status: TaskStatus::Pending,
+            status: SessionStatus::Pending,
             created_at: chrono::Utc::now(),
             last_message: None,
         }
@@ -93,27 +95,13 @@ impl WorkspaceTask {
     /// Associate a session with this task
     pub fn set_session(&mut self, session_id: String) {
         self.session_id = Some(session_id);
-        self.status = TaskStatus::InProgress;
+        self.status = SessionStatus::InProgress;
     }
 
     /// Update the last message preview
     pub fn update_last_message(&mut self, text: impl Into<SharedString>) {
         self.last_message = Some(text.into());
     }
-}
-
-/// Task status enumeration
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
-pub enum TaskStatus {
-    /// Task is pending (no session created yet)
-    #[default]
-    Pending,
-    /// Task is in progress (session active)
-    InProgress,
-    /// Task completed successfully
-    Completed,
-    /// Task failed
-    Failed,
 }
 
 /// Persistent workspace configuration
@@ -143,6 +131,15 @@ impl WorkspaceConfig {
     /// Add a task to a workspace
     pub fn add_task(&mut self, task: WorkspaceTask) {
         self.tasks.push(task);
+    }
+
+    /// Remove a task by ID
+    pub fn remove_task(&mut self, task_id: &str) -> Option<WorkspaceTask> {
+        if let Some(pos) = self.tasks.iter().position(|t| t.id == task_id) {
+            Some(self.tasks.remove(pos))
+        } else {
+            None
+        }
     }
 
     /// Get tasks for a specific workspace

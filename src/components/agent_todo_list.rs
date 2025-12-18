@@ -1,10 +1,10 @@
 use gpui::{
-    div, px, App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, RenderOnce, SharedString, Styled, Window,
+    App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement, ParentElement,
+    Render, RenderOnce, SharedString, Styled, Window, div, px,
 };
 
 use agent_client_protocol::{Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
 use serde::{Deserialize, Serialize};
 
 /// Extended metadata for Plan (stored in Plan's meta field)

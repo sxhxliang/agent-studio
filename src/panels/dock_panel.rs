@@ -1,13 +1,13 @@
 use agent_client_protocol::ToolCall;
 use gpui::{prelude::FluentBuilder, *};
 use gpui_component::{
-    button::Button,
+    ActiveTheme, IconName, Sizable, WindowExt,
+    button::{Button, ButtonVariants},
     dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle},
     group_box::{GroupBox, GroupBoxVariants as _},
     h_flex,
     menu::PopupMenu,
     notification::Notification,
-    ActiveTheme, IconName, WindowExt,
 };
 
 use serde::{Deserialize, Serialize};
@@ -200,7 +200,7 @@ impl DockPanelContainer {
         let description = S::description();
         let story = S::new_view(window, cx);
         let story_klass = S::klass();
-        log::debug!("Panel: {}, paddings: {}", name, S::paddings());
+        log::debug!("=====>>> Panel: {}, paddings: {}", name, S::paddings());
         let view = cx.new(|cx| {
             let mut story = Self::new(cx)
                 .story(story.into(), story_klass)
@@ -229,7 +229,7 @@ impl DockPanelContainer {
         let story_klass = ToolCallDetailPanel::klass();
         story.set_tool_call(tool_call);
 
-        let entity = cx.new(|cx| story);
+        let entity = cx.new(|_cx| story);
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)

@@ -1,16 +1,16 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
 use gpui_component::{
+    IconName, Root, Sizable,
     button::{Button, ButtonVariants as _},
     dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement},
     menu::DropdownMenu,
-    IconName, Root, Sizable,
 };
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    panels::dock_panel::DockPanelContainer, AddPanel, AppState, AppTitleBar, CodeEditorPanel,
-    ConversationPanel, SessionManagerPanel, TaskPanel, ToggleDockToggleButton, TogglePanelVisible,
+    AddPanel, AppState, AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel,
+    TaskPanel, ToggleDockToggleButton, TogglePanelVisible, panels::dock_panel::DockPanelContainer,
 };
 
 // Action handlers module
@@ -389,7 +389,6 @@ impl Render for DockWorkspace {
             .on_action(cx.listener(Self::on_action_send_message_to_session))
             .on_action(cx.listener(Self::on_action_cancel_session))
             .on_action(cx.listener(Self::on_action_open))
-            .on_action(cx.listener(Self::paste))
             .relative()
             .size_full()
             .flex()

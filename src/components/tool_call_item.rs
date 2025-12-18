@@ -1,13 +1,14 @@
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext, Context, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Window,
+    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    Window, div, prelude::FluentBuilder as _, px,
 };
 
 use agent_client_protocol::{self as acp, ToolCall, ToolCallContent, ToolCallStatus, ToolKind};
 use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,
-    h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable,
+    h_flex, v_flex,
 };
 
 /// Helper trait to get icon for ToolKind

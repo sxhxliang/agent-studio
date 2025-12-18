@@ -10,7 +10,7 @@ use lsp_types::{
 };
 
 use super::lsp_store::CodeEditorPanelLspStore;
-use super::types::{completion_item, RUST_DOC_URLS};
+use super::types::{RUST_DOC_URLS, completion_item};
 
 // ============================================================================
 // CompletionProvider Implementation

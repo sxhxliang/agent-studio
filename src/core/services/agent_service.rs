@@ -11,8 +11,9 @@ use std::{
 };
 
 use agent_client_protocol::{self as acp, PromptResponse};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::core::agent::{AgentHandle, AgentManager};
 use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
@@ -36,13 +37,16 @@ pub struct AgentSessionInfo {
     pub status: SessionStatus,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum SessionStatus {
+    #[default]
     Active,
     Idle,
     InProgress,
     Pending,
+    Completed,
     Closed,
+    Failed,
 }
 
 impl AgentService {
@@ -137,19 +141,52 @@ impl AgentService {
 
     /// Cancel an ongoing session operation
     pub async fn cancel_session(&self, agent_name: &str, session_id: &str) -> Result<()> {
+        log::info!(
+            "AgentService: cancel_session called for agent={}, session={}",
+            agent_name,
+            session_id
+        );
+
         // Get the agent handle
         let agent_handle = self.get_agent_handle(agent_name).await?;
+        log::info!("AgentService: Got agent handle for {}", agent_name);
 
         // Send cancel request to the agent
         agent_handle.cancel(session_id.to_string()).await?;
+        log::info!("AgentService: Sent cancel request to agent");
 
         // Update session status to Idle
         let mut sessions = self.sessions.write().unwrap();
         if let Some(agent_sessions) = sessions.get_mut(agent_name) {
             if let Some(info) = agent_sessions.get_mut(session_id) {
                 info.status = SessionStatus::Idle;
-                log::info!("Cancelled session {} for agent {}", session_id, agent_name);
+                log::info!(
+                    "AgentService: Updated session status to Idle for {} (agent: {})",
+                    session_id,
+                    agent_name
+                );
+
+                // Publish status update to workspace bus
+                if let Some(ref workspace_bus) = self.workspace_bus {
+                    let event = WorkspaceUpdateEvent::SessionStatusUpdated {
+                        session_id: session_id.to_string(),
+                        agent_name: agent_name.to_string(),
+                        status: SessionStatus::Idle,
+                        last_active: info.last_active,
+                        message_count: 0,
+                    };
+                    workspace_bus.lock().unwrap().publish(event);
+                    log::info!("AgentService: Published session status update to workspace bus");
+                }
+            } else {
+                log::warn!(
+                    "AgentService: Session {} not found in agent {}",
+                    session_id,
+                    agent_name
+                );
             }
+        } else {
+            log::warn!("AgentService: No sessions found for agent {}", agent_name);
         }
 
         Ok(())
@@ -176,7 +213,12 @@ impl AgentService {
     pub fn update_session_status(&self, agent_name: &str, session_id: &str, status: SessionStatus) {
         if let Some(agent_sessions) = self.sessions.write().unwrap().get_mut(agent_name) {
             if let Some(info) = agent_sessions.get_mut(session_id) {
-                log::info!("Updating session status for {}:{} to {:?}", agent_name, session_id, &status);
+                log::info!(
+                    "Updating session status for {}:{} to {:?}",
+                    agent_name,
+                    session_id,
+                    &status
+                );
                 info.status = status.clone();
 
                 // Publish status update to workspace bus
@@ -213,7 +255,7 @@ impl AgentService {
             .await
             .map_err(|e| anyhow!("Failed to send prompt: {}", e))?;
 
-        self.update_session_status(agent_name, session_id, SessionStatus::Pending);
+        self.update_session_status(agent_name, session_id, SessionStatus::Completed);
         // Update activity time
         self.update_session_activity(agent_name, session_id);
 

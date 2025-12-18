@@ -1,15 +1,16 @@
 use crate::app::actions::{Copy, Cut, Info, Paste, SearchAll, ToggleCheck};
-use crate::panels::dock_panel::section;
 use crate::panels::dock_panel::DockPanel;
+use crate::panels::dock_panel::section;
 use gpui::{
-    div, px, App, AppContext, Context, Corner, Entity, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement as _, Render, SharedString, Styled as _, Window,
+    App, AppContext, Context, Corner, Entity, InteractiveElement, IntoElement, KeyBinding,
+    ParentElement as _, Render, SharedString, Styled as _, Window, div, px,
 };
 use gpui_component::{
+    ActiveTheme as _, IconName, StyledExt,
     button::Button,
     h_flex,
     menu::{ContextMenuExt, DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, IconName, StyledExt,
+    v_flex,
 };
 
 const CONTEXT: &str = "menu_story";
