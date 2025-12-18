@@ -6,9 +6,7 @@
 //! - Tree view (by workspace) and timeline view (by date)
 
 use gpui::{
-    div, prelude::FluentBuilder, px, App, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window,
+    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window, div, prelude::FluentBuilder, px
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, InteractiveElementExt, Selectable, Sizable, StyledExt, button::{Button, ButtonGroup, ButtonVariants}, h_flex, input::{Input, InputState}, menu::{ContextMenuExt, DropdownMenu, PopupMenuItem}, scroll::ScrollableElement as _, v_flex
@@ -706,6 +704,36 @@ impl TaskPanel {
                 }
 
             }))
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener({
+                // let session_id = session_id.clone();
+                move |_this, event: &MouseDownEvent, window, cx| {
+                    if event.click_count == 2 {
+                        // 双击：打开新的会话面板
+                        // let action = match session_id.as_ref() {
+                        //     Some(id) => ShowConversationPanel::with_session(id.clone()),
+                        //     None => ShowConversationPanel::new(),
+                        // };
+                        // window.dispatch_action(Box::new(action), cx);
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener({
+
+                let task_id = task_id.clone();
+                move |this, event: &gpui::MouseUpEvent, window, cx| {
+
+                    if event.click_count==1 {
+                        log::debug!("====== >>> 单击  click on task");
+                    }else if event.click_count==2 {
+                        log::debug!("====== >>> 双击  click on task");
+                    }
+                
+                }
+
+            }),
+            )
             // First row: status icon + task name + mode
             .child(
                 h_flex()
