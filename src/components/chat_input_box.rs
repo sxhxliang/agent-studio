@@ -1,18 +1,12 @@
 use gpui::{
-    AnyElement, App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, Styled, Window, div, prelude::FluentBuilder, px,
+    AnyElement, App, Bounds, Corner, ElementId, Entity, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Point, RenderOnce, Styled, Window, anchored, deferred, div,
+    prelude::FluentBuilder, px,
 };
 use std::rc::Rc;
 
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable,
-    button::{Button, ButtonCustomVariant, ButtonVariants},
-    h_flex,
-    input::{Input, InputState},
-    list::{List, ListDelegate, ListState},
-    popover::Popover,
-    select::{Select, SelectState},
-    v_flex,
+    ActiveTheme, Disableable, ElementExt, Icon, IconName, Sizable, button::{Button, ButtonCustomVariant, ButtonVariants}, h_flex, input::{Input, InputState}, list::{List, ListDelegate, ListState}, popover::Popover, select::{Select, SelectState}, v_flex
 };
 
 use agent_client_protocol::{AvailableCommand, ImageContent};
@@ -58,6 +52,11 @@ pub struct ChatInputBox {
     command_suggestions: Vec<AvailableCommand>,
     /// Whether to show command suggestions
     show_command_suggestions: bool,
+}
+
+#[derive(Default)]
+struct CommandPopoverAnchor {
+    bounds: Option<Bounds<Pixels>>,
 }
 
 impl ChatInputBox {
@@ -248,15 +247,22 @@ impl ChatInputBox {
 }
 
 impl RenderOnce for ChatInputBox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = cx.theme();
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let on_send = self.on_send;
         let on_cancel = self.on_cancel;
         let on_new_session = self.on_new_session;
         let on_paste_callback = self.on_paste.clone();
         let input_state_for_paste = self.input_state.clone();
+        let command_anchor = window.use_keyed_state(
+            "command-popover-anchor",
+            cx,
+            |_, _| CommandPopoverAnchor::default(),
+        );
         let input_value = self.input_state.read(cx).value();
         let is_empty = input_value.trim().is_empty();
+
+        // Get theme after use_keyed_state to avoid borrow conflicts
+        let theme = cx.theme();
 
         // Build the context popover with searchable list
         let add_context_button = Button::new("add-context")
@@ -290,57 +296,78 @@ impl RenderOnce for ChatInputBox {
             add_context_button.into_any_element()
         };
 
-        let command_list = if self.show_command_suggestions && !self.command_suggestions.is_empty()
-        {
+        let show_commands = self.show_command_suggestions && !self.command_suggestions.is_empty();
+        let command_popover = if show_commands {
+            let bounds = command_anchor.read(cx).bounds;
             let commands = self.command_suggestions;
             let command_count = commands.len();
 
-            Some(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .p_3()
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.background)
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("Available Commands:"),
-                    )
-                    .children(commands.into_iter().enumerate().map(|(idx, command)| {
-                        let row = h_flex()
-                            .w_full()
-                            .gap_3()
-                            .items_center()
-                            .py_1()
-                            .child(
-                                div()
-                                    .w(px(140.))
-                                    .text_sm()
-                                    .font_family("Monaco, 'Courier New', monospace")
-                                    .text_color(theme.foreground)
-                                    .child(format!("/{}", command.name)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .overflow_x_hidden()
-                                    .text_ellipsis()
-                                    .child(command.description),
-                            );
+            bounds.map(|bounds| {
+                let position = bounds.corner(Corner::TopLeft)
+                    + Point {
+                        x: px(0.),
+                        y: -px(8.),
+                    };
 
-                        row.when(idx + 1 < command_count, |row| {
-                            row.border_b_1().border_color(theme.border)
-                        })
-                    }))
-                    .into_any_element(),
-            )
+                deferred(
+                    anchored()
+                        .snap_to_window_with_margin(px(8.))
+                        .anchor(Corner::BottomLeft)
+                        .position(position)
+                        .child(
+                            v_flex()
+                                .occlude()
+                                .w(bounds.size.width)
+                                .gap_2()
+                                .p_3()
+                                .rounded(px(12.))
+                                .border_1()
+                                .border_color(theme.border)
+                                .bg(theme.popover)
+                                .shadow_lg()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child("Available Commands:"),
+                                )
+                                .children(commands.into_iter().enumerate().map(
+                                    |(idx, command)| {
+                                        let row = h_flex()
+                                            .w_full()
+                                            .gap_3()
+                                            .items_center()
+                                            .py_1()
+                                            .child(
+                                                div()
+                                                    .w(px(140.))
+                                                    .text_sm()
+                                                    .font_family(
+                                                        "Monaco, 'Courier New', monospace",
+                                                    )
+                                                    .text_color(theme.popover_foreground)
+                                                    .child(format!("/{}", command.name)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .text_sm()
+                                                    .text_color(theme.muted_foreground)
+                                                    .overflow_x_hidden()
+                                                    .text_ellipsis()
+                                                    .child(command.description),
+                                            );
+
+                                        row.when(idx + 1 < command_count, |row| {
+                                            row.border_b_1().border_color(theme.border)
+                                        })
+                                    },
+                                )),
+                        ),
+                )
+                .with_priority(1)
+                .into_any_element()
+            })
         } else {
             None
         };
@@ -369,9 +396,6 @@ impl RenderOnce for ChatInputBox {
                     .border_color(theme.border)
                     .bg(theme.secondary)
                     .shadow_lg()
-                    .when_some(command_list, |this, command_list| {
-                        this.child(command_list)
-                    })
                     .when_some(on_paste_callback, |this, callback| {
                         let input_state = input_state_for_paste.clone();
                         this.on_action(move |_: &crate::app::actions::Paste, window, cx| {
@@ -559,7 +583,18 @@ impl RenderOnce for ChatInputBox {
                     )
                     .child(
                         // Textarea (multi-line input)
-                        Input::new(&self.input_state).appearance(false),
+                        div()
+                            .w_full()
+                            .on_prepaint({
+                                let command_anchor = command_anchor.clone();
+                                move |bounds, _, cx| {
+                                    command_anchor.update(cx, |state, cx| {
+                                        state.bounds = Some(bounds);
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                            .child(Input::new(&self.input_state).appearance(false)),
                     )
                     .child(
                         // Bottom row: Action buttons
@@ -674,5 +709,8 @@ impl RenderOnce for ChatInputBox {
                             }),
                     ),
             )
+            .when_some(command_popover, |this, command_popover| {
+                this.child(command_popover)
+            })
     }
 }
