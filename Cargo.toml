@@ -63,6 +63,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rfd = "0.15"
 uuid = { version = "1.11", features = ["v4"] }
 rust-i18n = "3"
+similar = { version = "2.6", features = ["text"] }
 regex = "1"
 base64 = "0.22"
 which = "7.0"
