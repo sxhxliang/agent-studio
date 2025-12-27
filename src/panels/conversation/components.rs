@@ -14,10 +14,117 @@ use agent_client_protocol::{
     ContentBlock, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdateFields,
     ToolKind,
 };
+use similar::{ChangeTag, TextDiff};
 
 use super::helpers::extract_xml_content;
 use super::types::{ResourceInfo, ToolCallStatusExt, ToolKindExt, get_file_icon};
 use crate::{ShowToolCallDetail, UserMessageData};
+
+// ============================================================================
+// Diff Helpers
+// ============================================================================
+
+/// Diff statistics for compact display
+#[derive(Debug, Clone)]
+struct DiffStats {
+    additions: usize,
+    deletions: usize,
+}
+
+/// Calculate diff statistics from old and new text
+fn calculate_diff_stats(old_text: &str, new_text: &str) -> DiffStats {
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut additions = 0;
+    let mut deletions = 0;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Insert => additions += 1,
+            ChangeTag::Delete => deletions += 1,
+            ChangeTag::Equal => {}
+        }
+    }
+
+    DiffStats {
+        additions,
+        deletions,
+    }
+}
+
+/// Render a compact diff preview for conversation panel
+fn render_compact_diff_preview<V: 'static>(
+    diff: &agent_client_protocol::Diff,
+    cx: &mut Context<V>,
+) -> impl IntoElement {
+    // Calculate statistics
+    let stats = match &diff.old_text {
+        Some(old_text) => calculate_diff_stats(old_text, &diff.new_text),
+        None => DiffStats {
+            additions: diff.new_text.lines().count(),
+            deletions: 0,
+        },
+    };
+
+    v_flex()
+        .gap_2()
+        .w_full()
+        .child(
+            // File path and stats header
+            h_flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::File)
+                        .size(px(14.))
+                        .text_color(cx.theme().accent),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
+                        .child(diff.path.display().to_string()),
+                )
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().green)
+                                .child(format!("+{}", stats.additions))
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().red)
+                                .child(format!("-{}", stats.deletions))
+                        )
+                )
+                .when(diff.old_text.is_none(), |this| {
+                    this.child(
+                        div()
+                            .px_1()
+                            .rounded(px(3.))
+                            .bg(cx.theme().green.opacity(0.2))
+                            .text_size(px(10.))
+                            .text_color(cx.theme().green)
+                            .child("NEW")
+                    )
+                })
+        )
+        .child(
+            // Info message
+            div()
+                .text_size(px(11.))
+                .text_color(cx.theme().muted_foreground)
+                .child("💡 Click the Info button above to view full diff")
+        )
+}
 
 // ============================================================================
 // Stateful Resource Item
@@ -416,16 +523,7 @@ impl Render for ToolCallItemState {
                                     _ => None,
                                 },
                                 ToolCallContent::Diff(diff) => Some(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .line_height(px(18.))
-                                        .child(format!(
-                                            "Modified: {}\n{} -> {}",
-                                            diff.path.display(),
-                                            diff.old_text.as_deref().unwrap_or("<new file>"),
-                                            diff.new_text
-                                        )),
+                                    div().child(render_compact_diff_preview(diff, cx))
                                 ),
                                 ToolCallContent::Terminal(terminal) => Some(
                                     div()
