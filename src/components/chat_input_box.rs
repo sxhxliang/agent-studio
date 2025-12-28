@@ -1,21 +1,21 @@
 use gpui::{
-    AnyElement, App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div, prelude::FluentBuilder, px,
+    App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use std::{rc::Rc, sync::Arc};
 
 use gpui_component::{
-    ActiveTheme, Disableable, ElementExt, Icon, IconName, Sizable,
+    ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants}, h_flex,
     input::{Input, InputState},
-    list::{List, ListDelegate, ListState}, popover::Popover, select::{Select, SelectState}, v_flex,
+    select::{Select, SelectState}, v_flex,
 };
 
 use agent_client_protocol::{AvailableCommand, ImageContent};
 
 use crate::app::actions::AddCodeSelection;
 use crate::components::{
-    AgentItem, InputSuggestion, InputSuggestionItem, InputSuggestionState,
+    AgentItem, FileItem, InputSuggestion, InputSuggestionItem, InputSuggestionState,
 };
 use crate::core::services::SessionStatus;
 
@@ -29,10 +29,38 @@ impl InputSuggestionItem for AvailableCommand {
     }
 }
 
+#[derive(Clone)]
+enum ChatSuggestion {
+    Command(AvailableCommand),
+    File(FileItem),
+}
+
+impl InputSuggestionItem for ChatSuggestion {
+    fn label(&self) -> SharedString {
+        match self {
+            Self::Command(command) => SharedString::from(command.name.clone()),
+            Self::File(file) => SharedString::from(file.name.clone()),
+        }
+    }
+
+    fn apply_text(&self) -> SharedString {
+        match self {
+            Self::Command(command) => SharedString::from(format!("/{} ", command.name)),
+            Self::File(file) => {
+                let mut path = file.relative_path.clone();
+                if file.is_folder && !path.ends_with('/') {
+                    path.push('/');
+                }
+                SharedString::from(format!("@{} ", path))
+            }
+        }
+    }
+}
+
 /// A reusable chat input component with context controls and send button.
 ///
 /// Features:
-/// - Add context button at the top with popover containing searchable list
+/// - @ trigger for file suggestions
 /// - Multi-line textarea with auto-grow (2-8 rows)
 /// - Action buttons (attach, mode select, sources)
 /// - Send button with icon
@@ -45,10 +73,6 @@ pub struct ChatInputBox {
     title: Option<String>,
     on_send: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
     on_cancel: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
-    context_list: Option<AnyElement>,
-    context_list_focus: Option<gpui::FocusHandle>,
-    context_popover_open: bool,
-    on_context_popover_change: Option<Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>>,
     mode_select: Option<Entity<SelectState<Vec<&'static str>>>>,
     agent_select: Option<Entity<SelectState<Vec<AgentItem>>>>,
     session_select: Option<Entity<SelectState<Vec<String>>>>,
@@ -62,6 +86,8 @@ pub struct ChatInputBox {
     on_paste: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     session_status: Option<SessionStatus>, // Session status for button state
     session_id: Option<String>,            // Session ID for cancel action
+    file_suggestions: Vec<FileItem>,
+    on_file_select: Option<Box<dyn Fn(&FileItem, &mut Window, &mut App) + 'static>>,
     /// Command suggestions to display
     command_suggestions: Vec<AvailableCommand>,
     /// Whether to show command suggestions
@@ -79,10 +105,6 @@ impl ChatInputBox {
             title: None,
             on_send: None,
             on_cancel: None,
-            context_list: None,
-            context_list_focus: None,
-            context_popover_open: false,
-            on_context_popover_change: None,
             mode_select: None,
             agent_select: None,
             session_select: None,
@@ -96,6 +118,8 @@ impl ChatInputBox {
             on_paste: None,
             session_status: None,
             session_id: None,
+            file_suggestions: Vec::new(),
+            on_file_select: None,
             command_suggestions: Vec::new(),
             show_command_suggestions: false,
             on_command_select: None,
@@ -123,32 +147,6 @@ impl ChatInputBox {
         F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     {
         self.on_cancel = Some(Box::new(callback));
-        self
-    }
-
-    /// Set the context list state for the popover
-    pub fn context_list<D: ListDelegate + 'static>(
-        mut self,
-        list: Entity<ListState<D>>,
-        cx: &App,
-    ) -> Self {
-        self.context_list_focus = Some(list.focus_handle(cx));
-        self.context_list = Some(List::new(&list).into_any_element());
-        self
-    }
-
-    /// Set whether the context popover is open
-    pub fn context_popover_open(mut self, open: bool) -> Self {
-        self.context_popover_open = open;
-        self
-    }
-
-    /// Set a callback for when the context popover open state changes
-    pub fn on_context_popover_change<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&bool, &mut Window, &mut App) + 'static,
-    {
-        self.on_context_popover_change = Some(Box::new(callback));
         self
     }
 
@@ -245,6 +243,21 @@ impl ChatInputBox {
         self
     }
 
+    /// Set file suggestions to display
+    pub fn file_suggestions(mut self, files: Vec<FileItem>) -> Self {
+        self.file_suggestions = files;
+        self
+    }
+
+    /// Set a callback for when a file suggestion is selected
+    pub fn on_file_select<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&FileItem, &mut Window, &mut App) + 'static,
+    {
+        self.on_file_select = Some(Box::new(callback));
+        self
+    }
+
     /// Set command suggestions to display
     pub fn command_suggestions(mut self, commands: Vec<AvailableCommand>) -> Self {
         self.command_suggestions = commands;
@@ -288,40 +301,31 @@ impl RenderOnce for ChatInputBox {
         // Get theme after use_keyed_state to avoid borrow conflicts
         let theme = cx.theme();
 
-        // Build the context popover with searchable list
-        let add_context_button = Button::new("add-context")
-            .label("Add context")
-            .icon(Icon::new(IconName::Asterisk))
-            .ghost()
-            .small();
-
-        let context_element = if let Some(context_list) = self.context_list {
-            let on_change = self.on_context_popover_change;
-            let mut popover = Popover::new("context-popover")
-                .p_0()
-                .text_sm()
-                .open(self.context_popover_open)
-                .on_open_change(move |open, window, cx| {
-                    if let Some(ref callback) = on_change {
-                        callback(open, window, cx);
-                    }
-                })
-                .trigger(add_context_button)
-                .child(context_list)
-                .w(px(280.))
-                .h(px(300.));
-
-            if let Some(focus) = self.context_list_focus {
-                popover = popover.track_focus(&focus);
-            }
-
-            popover.into_any_element()
-        } else {
-            add_context_button.into_any_element()
-        };
-
         let show_commands = self.show_command_suggestions && !self.command_suggestions.is_empty();
-        let apply_on_confirm = self.on_command_select.is_none();
+        let show_files = !self.file_suggestions.is_empty();
+        let (suggestions, suggestion_header, apply_on_confirm) = if show_files {
+            (
+                self.file_suggestions
+                    .clone()
+                    .into_iter()
+                    .map(ChatSuggestion::File)
+                    .collect::<Vec<_>>(),
+                Some("Files"),
+                self.on_file_select.is_none(),
+            )
+        } else if show_commands {
+            (
+                self.command_suggestions
+                    .clone()
+                    .into_iter()
+                    .map(ChatSuggestion::Command)
+                    .collect::<Vec<_>>(),
+                Some("Available Commands"),
+                self.on_command_select.is_none(),
+            )
+        } else {
+            (Vec::new(), None, true)
+        };
 
         v_flex()
             .w_full()
@@ -377,7 +381,7 @@ impl RenderOnce for ChatInputBox {
                         })
                     })
                     .child(
-                        // Top row: Pasted images, code selections, and Add context button with popover
+                        // Top row: Pasted images, code selections, and selected files
                         h_flex()
                             .w_full()
                             .gap_2()
@@ -530,7 +534,6 @@ impl RenderOnce for ChatInputBox {
                                     })
                                     .collect::<Vec<_>>(),
                             )
-                            .child(context_element),
                     )
                     .child(
                         // Textarea (multi-line input)
@@ -540,40 +543,102 @@ impl RenderOnce for ChatInputBox {
                                     Arc::new(self.id.clone()),
                                     "command-suggestion-input".into(),
                                 ))
-                                .items(self.command_suggestions.clone())
-                                .enabled(show_commands)
-                                .header("Available Commands")
+                                .items(suggestions)
+                                .enabled(show_files || show_commands)
+                                .when_some(suggestion_header, |input, header| {
+                                    input.header(header)
+                                })
                                 .max_height(px(200.))
                                 .apply_on_confirm(apply_on_confirm)
                                 .input(|state| Input::new(state).appearance(false))
-                                .render_item(|command, _selected, _window, cx| {
+                                .render_item(|item, _selected, _window, cx| {
                                     let theme = cx.theme();
-                                    h_flex()
-                                        .w_full()
-                                        .gap_3()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .w(px(140.))
-                                                .text_sm()
-                                                .font_family("Monaco, 'Courier New', monospace")
-                                                .text_color(theme.popover_foreground)
-                                                .child(format!("/{}", command.name)),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_sm()
-                                                .text_color(theme.muted_foreground)
-                                                .overflow_x_hidden()
-                                                .text_ellipsis()
-                                                .child(command.description.clone()),
-                                        )
+                                    match item {
+                                        ChatSuggestion::Command(command) => {
+                                            h_flex()
+                                                .w_full()
+                                                .gap_3()
+                                                .items_center()
+                                                .child(
+                                                    div()
+                                                        .w(px(140.))
+                                                        .text_sm()
+                                                        .font_family(
+                                                            "Monaco, 'Courier New', monospace",
+                                                        )
+                                                        .text_color(theme.popover_foreground)
+                                                        .child(format!("/{}", command.name)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .text_sm()
+                                                        .text_color(theme.muted_foreground)
+                                                        .overflow_x_hidden()
+                                                        .text_ellipsis()
+                                                        .child(command.description.clone()),
+                                                )
+                                        }
+                                        ChatSuggestion::File(file) => {
+                                            let icon = if file.is_folder {
+                                                Icon::new(IconName::Folder)
+                                            } else {
+                                                Icon::new(IconName::File)
+                                            };
+
+                                            h_flex()
+                                                .w_full()
+                                                .gap_3()
+                                                .items_center()
+                                                .child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(
+                                                            icon.size(px(16.)).text_color(
+                                                                if file.is_folder {
+                                                                    theme.accent
+                                                                } else {
+                                                                    theme.foreground
+                                                                },
+                                                            ),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_sm()
+                                                                .text_color(
+                                                                    theme.popover_foreground,
+                                                                )
+                                                                .child(file.name.clone()),
+                                                        ),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .text_xs()
+                                                        .text_color(theme.muted_foreground)
+                                                        .overflow_x_hidden()
+                                                        .text_ellipsis()
+                                                        .child(file.relative_path.clone()),
+                                                )
+                                        }
+                                    }
                                 });
 
-                            if let Some(on_command_select) = self.on_command_select {
-                                input = input.on_confirm(move |command, window, cx| {
-                                    on_command_select(command, window, cx);
+                            if self.on_command_select.is_some() || self.on_file_select.is_some() {
+                                let on_command_select = self.on_command_select;
+                                let on_file_select = self.on_file_select;
+                                input = input.on_confirm(move |item, window, cx| match item {
+                                    ChatSuggestion::Command(command) => {
+                                        if let Some(callback) = &on_command_select {
+                                            callback(command, window, cx);
+                                        }
+                                    }
+                                    ChatSuggestion::File(file) => {
+                                        if let Some(callback) = &on_file_select {
+                                            callback(file, window, cx);
+                                        }
+                                    }
                                 });
                             }
 

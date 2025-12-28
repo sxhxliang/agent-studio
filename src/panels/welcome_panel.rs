@@ -6,7 +6,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, IndexPath, StyledExt,
     input::InputState,
-    list::{ListDelegate, ListState},
+    list::ListState,
     select::{SelectEvent, SelectState},
     v_flex,
 };
@@ -16,10 +16,12 @@ use agent_client_protocol::{AvailableCommand, ImageContent};
 use crate::{
     AppState, CreateTaskFromWelcome, WelcomeSession,
     app::actions::AddCodeSelection,
-    components::{AgentItem, ChatInputBox, FilePickerDelegate},
+    components::{AgentItem, ChatInputBox, FileItem, FilePickerDelegate},
 };
 
 // File picker delegate is now imported from components module
+
+const MAX_FILE_SUGGESTIONS: usize = 8;
 
 /// Welcome panel displayed when creating a new task.
 /// Shows a centered input form with title, instructions, and send button.
@@ -27,7 +29,6 @@ pub struct WelcomePanel {
     focus_handle: FocusHandle,
     input_state: Entity<InputState>,
     context_list: Entity<ListState<FilePickerDelegate>>,
-    context_popover_open: bool,
     mode_select: Entity<SelectState<Vec<&'static str>>>,
     agent_select: Entity<SelectState<Vec<AgentItem>>>,
     session_select: Entity<SelectState<Vec<String>>>,
@@ -40,8 +41,7 @@ pub struct WelcomePanel {
     pasted_images: Vec<(ImageContent, String)>,
     code_selections: Vec<AddCodeSelection>,
     selected_files: Vec<String>,
-    at_mention_active: bool,            // Track if @ mention is active
-    pending_at_mention: Option<String>, // Pending @filename to insert
+    file_suggestions: Vec<FileItem>,
     /// Command suggestions based on input
     command_suggestions: Vec<AvailableCommand>,
     /// Whether to show command suggestions (input starts with /)
@@ -87,10 +87,7 @@ impl WelcomePanel {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-        // Create channel for file selection
-        let (file_tx, mut file_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let entity = cx.new(|cx| Self::new(workspace_id.clone(), Some(file_tx), window, cx));
+        let entity = cx.new(|cx| Self::new(workspace_id.clone(), window, cx));
 
         // Subscribe to CodeSelectionBus using the shared helper function
         crate::core::event_bus::subscribe_entity_to_code_selections(
@@ -181,43 +178,6 @@ impl WelcomePanel {
         // Load workspace info immediately and refresh on each panel creation
         Self::load_workspace_info(&entity, workspace_id.as_deref(), cx);
 
-        // Listen for file selection events
-        {
-            let weak_entity = entity.downgrade();
-
-            cx.spawn(async move |cx| {
-                while let Some(file_item) = file_rx.recv().await {
-                    if let Some(entity) = weak_entity.upgrade() {
-                        let file_path = file_item.path.to_string_lossy().to_string();
-                        let filename = file_item.name.clone();
-
-                        _ = cx.update(|cx| {
-                            entity.update(cx, |this, cx| {
-                                // Check if @ mention is active
-                                if this.at_mention_active {
-                                    // Store the filename to insert
-                                    this.pending_at_mention = Some(filename.clone());
-                                    this.at_mention_active = false;
-                                } else {
-                                    // Add to selected_files if not already present
-                                    if !this.selected_files.contains(&file_path) {
-                                        this.selected_files.push(file_path);
-                                    }
-                                }
-
-                                // Close the popover
-                                this.context_popover_open = false;
-                                cx.notify();
-                            });
-                        });
-                    } else {
-                        break;
-                    }
-                }
-            })
-            .detach();
-        }
-
         entity
     }
 
@@ -272,7 +232,6 @@ impl WelcomePanel {
 
     fn new(
         workspace_id: Option<String>,
-        file_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::components::FileItem>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -289,10 +248,7 @@ impl WelcomePanel {
         let working_dir = AppState::global(cx).current_working_dir().clone();
 
         let context_list = cx.new(|cx| {
-            let mut delegate = FilePickerDelegate::new(&working_dir);
-            if let Some(tx) = file_tx {
-                delegate = delegate.with_selection_sender(tx);
-            }
+            let delegate = FilePickerDelegate::new(&working_dir);
             ListState::new(delegate, window, cx).searchable(true)
         });
 
@@ -321,7 +277,6 @@ impl WelcomePanel {
             focus_handle: cx.focus_handle(),
             input_state,
             context_list,
-            context_popover_open: false,
             mode_select,
             agent_select,
             session_select,
@@ -333,8 +288,7 @@ impl WelcomePanel {
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
             selected_files: Vec::new(),
-            at_mention_active: false,
-            pending_at_mention: None,
+            file_suggestions: Vec::new(),
             command_suggestions: Vec::new(),
             show_command_suggestions: false,
             _subscriptions: Vec::new(),
@@ -499,20 +453,28 @@ impl WelcomePanel {
     fn on_input_change(&mut self, cx: &mut Context<Self>) {
         let value = self.input_state.read(cx).value();
 
-        // Check if the last character is @
-        if value.ends_with('@') {
-            // Open the context popover
-            self.context_popover_open = true;
-            self.at_mention_active = true;
-            self.show_command_suggestions = false; // Hide commands when showing file picker
-            cx.notify();
-        } else if self.at_mention_active && !value.contains('@') {
-            // @ was removed, deactivate mention mode
-            self.at_mention_active = false;
+        let mention_query = value.rfind('@').and_then(|at_index| {
+            let query = &value[at_index + 1..];
+            if query.chars().any(char::is_whitespace) {
+                None
+            } else {
+                Some(query)
+            }
+        });
+
+        if let Some(query) = mention_query {
+            if self.show_command_suggestions {
+                self.show_command_suggestions = false;
+                self.command_suggestions.clear();
+            }
+            self.update_file_suggestions(query, cx);
+            return;
         }
 
+        self.clear_file_suggestions(cx);
+
         // Check if input starts with / for command suggestions
-        if value.trim_start().starts_with('/') && !self.at_mention_active {
+        if value.trim_start().starts_with('/') {
             // Get the command prefix (everything after the /)
             let trimmed = value.trim_start();
             let command_text = trimmed.trim_start_matches('/');
@@ -557,6 +519,34 @@ impl WelcomePanel {
                 cx.notify();
             }
         }
+    }
+
+    fn clear_file_suggestions(&mut self, cx: &mut Context<Self>) {
+        if !self.file_suggestions.is_empty() {
+            self.file_suggestions.clear();
+            cx.notify();
+        }
+    }
+
+    fn update_file_suggestions(&mut self, query: &str, cx: &mut Context<Self>) {
+        let query = query.trim();
+        self.context_list.update(cx, |state, cx| {
+            state.delegate_mut().set_search_query(query.to_string());
+            cx.notify();
+        });
+
+        let items = self
+            .context_list
+            .read(cx)
+            .delegate()
+            .filtered_items()
+            .iter()
+            .cloned()
+            .take(MAX_FILE_SUGGESTIONS)
+            .collect::<Vec<_>>();
+
+        self.file_suggestions = items;
+        cx.notify();
     }
 
     fn apply_command_selection(
@@ -857,16 +847,6 @@ impl Render for WelcomePanel {
         //     self.pasted_images.len()
         // );
 
-        // Process pending @ mention
-        if let Some(filename) = self.pending_at_mention.take() {
-            let current_value = self.input_state.read(cx).value();
-            let new_value = format!("{}@{} ", current_value.trim_end_matches('@'), filename);
-
-            self.input_state.update(cx, |state, cx| {
-                state.set_value(&new_value, window, cx);
-            });
-        }
-
         v_flex()
             .size_full()
             .items_center()
@@ -919,17 +899,47 @@ impl Render for WelcomePanel {
                             // );
                             ChatInputBox::new("welcome-chat-input", self.input_state.clone())
                                 // .title("New Task")
-                                .context_list(self.context_list.clone(), cx)
-                                .context_popover_open(self.context_popover_open)
-                                .on_context_popover_change(cx.listener(|this, open: &bool, _, cx| {
-                                    this.context_popover_open = *open;
-                                    cx.notify();
-                                }))
                                 .mode_select(self.mode_select.clone())
                                 .agent_select(self.agent_select.clone())
                                 .session_select(self.session_select.clone())
                                 .pasted_images(self.pasted_images.clone())
                                 .code_selections(self.code_selections.clone())
+                                .file_suggestions(self.file_suggestions.clone())
+                                .on_file_select(cx.listener(|this, file: &FileItem, window, cx| {
+                                    let file_path = file.path.to_string_lossy().to_string();
+                                    let mut filename = file.relative_path.clone();
+                                    if file.is_folder && !filename.ends_with('/') {
+                                        filename.push('/');
+                                    }
+
+                                    let input_state = this.input_state.clone();
+                                    let current_value = input_state.read(cx).value();
+                                    let mut applied_to_input = false;
+                                    if let Some(at_index) = current_value.rfind('@') {
+                                        let query = &current_value[at_index + 1..];
+                                        if !query.chars().any(char::is_whitespace) {
+                                            let prefix = &current_value[..at_index];
+                                            let new_value =
+                                                SharedString::from(format!("{prefix}@{filename} "));
+                                            window.defer(cx, move |window, cx| {
+                                                input_state.update(cx, |state, cx| {
+                                                    state.set_value(new_value, window, cx);
+                                                });
+                                            });
+                                            applied_to_input = true;
+                                        }
+                                    }
+
+                                    if !applied_to_input
+                                        && !file.is_folder
+                                        && !this.selected_files.contains(&file_path)
+                                    {
+                                        this.selected_files.push(file_path);
+                                    }
+
+                                    this.file_suggestions.clear();
+                                    cx.notify();
+                                }))
                                 // Pass command suggestions to ChatInputBox
                                 .command_suggestions(self.command_suggestions.clone())
                                 .show_command_suggestions(self.show_command_suggestions)

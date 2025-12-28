@@ -70,6 +70,10 @@ impl FilePickerDelegate {
         self
     }
 
+    pub fn filtered_items(&self) -> &[FileItem] {
+        &self.filtered_items
+    }
+
     /// Scan directory recursively and return all files and folders
     fn scan_directory(path: &Path, base_path: &Path) -> Vec<FileItem> {
         let mut items = Vec::new();

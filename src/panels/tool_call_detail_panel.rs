@@ -1,5 +1,3 @@
-use std::any;
-
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window,
