@@ -25,37 +25,23 @@ pub struct FileChangeStats {
 impl FileChangeStats {
     /// Calculate statistics from old and new text
     pub fn from_diff(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Self {
-        match old_text {
+        let (additions, deletions, is_new_file) = match old_text {
             Some(old) => {
                 let diff = TextDiff::from_lines(old, new_text);
-                let mut additions = 0;
-                let mut deletions = 0;
-
+                let (mut adds, mut dels) = (0, 0);
                 for change in diff.iter_all_changes() {
                     match change.tag() {
-                        ChangeTag::Insert => additions += 1,
-                        ChangeTag::Delete => deletions += 1,
+                        ChangeTag::Insert => adds += 1,
+                        ChangeTag::Delete => dels += 1,
                         ChangeTag::Equal => {}
                     }
                 }
+                (adds, dels, false)
+            }
+            None => (new_text.lines().count(), 0, true),
+        };
 
-                Self {
-                    path,
-                    additions,
-                    deletions,
-                    is_new_file: false,
-                }
-            }
-            None => {
-                // New file - all lines are additions
-                Self {
-                    path,
-                    additions: new_text.lines().count(),
-                    deletions: 0,
-                    is_new_file: true,
-                }
-            }
-        }
+        Self { path, additions, deletions, is_new_file }
     }
 
     /// Get total number of changed lines
@@ -130,52 +116,38 @@ impl DiffSummaryData {
     /// For files edited multiple times, returns a synthetic ToolCall with merged diff (initial → final)
     /// For files edited once, returns the original ToolCall
     pub fn find_tool_call_for_file(&self, path: &PathBuf) -> Option<ToolCall> {
-        // Count how many times this file was edited
-        let mut edit_count = 0;
-        let mut last_tool_call = None;
+        let edit_count = self.tool_calls.iter()
+            .flat_map(|tc| &tc.content)
+            .filter(|c| matches!(c, ToolCallContent::Diff(d) if &d.path == path))
+            .count();
 
-        for tool_call in &self.tool_calls {
-            for content in &tool_call.content {
-                if let ToolCallContent::Diff(diff) = content {
-                    if &diff.path == path {
-                        edit_count += 1;
-                        last_tool_call = Some(tool_call.clone());
-                    }
-                }
-            }
+        match edit_count {
+            0 => None,
+            1 => self.tool_calls.iter()
+                .find(|tc| tc.content.iter().any(|c|
+                    matches!(c, ToolCallContent::Diff(d) if &d.path == path)
+                ))
+                .cloned(),
+            _ => self.create_merged_tool_call(path, edit_count),
         }
+    }
 
-        // If edited only once, return the original ToolCall
-        if edit_count == 1 {
-            return last_tool_call;
-        }
+    /// Create a synthetic ToolCall with merged diff for multiply-edited files
+    fn create_merged_tool_call(&self, path: &PathBuf, edit_count: usize) -> Option<ToolCall> {
+        let (first_old, final_new) = self.merged_states.get(path)?;
+        let filename = path.file_name()?.to_str().unwrap_or("unknown");
 
-        // If edited multiple times, create a synthetic ToolCall with merged diff
-        if edit_count > 1 {
-            if let Some((first_old, final_new)) = self.merged_states.get(path) {
-                // Create a merged Diff showing initial → final
-                let merged_diff = Diff::new(path.clone(), final_new.clone())
-                    .old_text(first_old.clone());
+        let merged_diff = Diff::new(path.clone(), final_new.clone())
+            .old_text(first_old.clone());
 
-                // Create a synthetic ToolCall
-                let filename = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
+        let mut tool_call = ToolCall::new(
+            ToolCallId::from(format!("merged-{}", path.display())),
+            format!("Edit {} ({} times)", filename, edit_count),
+        );
+        tool_call.status = ToolCallStatus::Completed;
+        tool_call.content = vec![ToolCallContent::Diff(merged_diff)];
 
-                let mut synthetic_tool_call = ToolCall::new(
-                    ToolCallId::from(format!("merged-{}", path.display())),
-                    format!("Edit {} ({} times)", filename, edit_count),
-                );
-
-                synthetic_tool_call.status = ToolCallStatus::Completed;
-                synthetic_tool_call.content = vec![ToolCallContent::Diff(merged_diff)];
-
-                return Some(synthetic_tool_call);
-            }
-        }
-
-        None
+        Some(tool_call)
     }
 
     /// Get total number of files changed
@@ -196,7 +168,7 @@ impl DiffSummaryData {
     /// Get files sorted by total changes (descending)
     pub fn sorted_files(&self) -> Vec<&FileChangeStats> {
         let mut files: Vec<_> = self.files.values().collect();
-        files.sort_by(|a, b| b.total_changes().cmp(&a.total_changes()));
+        files.sort_unstable_by(|a, b| b.total_changes().cmp(&a.total_changes()));
         files
     }
 
@@ -232,6 +204,31 @@ impl DiffSummary {
         cx.notify();
     }
 
+    /// Render change statistics (additions/deletions)
+    fn render_stats(&self, additions: usize, deletions: usize, cx: &Context<Self>) -> impl IntoElement {
+        h_flex()
+            .gap_2()
+            .items_center()
+            .when(additions > 0, |this| {
+                this.child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().green)
+                        .child(format!("+{}", additions))
+                )
+            })
+            .when(deletions > 0, |this| {
+                this.child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().red)
+                        .child(format!("-{}", deletions))
+                )
+            })
+    }
+
     /// Render a single file change row
     fn render_file_row(
         &self,
@@ -239,10 +236,9 @@ impl DiffSummary {
         _window: &mut Window,
         cx: &Context<Self>,
     ) -> gpui::AnyElement {
-        let filename = stats
-            .path
+        let filename = stats.path
             .file_name()
-            .and_then(|name| name.to_str())
+            .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
 
@@ -299,24 +295,7 @@ impl DiffSummary {
                                 .child("NEW"),
                         )
                     })
-                    .when(stats.additions > 0, |this| {
-                        this.child(
-                            div()
-                                .text_size(px(12.))
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .text_color(cx.theme().green)
-                                .child(format!("+{}", stats.additions)),
-                        )
-                    })
-                    .when(stats.deletions > 0, |this| {
-                        this.child(
-                            div()
-                                .text_size(px(12.))
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .text_color(cx.theme().red)
-                                .child(format!("-{}", stats.deletions)),
-                        )
-                    })
+                    .child(self.render_stats(stats.additions, stats.deletions, cx))
                     .child(
                         Icon::new(IconName::ChevronRight)
                             .size(px(14.))
@@ -380,29 +359,7 @@ impl Render for DiffSummary {
                                 if total_files == 1 { "" } else { "s" }
                             )),
                     )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .when(total_additions > 0, |this| {
-                                this.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .font_weight(gpui::FontWeight::MEDIUM)
-                                        .text_color(cx.theme().green)
-                                        .child(format!("+{}", total_additions)),
-                                )
-                            })
-                            .when(total_deletions > 0, |this| {
-                                this.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .font_weight(gpui::FontWeight::MEDIUM)
-                                        .text_color(cx.theme().red)
-                                        .child(format!("-{}", total_deletions)),
-                                )
-                            }),
-                    )
+                    .child(self.render_stats(total_additions, total_deletions, cx))
                     .child(
                         Button::new("diff-summary-toggle")
                             .icon(if is_collapsed {
