@@ -333,7 +333,7 @@ impl Render for DiffSummary {
             .gap_2()
             .p_4()
             .rounded(cx.theme().radius)
-            .bg(cx.theme().secondary)
+            // .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
             // Header

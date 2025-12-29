@@ -387,12 +387,15 @@ impl DockPanelContainer {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DockPanelState {
     pub story_klass: SharedString,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 impl DockPanelState {
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::json!({
             "story_klass": self.story_klass,
+            "session_id": self.session_id,
         })
     }
 
@@ -491,10 +494,24 @@ impl Panel for DockPanelContainer {
         ])
     }
 
-    fn dump(&self, _cx: &App) -> PanelState {
+    fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
+        let session_id = self
+            .story_klass
+            .as_ref()
+            .filter(|klass| klass.as_ref() == "ConversationPanel")
+            .and_then(|_| {
+                self.story.as_ref().and_then(|story| {
+                    story
+                        .clone()
+                        .downcast::<ConversationPanel>()
+                        .ok()
+                        .and_then(|entity| entity.read(cx).session_id())
+                })
+            });
         let story_state = DockPanelState {
             story_klass: self.story_klass.clone().unwrap(),
+            session_id,
         };
         state.info = PanelInfo::panel(story_state.to_value());
         state

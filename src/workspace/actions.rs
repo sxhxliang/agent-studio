@@ -49,34 +49,33 @@ impl DockWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let conversation_panel = if let Some(session_id) = session_id {
-            DockPanelContainer::panel_for_session(session_id, window, cx)
-        } else {
-            DockPanelContainer::panel::<ConversationPanel>(window, cx)
-        };
-
-        self.replace_active_center_panel(Arc::new(conversation_panel), window, cx);
-    }
-
-    fn replace_active_center_panel(
-        &mut self,
-        new_panel: Arc<dyn PanelView>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
         self.dock_area.update(cx, |dock_area, cx| {
             let selection =
                 Self::find_focused_tab_panel(dock_area.items(), window, cx)
                     .or_else(|| Self::find_first_tab_panel(dock_area.items(), cx));
 
-            if let Some((tab_panel, active_panel)) = selection {
-                tab_panel.update(cx, |tab_panel, cx| {
-                    tab_panel.add_panel(new_panel.clone(), window, cx);
-                    tab_panel.remove_panel(active_panel.clone(), window, cx);
-                });
-            } else {
-                dock_area.add_panel(new_panel, DockPlacement::Center, None, window, cx);
+            if let Some((_, active_panel)) = selection {
+                if let Ok(container) = active_panel.view().downcast::<DockPanelContainer>() {
+                    container.update(cx, |container, cx| {
+                        container
+                            .replace_with_conversation_session(session_id.clone(), window, cx);
+                    });
+                    return;
+                }
             }
+
+            let conversation_panel = if let Some(session_id) = session_id.clone() {
+                DockPanelContainer::panel_for_session(session_id, window, cx)
+            } else {
+                DockPanelContainer::panel::<ConversationPanel>(window, cx)
+            };
+            dock_area.add_panel(
+                Arc::new(conversation_panel),
+                DockPlacement::Center,
+                None,
+                window,
+                cx,
+            );
         });
     }
 

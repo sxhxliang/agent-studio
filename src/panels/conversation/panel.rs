@@ -1,6 +1,6 @@
 use gpui::{
     App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
-    Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
+    Render, ScrollHandle, SharedString, Styled, Timer, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, h_flex,
@@ -12,6 +12,7 @@ use gpui_component::{
 // Use the published ACP schema crate
 use agent_client_protocol::{ContentChunk, ImageContent, SessionUpdate, ToolCall};
 use chrono::{DateTime, Utc};
+use std::time::Duration;
 
 use crate::{
     AgentMessage, AgentTodoList, AppState, CancelSession, ChatInputBox, DiffSummary,
@@ -85,6 +86,10 @@ impl ConversationPanel {
         entity
     }
 
+    pub fn session_id(&self) -> Option<String> {
+        self.session_id.clone()
+    }
+
     fn new(_window: &mut Window, cx: &mut App) -> Self {
         log::info!("🔧 Initializing ConversationPanel (new)");
         let focus_handle = cx.focus_handle();
@@ -140,20 +145,46 @@ impl ConversationPanel {
 
     /// Load historical messages for a session
     pub fn load_history_for_session(entity: &Entity<Self>, session_id: String, cx: &mut App) {
-        let weak_entity = entity.downgrade();
+        Self::load_history_for_session_with_retry(entity.clone(), session_id, 20, cx);
+    }
 
-        // Get MessageService
+    fn load_history_for_session_with_retry(
+        entity: Entity<Self>,
+        session_id: String,
+        remaining_attempts: usize,
+        cx: &mut App,
+    ) {
         let message_service = match AppState::global(cx).message_service() {
             Some(service) => service.clone(),
             None => {
-                log::error!("MessageService not initialized, cannot load history");
+                if remaining_attempts == 0 {
+                    log::error!("MessageService not initialized, cannot load history");
+                    return;
+                }
+
+                let weak_entity = entity.downgrade();
+                cx.spawn(async move |cx| {
+                    Timer::after(Duration::from_millis(500)).await;
+                    let _ = cx.update(|cx| {
+                        if let Some(entity) = weak_entity.upgrade() {
+                            Self::load_history_for_session_with_retry(
+                                entity,
+                                session_id,
+                                remaining_attempts - 1,
+                                cx,
+                            );
+                        }
+                    });
+                })
+                .detach();
                 return;
             }
         };
 
+        let weak_entity = entity.downgrade();
+
         log::info!("Loading history for session: {}", session_id);
 
-        // Spawn background task to load history
         cx.spawn(async move |cx| {
             match message_service.load_history(&session_id).await {
                 Ok(messages) => {
@@ -167,7 +198,6 @@ impl ConversationPanel {
                     let _ = cx.update(|cx| {
                         if let Some(entity) = weak.upgrade() {
                             entity.update(cx, |this, cx| {
-                                // Process each historical message
                                 for (index, persisted_msg) in messages.into_iter().enumerate() {
                                     log::debug!(
                                         "Loading historical message {}: timestamp={}",
@@ -182,7 +212,6 @@ impl ConversationPanel {
                                     );
                                 }
 
-                                // Update next_index to continue after historical messages
                                 this.next_index = this.rendered_items.len();
 
                                 log::info!(
@@ -192,12 +221,9 @@ impl ConversationPanel {
                                     this.next_index
                                 );
 
-                                // Add DiffSummary if there are any tool calls with diffs
                                 this.add_diff_summary_if_needed(cx);
-
-                                // Scroll to bottom after loading history
                                 this.scroll_handle.scroll_to_bottom();
-                                cx.notify(); // Trigger re-render
+                                cx.notify();
                             });
                         } else {
                             log::warn!("Entity dropped while loading history");

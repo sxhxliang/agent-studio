@@ -223,7 +223,12 @@ pub fn init(cx: &mut App) {
 
         let view = cx.new(|cx| {
             let (title, description, closable, zoomable, story, on_active, paddings) =
-                create_panel_view(&story_state.story_klass, window, cx);
+                create_panel_view(
+                    &story_state.story_klass,
+                    story_state.session_id.clone(),
+                    window,
+                    cx,
+                );
 
             let mut container = DockPanelContainer::new(cx)
                 .story(story, story_state.story_klass)
@@ -253,6 +258,7 @@ pub fn init(cx: &mut App) {
 
 fn create_panel_view(
     story_klass: &SharedString,
+    session_id: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) -> (
@@ -281,7 +287,19 @@ fn create_panel_view(
     match story_klass.to_string().as_str() {
         "TaskPanel" => story!(TaskPanel),
         "CodeEditorPanel" => story!(CodeEditorPanel),
-        "ConversationPanel" => story!(ConversationPanel),
+        "ConversationPanel" => (
+            ConversationPanel::title(),
+            ConversationPanel::description(),
+            ConversationPanel::closable(),
+            ConversationPanel::zoomable(),
+            match session_id {
+                Some(session_id) => ConversationPanel::view_for_session(session_id, window, cx),
+                None => ConversationPanel::view(window, cx),
+            }
+            .into(),
+            ConversationPanel::on_active_any,
+            ConversationPanel::paddings(),
+        ),
         "SessionManagerPanel" => story!(SessionManagerPanel),
         "WelcomePanel" => story!(WelcomePanel),
         "SettingsPanel" => story!(SettingsPanel),
