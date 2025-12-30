@@ -14,10 +14,62 @@ use agent_client_protocol::{
     ContentBlock, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdateFields,
     ToolKind,
 };
+use similar::{ChangeTag, TextDiff};
 
 use super::helpers::extract_xml_content;
 use super::types::{ResourceInfo, ToolCallStatusExt, ToolKindExt, get_file_icon};
 use crate::{ShowToolCallDetail, UserMessageData};
+
+// ============================================================================
+// Diff Statistics
+// ============================================================================
+
+/// Diff statistics
+#[derive(Debug, Clone, Default)]
+struct DiffStats {
+    additions: usize,
+    deletions: usize,
+}
+
+/// Calculate diff statistics from old and new text
+fn calculate_diff_stats(old_text: &str, new_text: &str) -> DiffStats {
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut additions = 0;
+    let mut deletions = 0;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Insert => additions += 1,
+            ChangeTag::Delete => deletions += 1,
+            ChangeTag::Equal => {}
+        }
+    }
+
+    DiffStats {
+        additions,
+        deletions,
+    }
+}
+
+/// Extract diff statistics from tool call content
+fn extract_diff_stats_from_tool_call(tool_call: &ToolCall) -> Option<DiffStats> {
+    // Find the first Diff content in the tool call
+    for content in &tool_call.content {
+        if let ToolCallContent::Diff(diff) = content {
+            return Some(match &diff.old_text {
+                Some(old_text) => calculate_diff_stats(old_text, &diff.new_text),
+                None => {
+                    // New file - all lines are additions
+                    DiffStats {
+                        additions: diff.new_text.lines().count(),
+                        deletions: 0,
+                    }
+                }
+            });
+        }
+    }
+    None
+}
 
 // ============================================================================
 // Stateful Resource Item
@@ -134,6 +186,94 @@ impl Render for ResourceItemState {
 }
 
 // ============================================================================
+// Stateful Agent Thought Item
+// ============================================================================
+
+pub struct AgentThoughtItemState {
+    text: String,
+    open: bool,
+}
+
+impl AgentThoughtItemState {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            open: false,
+        }
+    }
+
+    /// Append more text to the thought (for streaming updates)
+    pub fn append_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
+        self.text.push_str(&text.into());
+        cx.notify();
+    }
+}
+
+impl Render for AgentThoughtItemState {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_content = !self.text.is_empty();
+
+        div().pl_6().child(
+            Collapsible::new()
+                .open(self.open)
+                .w_full()
+                .gap_2()
+                .child(
+                    div()
+                        .p_3()
+                        .rounded_lg()
+                        .bg(cx.theme().muted.opacity(0.3))
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    Icon::new(IconName::Bot)
+                                        .size(px(14.))
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("Thinking..."),
+                                )
+                                .when(has_content, |this| {
+                                    this.child(
+                                        Button::new("agent-thought-toggle")
+                                            .icon(if self.open {
+                                                IconName::ChevronUp
+                                            } else {
+                                                IconName::ChevronDown
+                                            })
+                                            .ghost()
+                                            .xsmall()
+                                            .on_click(cx.listener(|this, _ev, _window, cx| {
+                                                this.open = !this.open;
+                                                cx.notify();
+                                            })),
+                                    )
+                                }),
+                        ),
+                )
+                .when(has_content, |this| {
+                    this.content(
+                        div()
+                            .mt_2()
+                            .p_3()
+                            .pl_6()
+                            .text_sm()
+                            .italic()
+                            .text_color(cx.theme().foreground.opacity(0.8))
+                            .child(self.text.clone()),
+                    )
+                }),
+        )
+    }
+}
+
+// ============================================================================
 // Stateful Tool Call Item
 // ============================================================================
 
@@ -235,6 +375,9 @@ impl Render for ToolCallItemState {
         let kind_icon = self.tool_call.kind.icon();
         let status_icon = self.tool_call.status.icon();
 
+        // Extract diff stats if this is a diff tool call
+        let diff_stats = extract_diff_stats_from_tool_call(&self.tool_call);
+
         Collapsible::new()
             .open(open)
             .w_full()
@@ -258,6 +401,30 @@ impl Render for ToolCallItemState {
                             .text_color(cx.theme().foreground)
                             .child(title),
                     )
+                    // Show diff stats if available
+                    .when_some(diff_stats, |this, stats| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    // Additions
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::MEDIUM)
+                                        .text_color(cx.theme().green)
+                                        .child(format!("+{}", stats.additions))
+                                )
+                                .child(
+                                    // Deletions
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::MEDIUM)
+                                        .text_color(cx.theme().red)
+                                        .child(format!("-{}", stats.deletions))
+                                )
+                        )
+                    })
                     .child(
                         Icon::new(status_icon)
                             .size(px(14.))

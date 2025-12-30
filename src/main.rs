@@ -1,12 +1,14 @@
 use agentx::Assets;
-use agentx::{AgentManager, Config, PermissionStore, Settings, workspace::open_new};
+use agentx::{AgentManager, Config, PermissionStore, workspace::open_new};
 use anyhow::Context as _;
 use gpui::Application;
 use std::sync::Arc;
 
 fn main() {
+    // Parse config path from command line arguments
+    let config_path = parse_config_path();
+
     let app = Application::new().with_assets(Assets);
-    let settings = Settings::parse().expect("Failed to parse settings");
     app.run(move |cx| {
         agentx::init(cx);
 
@@ -14,18 +16,13 @@ fn main() {
         let session_bus = agentx::AppState::global(cx).session_bus.clone();
         let permission_bus = agentx::AppState::global(cx).permission_bus.clone();
 
-        open_new(cx, |_, _, _| {
-            // Load settings and config
-        })
-        .detach();
-
         cx.spawn(async move |cx| {
-            let config: Config = match std::fs::read_to_string(&settings.config_path)
-                .with_context(|| format!("failed to read {}", settings.config_path.display()))
+            let config: Config = match std::fs::read_to_string(&config_path)
+                .with_context(|| format!("failed to read {}", config_path.display()))
             {
-                Ok(raw) => match serde_json::from_str(&raw).with_context(|| {
-                    format!("invalid config at {}", settings.config_path.display())
-                }) {
+                Ok(raw) => match serde_json::from_str(&raw)
+                    .with_context(|| format!("invalid config at {}", config_path.display()))
+                {
                     Ok(config) => config,
                     Err(e) => {
                         eprintln!("Failed to parse config: {}", e);
@@ -38,7 +35,7 @@ fn main() {
                 }
             };
 
-            println!("Config loaded from {}", settings.config_path.display());
+            println!("Config loaded from {}", config_path.display());
 
             // Initialize agent manager
             let permission_store = Arc::new(PermissionStore::default());
@@ -65,8 +62,7 @@ fn main() {
                     // Store in global AppState
                     let init_result = cx.update(|cx| {
                         // Set config path first
-                        agentx::AppState::global_mut(cx)
-                            .set_config_path(settings.config_path.clone());
+                        agentx::AppState::global_mut(cx).set_config_path(config_path.clone());
                         // Then set agent manager with config
                         agentx::AppState::global_mut(cx).set_agent_manager(manager, config);
                         agentx::AppState::global_mut(cx).set_permission_store(permission_store);
@@ -78,6 +74,14 @@ fn main() {
                     // Initialize persistence subscription in async context
                     if let Ok(Some(message_service)) = init_result {
                         message_service.init_persistence();
+                        let _ = cx.update(|cx| {
+                            open_new(cx, |_, _, _| {
+                                // Load settings and config
+                            })
+                            .detach();
+                        });
+                    } else {
+                        eprintln!("MessageService not initialized, window will not open");
                     }
                 }
                 Err(e) => {
@@ -87,4 +91,20 @@ fn main() {
         })
         .detach();
     });
+}
+
+/// Parse config path from command line arguments
+fn parse_config_path() -> std::path::PathBuf {
+    let mut config_path = std::path::PathBuf::from("config.json");
+    let mut args = std::env::args().skip(1);
+
+    while let Some(flag) = args.next() {
+        if flag == "--config" {
+            if let Some(value) = args.next() {
+                config_path = std::path::PathBuf::from(value);
+            }
+        }
+    }
+
+    config_path
 }

@@ -10,8 +10,58 @@ use gpui_component::{
     collapsible::Collapsible,
     h_flex, v_flex,
 };
+use similar::{ChangeTag, TextDiff};
 
+use crate::components::StatusIndicator;
+use crate::core::services::SessionStatus;
 use crate::panels::conversation::types::{ToolCallStatusExt, ToolKindExt};
+
+/// Diff statistics
+#[derive(Debug, Clone, Default)]
+struct DiffStats {
+    additions: usize,
+    deletions: usize,
+}
+
+/// Calculate diff statistics from old and new text
+fn calculate_diff_stats(old_text: &str, new_text: &str) -> DiffStats {
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut additions = 0;
+    let mut deletions = 0;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Insert => additions += 1,
+            ChangeTag::Delete => deletions += 1,
+            ChangeTag::Equal => {}
+        }
+    }
+
+    DiffStats {
+        additions,
+        deletions,
+    }
+}
+
+/// Extract diff statistics from tool call content
+fn extract_diff_stats_from_tool_call(tool_call: &ToolCall) -> Option<DiffStats> {
+    // Find the first Diff content in the tool call
+    for content in &tool_call.content {
+        if let ToolCallContent::Diff(diff) = content {
+            return Some(match &diff.old_text {
+                Some(old_text) => calculate_diff_stats(old_text, &diff.new_text),
+                None => {
+                    // New file - all lines are additions
+                    DiffStats {
+                        additions: diff.new_text.lines().count(),
+                        deletions: 0,
+                    }
+                }
+            });
+        }
+    }
+    None
+}
 
 /// Helper to extract text from ToolCallContent
 fn extract_text_from_content(content: &ToolCallContent) -> Option<String> {
@@ -82,6 +132,17 @@ impl ToolCallItem {
     fn has_content(&self) -> bool {
         !self.tool_call.content.is_empty()
     }
+
+    /// Convert ToolCallStatus to SessionStatus for StatusIndicator
+    fn status_to_session_status(&self) -> SessionStatus {
+        match self.tool_call.status {
+            ToolCallStatus::Pending => SessionStatus::Pending,
+            ToolCallStatus::InProgress => SessionStatus::InProgress,
+            ToolCallStatus::Completed => SessionStatus::Completed,
+            ToolCallStatus::Failed => SessionStatus::Failed,
+            _ => SessionStatus::Idle,
+        }
+    }
 }
 
 impl Render for ToolCallItem {
@@ -97,6 +158,9 @@ impl Render for ToolCallItem {
         let open = self.open;
         let tool_call_id = self.tool_call.tool_call_id.clone();
 
+        // Extract diff stats if this is a diff tool call
+        let diff_stats = extract_diff_stats_from_tool_call(&self.tool_call);
+
         Collapsible::new()
             .open(open)
             .w_full()
@@ -104,18 +168,11 @@ impl Render for ToolCallItem {
             // Header - always visible
             .child(
                 h_flex()
-                    .items_center()
-                    .gap_3()
-                    .p_2()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().secondary)
+                    .items_start()
+                    .gap_2()
                     .child(
                         // Kind icon
-                        self.tool_call
-                            .kind
-                            .icon()
-                            .size(px(16.))
-                            .text_color(cx.theme().muted_foreground),
+                        StatusIndicator::new(self.status_to_session_status()).size(12.0),
                     )
                     .child(
                         // Title
@@ -125,6 +182,30 @@ impl Render for ToolCallItem {
                             .text_color(cx.theme().foreground)
                             .child(self.tool_call.title.clone()),
                     )
+                    // Show diff stats if available
+                    .when_some(diff_stats, |this, stats| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    // Additions
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::MEDIUM)
+                                        .text_color(cx.theme().green)
+                                        .child(format!("+{}", stats.additions)),
+                                )
+                                .child(
+                                    // Deletions
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(gpui::FontWeight::MEDIUM)
+                                        .text_color(cx.theme().red)
+                                        .child(format!("-{}", stats.deletions)),
+                                ),
+                        )
+                    })
                     .child(
                         // Status icon
                         self.tool_call

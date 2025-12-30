@@ -378,6 +378,7 @@ impl Render for DockWorkspace {
         div()
             .id("story-workspace")
             .on_action(cx.listener(Self::on_action_add_panel))
+            .on_action(cx.listener(Self::on_action_add_session_panel))
             .on_action(cx.listener(Self::on_action_toggle_panel_visible))
             .on_action(cx.listener(Self::on_action_toggle_dock_toggle_button))
             .on_action(cx.listener(Self::on_action_show_welcome_panel))

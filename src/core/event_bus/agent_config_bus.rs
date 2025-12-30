@@ -4,14 +4,16 @@
 //! It allows components to subscribe to configuration updates and react to changes
 //! such as agent additions, updates, removals, or full config reloads.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::core::config::AgentProcessConfig;
+use crate::core::config::{
+    AgentProcessConfig, CommandConfig, Config, McpServerConfig, ModelConfig,
+};
 
 /// Events published when agent configuration changes
 #[derive(Clone, Debug)]
 pub enum AgentConfigEvent {
+    // ========== Agent Events ==========
     /// A new agent was added
     AgentAdded {
         name: String,
@@ -24,10 +26,40 @@ pub enum AgentConfigEvent {
     },
     /// An agent was removed
     AgentRemoved { name: String },
-    /// The entire configuration was reloaded from file
-    AgentConfigReloaded {
-        servers: HashMap<String, AgentProcessConfig>,
+
+    // ========== Model Events ==========
+    /// A new model was added
+    ModelAdded { name: String, config: ModelConfig },
+    /// An existing model's configuration was updated
+    ModelUpdated { name: String, config: ModelConfig },
+    /// A model was removed
+    ModelRemoved { name: String },
+
+    // ========== MCP Server Events ==========
+    /// A new MCP server was added
+    McpServerAdded {
+        name: String,
+        config: McpServerConfig,
     },
+    /// An existing MCP server's configuration was updated
+    McpServerUpdated {
+        name: String,
+        config: McpServerConfig,
+    },
+    /// An MCP server was removed
+    McpServerRemoved { name: String },
+
+    // ========== Command Events ==========
+    /// A new command was added
+    CommandAdded { name: String, config: CommandConfig },
+    /// An existing command's configuration was updated
+    CommandUpdated { name: String, config: CommandConfig },
+    /// A command was removed
+    CommandRemoved { name: String },
+
+    // ========== Full Reload ==========
+    /// The entire configuration was reloaded from file
+    ConfigReloaded { config: Config },
 }
 
 /// Callback function type for agent config events

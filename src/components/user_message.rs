@@ -431,6 +431,9 @@ impl Render for UserMessageView {
                     .gap_3()
                     .pl_6()
                     .w_full()
+                    .bg(cx.theme().secondary)
+                    .border_1()
+                    .border_color(cx.theme().border)
                     .children(data.contents.into_iter().filter_map(|content| {
                         match &content {
                             ContentBlock::Text(text_content) => Some(

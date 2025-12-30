@@ -1,7 +1,7 @@
 use agent_client_protocol::ToolCall;
 use gpui::{prelude::FluentBuilder, *};
 use gpui_component::{
-    ActiveTheme, IconName, Sizable, WindowExt,
+    ActiveTheme, IconName, WindowExt,
     button::{Button, ButtonVariants},
     dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle},
     group_box::{GroupBox, GroupBoxVariants as _},
@@ -276,6 +276,32 @@ impl DockPanelContainer {
         view
     }
 
+    pub fn replace_with_conversation_session(
+        &mut self,
+        session_id: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = ConversationPanel::title();
+        let description = ConversationPanel::description();
+        let story = match session_id {
+            Some(session_id) => ConversationPanel::view_for_session(session_id, window, cx),
+            None => ConversationPanel::view(window, cx),
+        };
+        let story_klass = ConversationPanel::klass();
+
+        self.story = Some(story.into());
+        self.story_klass = Some(story_klass.into());
+        self.on_active = Some(ConversationPanel::on_active_any);
+        self.closable = ConversationPanel::closable();
+        self.zoomable = ConversationPanel::zoomable();
+        self.name = name.into();
+        self.description = description.into();
+        self.title_bg = ConversationPanel::title_bg();
+        self.paddings = ConversationPanel::paddings();
+        cx.notify();
+    }
+
     /// Create a WelcomePanel for a specific workspace
     /// This will display the workspace name when creating a new task
     pub fn panel_for_workspace(
@@ -361,12 +387,15 @@ impl DockPanelContainer {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DockPanelState {
     pub story_klass: SharedString,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 impl DockPanelState {
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::json!({
             "story_klass": self.story_klass,
+            "session_id": self.session_id,
         })
     }
 
@@ -465,10 +494,24 @@ impl Panel for DockPanelContainer {
         ])
     }
 
-    fn dump(&self, _cx: &App) -> PanelState {
+    fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
+        let session_id = self
+            .story_klass
+            .as_ref()
+            .filter(|klass| klass.as_ref() == "ConversationPanel")
+            .and_then(|_| {
+                self.story.as_ref().and_then(|story| {
+                    story
+                        .clone()
+                        .downcast::<ConversationPanel>()
+                        .ok()
+                        .and_then(|entity| entity.read(cx).session_id())
+                })
+            });
         let story_state = DockPanelState {
             story_klass: self.story_klass.clone().unwrap(),
+            session_id,
         };
         state.info = PanelInfo::panel(story_state.to_value());
         state

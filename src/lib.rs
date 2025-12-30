@@ -4,6 +4,7 @@ mod components;
 mod core;
 mod i18n;
 mod panels;
+mod reqwest_client;
 mod schemas;
 mod utils;
 pub mod workspace;
@@ -23,7 +24,7 @@ pub use panels::{
 // Re-export from core module
 pub use core::{
     agent::{AgentHandle, AgentManager, PermissionStore},
-    config::{AgentProcessConfig, Config, Settings},
+    config::{AgentProcessConfig, Config},
     event_bus::{
         PermissionBusContainer, PermissionRequestEvent, SessionUpdateBusContainer,
         SessionUpdateEvent,
@@ -55,8 +56,9 @@ pub use title_bar::AppTitleBar;
 // Export components
 pub use components::{
     AgentMessage, AgentMessageData, AgentMessageMeta, AgentMessageView, AgentTodoList,
-    AgentTodoListView, ChatInputBox, PermissionRequest, PermissionRequestView, PlanMeta,
-    ToolCallItem, ToolCallItemView, UserMessage, UserMessageData, UserMessageView,
+    AgentTodoListView, ChatInputBox, DiffSummary, DiffSummaryData, FileChangeStats,
+    PermissionRequest, PermissionRequestView, PlanMeta, StatusIndicator, ToolCallItem,
+    ToolCallItemView, UserMessage, UserMessageData, UserMessageView,
 };
 
 // Re-export ACP types for convenience
@@ -221,7 +223,12 @@ pub fn init(cx: &mut App) {
 
         let view = cx.new(|cx| {
             let (title, description, closable, zoomable, story, on_active, paddings) =
-                create_panel_view(&story_state.story_klass, window, cx);
+                create_panel_view(
+                    &story_state.story_klass,
+                    story_state.session_id.clone(),
+                    window,
+                    cx,
+                );
 
             let mut container = DockPanelContainer::new(cx)
                 .story(story, story_state.story_klass)
@@ -251,6 +258,7 @@ pub fn init(cx: &mut App) {
 
 fn create_panel_view(
     story_klass: &SharedString,
+    session_id: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) -> (
@@ -279,7 +287,19 @@ fn create_panel_view(
     match story_klass.to_string().as_str() {
         "TaskPanel" => story!(TaskPanel),
         "CodeEditorPanel" => story!(CodeEditorPanel),
-        "ConversationPanel" => story!(ConversationPanel),
+        "ConversationPanel" => (
+            ConversationPanel::title(),
+            ConversationPanel::description(),
+            ConversationPanel::closable(),
+            ConversationPanel::zoomable(),
+            match session_id {
+                Some(session_id) => ConversationPanel::view_for_session(session_id, window, cx),
+                None => ConversationPanel::view(window, cx),
+            }
+            .into(),
+            ConversationPanel::on_active_any,
+            ConversationPanel::paddings(),
+        ),
         "SessionManagerPanel" => story!(SessionManagerPanel),
         "WelcomePanel" => story!(WelcomePanel),
         "SettingsPanel" => story!(SettingsPanel),

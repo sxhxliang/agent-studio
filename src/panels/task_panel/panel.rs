@@ -6,27 +6,23 @@
 //! - Tree view (by workspace) and timeline view (by date)
 
 use gpui::{
-    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
+    App, AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, InteractiveElementExt, Selectable, Sizable, StyledExt,
-    button::{Button, ButtonGroup, ButtonVariants},
-    h_flex,
-    input::{Input, InputState},
-    menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
-    scroll::ScrollableElement as _,
-    v_flex,
+    ActiveTheme, Icon, IconName, Selectable, Sizable, StyledExt, button::{Button, ButtonGroup, ButtonVariants}, dock::DockPlacement, h_flex, input::{Input, InputState}, menu::{ContextMenuExt, DropdownMenu, PopupMenuItem}, scroll::ScrollableElement as _, v_flex
 };
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use crate::core::services::WorkspaceService;
 use crate::core::{event_bus::WorkspaceUpdateEvent, services::SessionStatus};
 use crate::panels::dock_panel::DockPanel;
 use crate::schemas::workspace_schema::WorkspaceTask;
-use crate::{AppState, ShowConversationPanel, ShowWelcomePanel, utils};
+use crate::{
+    AddPanel, AddSessionPanel, AppState, ShowConversationPanel, ShowWelcomePanel, StatusIndicator,
+    utils,
+};
 
 // ============================================================================
 // Constants - Layout spacing
@@ -66,6 +62,8 @@ pub struct TaskPanel {
     /// Search input state
     search_input: Entity<InputState>,
     load_generation: u64,
+    pending_click_generation: u64,
+    last_click_task_id: Option<String>,
 }
 
 impl DockPanel for TaskPanel {
@@ -119,6 +117,8 @@ impl TaskPanel {
             _subscriptions: vec![search_subscription],
             search_input,
             load_generation: 0,
+            pending_click_generation: 0,
+            last_click_task_id: None,
         }
     }
 
@@ -491,27 +491,110 @@ impl TaskPanel {
         .detach();
     }
 
-    fn select_task(&mut self, task_id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_task_id = Some(task_id.clone());
-
-        let session_id = self
-            .workspaces
-            .iter()
-            .flat_map(|w| &w.tasks)
-            .find(|t| t.id == task_id)
-            .and_then(|t| t.session_id.clone());
-
-        let action = match session_id {
-            Some(id) => ShowConversationPanel::with_session(id),
-            None => ShowConversationPanel::new(),
-        };
-        window.dispatch_action(Box::new(action), cx);
+    fn select_task(&mut self, task_id: String, cx: &mut Context<Self>) {
+        self.selected_task_id = Some(task_id);
         cx.notify();
     }
 
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
         self.view_mode = mode;
         cx.notify();
+    }
+
+    fn session_id_for_task(&self, task_id: &str) -> Option<String> {
+        self.workspaces
+            .iter()
+            .flat_map(|w| &w.tasks)
+            .find(|t| t.id == task_id)
+            .and_then(|t| t.session_id.clone())
+    }
+
+    fn open_task_in_current_panel(
+        &self,
+        task_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let action = match self.session_id_for_task(task_id) {
+            Some(id) => ShowConversationPanel::with_session(id),
+            None => ShowConversationPanel::new(),
+        };
+        window.dispatch_action(Box::new(action), cx);
+    }
+
+    fn open_task_in_new_panel(
+        &self,
+        task_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.session_id_for_task(task_id) {
+            Some(session_id) => {
+                window.dispatch_action(
+                    Box::new(AddSessionPanel {
+                        session_id,
+                        placement: DockPlacement::Center,
+                    }),
+                    cx,
+                );
+            }
+            None => {
+                window.dispatch_action(Box::new(AddPanel(DockPlacement::Center)), cx);
+            }
+        }
+    }
+
+    fn schedule_single_click(
+        &mut self,
+        task_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_click_generation = self.pending_click_generation.wrapping_add(1);
+        let generation = self.pending_click_generation;
+        let task_id = task_id.clone();
+        let entity = cx.weak_entity();
+
+        cx.spawn_in(window, async move |entity, cx| {
+            // Delay single-click handling to allow double-click to preempt it.
+            gpui::Timer::after(Duration::from_millis(250)).await;
+            let _ = cx.update(|window, cx| {
+                let Some(entity) = entity.upgrade() else {
+                    return;
+                };
+                entity.update(cx, |this, cx| {
+                    if this.pending_click_generation != generation {
+                        return;
+                    }
+                    this.open_task_in_current_panel(&task_id, window, cx);
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn handle_task_click(
+        &mut self,
+        task_id: String,
+        click_count: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let is_same_task = self
+            .last_click_task_id
+            .as_deref()
+            .is_some_and(|id| id == task_id.as_str());
+        self.last_click_task_id = Some(task_id.clone());
+
+        self.select_task(task_id.clone(), cx);
+
+        if click_count >= 2 && is_same_task {
+            self.pending_click_generation = self.pending_click_generation.wrapping_add(1);
+            self.open_task_in_new_panel(&task_id, window, cx);
+            return;
+        }
+
+        self.schedule_single_click(task_id, window, cx);
     }
 
     // ========================================================================
@@ -698,6 +781,10 @@ impl TaskPanel {
         let workspace_name = workspace.name.clone();
         let task_count = workspace.tasks.len();
 
+        // Sort tasks by created_at descending (newest first)
+        let mut sorted_tasks = workspace.tasks.clone();
+        sorted_tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
         v_flex()
             .w_full()
             // Workspace header row
@@ -786,8 +873,7 @@ impl TaskPanel {
             .when(is_expanded, |this| {
                 this.child(self.render_new_task_button(&workspace.id, cx))
                     .children(
-                        workspace
-                            .tasks
+                        sorted_tasks
                             .iter()
                             .map(|task| self.render_task_item(task, entity.clone(), cx)),
                     )
@@ -856,47 +942,19 @@ impl TaskPanel {
             })
             .on_click(cx.listener({
                 let task_id = task_id.clone();
-                move |this, _, window, cx| {
-                    this.select_task(task_id.clone(), window, cx);
+                move |this, event: &ClickEvent, window, cx| {
+                    if event.is_keyboard() {
+                        this.select_task(task_id.clone(), cx);
+                        this.open_task_in_current_panel(&task_id, window, cx);
+                        return;
+                    }
+                    if !event.standard_click() {
+                        return;
+                    }
+                    this.handle_task_click(task_id.clone(), event.click_count(), window, cx);
                 }
             }))
-            .on_double_click(cx.listener({
-                let task_id = task_id.clone();
-                move |this, _, window, cx| {
-                    log::debug!("====== >>> Double click on task");
-                    this.select_task(task_id.clone(), window, cx);
-                }
-            }))
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener({
-                    // let session_id = session_id.clone();
-                    move |_this, event: &MouseDownEvent, window, cx| {
-                        if event.click_count == 2 {
-                            // 双击：打开新的会话面板
-                            // let action = match session_id.as_ref() {
-                            //     Some(id) => ShowConversationPanel::with_session(id.clone()),
-                            //     None => ShowConversationPanel::new(),
-                            // };
-                            // window.dispatch_action(Box::new(action), cx);
-                        }
-                    }
-                }),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener({
-                    let task_id = task_id.clone();
-                    move |this, event: &gpui::MouseUpEvent, window, cx| {
-                        if event.click_count == 1 {
-                            log::debug!("====== >>> 单击  click on task");
-                        } else if event.click_count == 2 {
-                            log::debug!("====== >>> 双击  click on task");
-                        }
-                    }
-                }),
-            )
-            // First row: status icon + task name + mode
+            // First row: status icon + task name + relative time
             .child(
                 h_flex()
                     .w_full()
@@ -908,11 +966,7 @@ impl TaskPanel {
                             .items_center()
                             .min_w_0()
                             .flex_1()
-                            .child(
-                                Icon::new(self.status_icon(&task.status))
-                                    .size_4()
-                                    .text_color(self.status_color(&task.status)),
-                            )
+                            .child(StatusIndicator::new(task.status.clone()).size(8.0))
                             .child(
                                 div()
                                     .text_sm()
@@ -926,7 +980,7 @@ impl TaskPanel {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(task.mode.clone()),
+                            .child(self.format_relative_time(&task.created_at)),
                     ),
             )
             // Second row: agent name + last message + status badge (aligned with task name)
@@ -1086,8 +1140,16 @@ impl TaskPanel {
             })
             .on_click(cx.listener({
                 let task_id = task_id.clone();
-                move |this, _, window, cx| {
-                    this.select_task(task_id.clone(), window, cx);
+                move |this, event: &ClickEvent, window, cx| {
+                    if event.is_keyboard() {
+                        this.select_task(task_id.clone(), cx);
+                        this.open_task_in_current_panel(&task_id, window, cx);
+                        return;
+                    }
+                    if !event.standard_click() {
+                        return;
+                    }
+                    this.handle_task_click(task_id.clone(), event.click_count(), window, cx);
                 }
             }))
             .child(
@@ -1108,32 +1170,36 @@ impl TaskPanel {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(task.mode.clone()),
+                            .child(self.format_relative_time(&task.created_at)),
                     ),
             )
             .child(
                 h_flex()
+                    .w_full()
+                    .justify_between()
                     .gap_2()
-                    .items_center()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
                     .child(
-                        Icon::new(self.status_icon(&task.status))
-                            .size_3()
-                            .text_color(self.status_color(&task.status)),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .min_w_0()
+                            .flex_1()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(StatusIndicator::new(task.status.clone()).size(6.0))
+                            .child(
+                                div()
+                                    .overflow_x_hidden()
+                                    .text_ellipsis()
+                                    .child(task.agent_name.clone()),
+                            )
+                            .when_some(task.last_message.clone(), |this, msg| {
+                                this.child("·")
+                                    .child(div().overflow_x_hidden().text_ellipsis().child(msg))
+                            }),
                     )
-                    .child(
-                        div()
-                            .overflow_x_hidden()
-                            .text_ellipsis()
-                            .child(task.agent_name.clone()),
-                    )
-                    .when_some(task.last_message.clone(), |this, msg| {
-                        this.child("·")
-                            .child(div().overflow_x_hidden().text_ellipsis().child(msg))
-                    }),
+                    .child(self.render_status_badge(&task.status, cx)),
             )
-            .child(self.render_status_badge(&task.status, cx))
             // Right-click context menu
             .context_menu(move |menu, _, _| {
                 let task_id = task_id.clone();
@@ -1148,6 +1214,49 @@ impl TaskPanel {
                         }),
                 )
             })
+    }
+
+    // ========================================================================
+    // Time formatting helpers
+    // ========================================================================
+
+    fn format_relative_time(&self, created_at: &chrono::DateTime<chrono::Utc>) -> String {
+        use chrono::Local;
+
+        let now = Local::now();
+        let created_local = created_at.with_timezone(&Local);
+        let duration = now.signed_duration_since(created_local);
+
+        let minutes = duration.num_minutes();
+        let hours = duration.num_hours();
+        let days = duration.num_days();
+
+        if minutes < 1 {
+            "刚刚".to_string()
+        } else if minutes < 60 {
+            format!("{}分钟前", minutes)
+        } else if hours < 24 {
+            format!("{}小时前", hours)
+        } else if days == 1 {
+            "昨天".to_string()
+        } else if days == 2 {
+            "前天".to_string()
+        } else if days < 7 {
+            format!("{}天前", days)
+        } else if days < 30 {
+            let weeks = days / 7;
+            if weeks == 1 {
+                "一周前".to_string()
+            } else {
+                format!("{}周前", weeks)
+            }
+        } else if days < 365 {
+            let months = days / 30;
+            format!("{}个月前", months)
+        } else {
+            let years = days / 365;
+            format!("{}年前", years)
+        }
     }
 
     // ========================================================================

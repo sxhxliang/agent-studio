@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::assets::get_agent_icon;
 
-/// Extended metadata for agent messages (stored in ContentChunk's meta field)
+/// Extended metadata for agent messages.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessageMeta {
@@ -69,15 +69,25 @@ impl AgentMessageData {
 
     /// Get combined text from all text chunks
     pub fn full_text(&self) -> SharedString {
-        self.chunks
-            .iter()
-            .filter_map(|chunk| match &chunk.content {
-                ContentBlock::Text(text_content) => Some(text_content.text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .into()
+        let mut total_len = 0usize;
+        for chunk in &self.chunks {
+            if let ContentBlock::Text(text_content) = &chunk.content {
+                total_len = total_len.saturating_add(text_content.text.len());
+            }
+        }
+
+        if total_len == 0 {
+            return "".into();
+        }
+
+        let mut text = String::with_capacity(total_len);
+        for chunk in &self.chunks {
+            if let ContentBlock::Text(text_content) = &chunk.content {
+                text.push_str(&text_content.text);
+            }
+        }
+
+        text.into()
     }
 
     /// Check if the message is complete
@@ -108,55 +118,45 @@ impl AgentMessage {
 }
 
 impl RenderOnce for AgentMessage {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let agent_name: SharedString = self
-            .data
-            .meta
-            .agent_name
-            .clone()
-            .map(|s| s.into())
-            .unwrap_or_else(|| "Agent".into());
-        let is_complete = self.data.is_complete();
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let agent_name = self.data.agent_name().unwrap_or("Agent");
+        let show_thinking = !self.data.is_complete();
         let full_text = self.data.full_text();
         let markdown_id = SharedString::from(format!("{}-markdown", self.id));
 
         // Get icon based on agent name
-        let icon = Icon::new(get_agent_icon(&agent_name));
+        let icon = Icon::new(get_agent_icon(agent_name));
 
         v_flex()
             .gap_3()
             .w_full()
-            // Agent icon and label
+            // Agent icon and message content
             .child(
                 h_flex()
-                    .items_center()
+                    .items_start()
                     .gap_2()
-                    .child(icon.size(px(16.)).text_color(cx.theme().foreground))
+                    .child(icon.size(px(16.)).mt_1().text_color(cx.theme().foreground))
+                    // Message content with markdown rendering
                     .child(
                         div()
-                            .text_size(px(13.))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().foreground)
-                            .child(agent_name),
+                            .w_full()
+                            .child(
+                                TextView::markdown(markdown_id, full_text)
+                                    // .text_xs()
+                                    .text_sm()
+                                    .text_color(cx.theme().foreground)
+                                    .selectable(true)
+                                    .pr_3(),
+                            )
+                            .pr_3(),
                     )
-                    .when(!is_complete, |this| {
-                        // Show thinking indicator when message is not complete
+                    .when(show_thinking, |this| {
                         this.child(
                             Icon::new(IconName::LoaderCircle)
                                 .size(px(12.))
                                 .text_color(cx.theme().muted_foreground),
                         )
                     }),
-            )
-            // Message content with markdown rendering
-            .child(
-                div().pl_6().w_full().child(
-                    TextView::markdown(markdown_id, full_text, window, cx)
-                        .text_size(px(14.))
-                        .text_color(cx.theme().foreground)
-                        .line_height(px(22.))
-                        .selectable(true),
-                ),
             )
     }
 }
@@ -174,76 +174,52 @@ impl AgentMessageView {
         })
     }
 
-    /// Update the message data completely
-    pub fn update_data(&mut self, data: AgentMessageData, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
-            *d = data;
+    fn update_message(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut AgentMessageData)) {
+        self.data.update(cx, move |data, cx| {
+            f(data);
             cx.notify();
         });
         cx.notify();
+    }
+
+    /// Update the message data completely
+    pub fn update_data(&mut self, data: AgentMessageData, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| *d = data);
     }
 
     /// Add a content chunk (for streaming)
     pub fn add_chunk(&mut self, chunk: ContentChunk, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
-            d.chunks.push(chunk);
-            cx.notify();
-        });
-        cx.notify();
+        self.update_message(cx, |d| d.chunks.push(chunk));
     }
 
     /// Append text to the last chunk or create a new one
     pub fn append_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
-            let text_str = text.into();
+        self.update_message(cx, |d| {
+            let text = text.into();
 
-            // Try to append to the last chunk if it's a text chunk
-            if let Some(last_chunk) = d.chunks.last_mut() {
-                if let ContentBlock::Text(ref mut text_content) = last_chunk.content {
-                    // Append to existing text
-                    text_content.text.push_str(&text_str);
-                } else {
-                    // Create new chunk
-                    d.chunks
-                        .push(ContentChunk::new(ContentBlock::from(text_str)));
-                }
-            } else {
-                // Create first chunk
-                d.chunks
-                    .push(ContentChunk::new(ContentBlock::from(text_str)));
+            match d.chunks.last_mut().map(|chunk| &mut chunk.content) {
+                Some(ContentBlock::Text(text_content)) => text_content.text.push_str(&text),
+                _ => d.chunks.push(ContentChunk::new(ContentBlock::from(text))),
             }
-
-            cx.notify();
         });
-        cx.notify();
     }
 
     /// Mark the message as complete
     pub fn mark_complete(&mut self, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
-            d.meta.is_complete = true;
-            cx.notify();
-        });
-        cx.notify();
+        self.update_message(cx, |d| d.meta.is_complete = true);
     }
 
     /// Set agent name
     pub fn set_agent_name(&mut self, name: impl Into<String>, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
-            d.meta.agent_name = Some(name.into());
-            cx.notify();
-        });
-        cx.notify();
+        self.update_message(cx, |d| d.meta.agent_name = Some(name.into()));
     }
 
     /// Clear all chunks
     pub fn clear(&mut self, cx: &mut Context<Self>) {
-        self.data.update(cx, |d, cx| {
+        self.update_message(cx, |d| {
             d.chunks.clear();
             d.meta.is_complete = false;
-            cx.notify();
         });
-        cx.notify();
     }
 
     /// Get the full text content

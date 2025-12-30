@@ -1,9 +1,9 @@
 use agent_client_protocol::{ContentChunk, Plan};
 /// RenderedItem enum and message handling logic
-use gpui::Entity;
+use gpui::{App, Entity};
 
-use super::components::{ToolCallItemState, UserMessageView};
-use crate::{AgentMessageData, PermissionRequestView};
+use super::components::{AgentThoughtItemState, ToolCallItemState, UserMessageView};
+use crate::{AgentMessageData, DiffSummary, PermissionRequestView};
 
 // ============================================================================
 // Rendered Item
@@ -13,14 +13,16 @@ pub enum RenderedItem {
     UserMessage(Entity<UserMessageView>),
     /// Agent message with unique ID and mutable data (supports chunk merging)
     AgentMessage(String, AgentMessageData),
-    /// Agent thought with mutable text (supports chunk merging)
-    AgentThought(String),
+    /// Agent thought with unique ID and entity (supports chunk merging and expand/collapse)
+    AgentThought(Entity<AgentThoughtItemState>),
     Plan(Plan),
     ToolCall(Entity<ToolCallItemState>),
     // Simple text updates for commands and mode changes
     InfoUpdate(String),
     // Permission request
     PermissionRequest(Entity<PermissionRequestView>),
+    // Diff summary for file changes
+    DiffSummary(Entity<DiffSummary>),
 }
 
 impl RenderedItem {
@@ -35,9 +37,11 @@ impl RenderedItem {
     }
 
     /// Try to append an AgentThoughtChunk to this item (returns true if successful)
-    pub fn try_append_agent_thought_chunk(&mut self, text: String) -> bool {
-        if let RenderedItem::AgentThought(existing_text) = self {
-            existing_text.push_str(&text);
+    pub fn try_append_agent_thought_chunk(&mut self, text: String, cx: &mut App) -> bool {
+        if let RenderedItem::AgentThought(entity) = self {
+            entity.update(cx, |state, cx| {
+                state.append_text(text, cx);
+            });
             true
         } else {
             false

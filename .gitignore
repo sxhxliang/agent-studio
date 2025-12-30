@@ -1,2 +1,27 @@
+# Build artifacts
 /target
+*.pdb
+
+# Session data
 /sessions
+
+# Application state
+/docks-agentx.json
+/state.json
+/workspace-config.json
+config.json.backup
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug logs
+debug.log
+*.log

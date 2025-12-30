@@ -1,0 +1,74 @@
+{
+  "agent_servers": {
+    "Claude Code": {
+      "command": "claude-code-acp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "upload_dir": ".",
+  "models": {
+    "GPT-4": {
+      "enabled": true,
+      "provider": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "your-api-key-here",
+      "model_name": "gpt-4"
+    }
+  },
+  "_comment_mcp_format": "You can use either 'mcp_servers' or 'mcpServers' as the key name",
+  "mcpServers": {
+    "_comment_simplified": "Simplified format - most common use case",
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop",
+        "/Users/username/Downloads"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "your-github-token"
+      }
+    },
+    "_comment_full": "Full format - for advanced configuration",
+    "example-http-server": {
+      "enabled": true,
+      "description": "Example MCP server using HTTP transport",
+      "config": {
+        "type": "http",
+        "name": "example-http-server",
+        "url": "https://example.com/mcp",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer your-token-here"
+          }
+        ]
+      }
+    },
+    "example-sse-server": {
+      "enabled": false,
+      "description": "Example MCP server using SSE transport (disabled)",
+      "config": {
+        "type": "sse",
+        "name": "example-sse-server",
+        "url": "https://example.com/mcp/sse",
+        "headers": []
+      }
+    }
+  },
+  "commands": {
+    "summarize": {
+      "description": "Summarize the current conversation",
+      "template": "Please provide a concise summary of our conversation so far."
+    }
+  }
+}

@@ -7,9 +7,42 @@
     },
     "Iflow": {
       "command": "iflow",
-      "args": ["--experimental-acp"],
+      "args": [
+        "--experimental-acp"
+      ],
       "env": {}
     }
   },
-  "upload_dir": "."
+  "upload_dir": ".",
+  "models": {
+    "GPT-4": {
+      "enabled": true,
+      "provider": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "121212",
+      "model_name": "gpt-4"
+    },
+    "Claude": {
+      "enabled": true,
+      "provider": "Anthropic",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "sss12332",
+      "model_name": "claude-3-opus-20240229"
+    }
+  },
+  "mcp_servers": {},
+  "commands": {
+    "summarize": {
+      "description": "Summarize the current conversation",
+      "template": "Please provide a concise summary of our conversation so far."
+    },
+    "explain": {
+      "description": "Explain code in detail",
+      "template": "Please explain the following code in detail, including its purpose, how it works, and any important concepts."
+    },
+    "review": {
+      "description": "Review code for best practices",
+      "template": "Please review the following code and provide feedback on:\\n- Code quality\\n- Best practices\\n- Potential bugs\\n- Performance improvements\\n- Security concerns"
+    }
+  }
 }

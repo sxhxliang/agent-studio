@@ -85,6 +85,25 @@ impl AgentManager {
         list
     }
 
+    /// Get the initialize response for a specific agent
+    pub async fn get_agent_init_response(&self, name: &str) -> Option<acp::InitializeResponse> {
+        let agents = self.agents.read().await;
+        agents
+            .get(name)
+            .and_then(|handle| handle.get_init_response())
+    }
+
+    /// Get all agents with their initialize responses
+    pub async fn list_agents_with_info(&self) -> Vec<(String, Option<acp::InitializeResponse>)> {
+        let agents = self.agents.read().await;
+        let mut list: Vec<_> = agents
+            .iter()
+            .map(|(name, handle)| (name.clone(), handle.get_init_response()))
+            .collect();
+        list.sort_by(|a, b| a.0.cmp(&b.0));
+        list
+    }
+
     pub async fn get(&self, name: &str) -> Option<Arc<AgentHandle>> {
         let agents = self.agents.read().await;
         agents.get(name).cloned()
@@ -168,6 +187,8 @@ impl AgentManager {
 pub struct AgentHandle {
     name: String,
     sender: mpsc::Sender<AgentCommand>,
+    /// Initialize response from the agent
+    init_response: Arc<std::sync::RwLock<Option<acp::InitializeResponse>>>,
 }
 
 impl AgentHandle {
@@ -180,6 +201,8 @@ impl AgentHandle {
     ) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(32);
         let (ready_tx, ready_rx) = oneshot::channel();
+        let init_response = Arc::new(std::sync::RwLock::new(None));
+        let init_response_clone = init_response.clone();
         let thread_name = format!("agent-worker-{name}");
         let worker_name = name.clone();
         thread::Builder::new()
@@ -194,6 +217,7 @@ impl AgentHandle {
                     permission_bus,
                     receiver,
                     ready_tx,
+                    init_response_clone,
                 ) {
                     error!("agent {log_name} exited with error: {:?}", err);
                 }
@@ -204,7 +228,11 @@ impl AgentHandle {
             .await
             .map_err(|_| anyhow!("agent {start_name} failed to start"))??;
 
-        Ok(Self { name, sender })
+        Ok(Self {
+            name,
+            sender,
+            init_response,
+        })
     }
 
     pub async fn new_session(
@@ -255,6 +283,25 @@ impl AgentHandle {
             .map_err(|_| anyhow!("agent {} cancel channel closed", self.name))?
     }
 
+    /// Set the session mode
+    pub async fn set_session_mode(
+        &self,
+        request: acp::SetSessionModeRequest,
+    ) -> Result<acp::SetSessionModeResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(AgentCommand::SetSessionMode {
+                request,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| anyhow!("agent {} is not running", self.name))?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("agent {} stopped", self.name))?;
+        result
+    }
+
     /// Shutdown the agent gracefully
     pub async fn shutdown(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
@@ -264,6 +311,11 @@ impl AgentHandle {
             .map_err(|_| anyhow!("agent {} is not running", self.name))?;
         rx.await
             .map_err(|_| anyhow!("agent {} shutdown channel closed", self.name))?
+    }
+
+    /// Get the initialize response from the agent
+    pub fn get_init_response(&self) -> Option<acp::InitializeResponse> {
+        self.init_response.read().unwrap().clone()
     }
 }
 
@@ -309,7 +361,8 @@ fn run_agent_worker(
     session_bus: SessionUpdateBusContainer,
     permission_bus: PermissionBusContainer,
     command_rx: mpsc::Receiver<AgentCommand>,
-    ready_tx: oneshot::Sender<Result<()>>,
+    ready_tx: oneshot::Sender<Result<agent_client_protocol::InitializeResponse>>,
+    init_response: Arc<std::sync::RwLock<Option<acp::InitializeResponse>>>,
 ) -> Result<()> {
     let runtime = RuntimeBuilder::new_current_thread()
         .enable_all()
@@ -327,6 +380,7 @@ fn run_agent_worker(
                 permission_bus,
                 command_rx,
                 ready_tx,
+                init_response,
             ))
             .await
     })
@@ -339,7 +393,8 @@ async fn agent_event_loop(
     session_bus: SessionUpdateBusContainer,
     permission_bus: PermissionBusContainer,
     mut command_rx: mpsc::Receiver<AgentCommand>,
-    ready_tx: oneshot::Sender<Result<()>>,
+    ready_tx: oneshot::Sender<Result<agent_client_protocol::InitializeResponse>>,
+    init_response: Arc<std::sync::RwLock<Option<acp::InitializeResponse>>>,
 ) -> Result<()> {
     let mut command = if cfg!(target_os = "windows") {
         let mut shell_cmd = tokio::process::Command::new("cmd");
@@ -400,10 +455,16 @@ async fn agent_event_loop(
     init_request.client_info = Some(client_info);
     init_request.meta = None;
     let init_result = conn.initialize(init_request).await;
-
+    log::info!(
+        "Agent {} initialized  === >>> {:?}",
+        agent_name,
+        init_result
+    );
     match init_result {
-        Ok(_) => {
-            let _ = ready_tx.send(Ok(()));
+        Ok(res) => {
+            // Save the initialize response
+            *init_response.write().unwrap() = Some(res.clone());
+            let _ = ready_tx.send(Ok(res));
         }
         Err(err) => {
             let message = format!("failed to initialize agent {agent_name}: {:?}", err);
@@ -587,6 +648,7 @@ impl acp::Client for GuiClient {
         // Publish event to the session bus
         let event = SessionUpdateEvent {
             session_id: args.session_id.to_string(),
+            agent_name: Some(self.agent_name.clone()),
             update: Arc::new(args.update),
         };
 

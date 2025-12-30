@@ -55,8 +55,21 @@ src/
 ├── panels/                 # UI panels (dockable)
 │   ├── dock_panel.rs      # DockPanel trait & container
 │   ├── conversation/      # ACP-enabled conversation UI
+│   │   ├── panel.rs       # Main panel implementation
+│   │   ├── types.rs       # Shared types
+│   │   ├── components.rs  # UI components
+│   │   ├── helpers.rs     # Helper functions
+│   │   ├── rendered_item.rs # Rendered message items
+│   │   └── mod.rs
 │   ├── code_editor/       # LSP-enabled code editor
+│   │   ├── panel.rs       # Editor panel
+│   │   ├── lsp_store.rs   # LSP state management
+│   │   ├── lsp_providers.rs # LSP providers
+│   │   ├── types.rs       # Editor types
+│   │   └── mod.rs
 │   ├── task_panel/        # Task management
+│   │   ├── panel.rs       # Task panel implementation
+│   │   └── mod.rs
 │   ├── welcome_panel.rs   # Welcome screen
 │   ├── session_manager.rs # Multi-session manager
 │   ├── settings_panel.rs  # Application settings
@@ -185,8 +198,30 @@ Persistence is handled by `PersistenceService` which subscribes to the session b
 
 ### Build and Run
 
+**Windows (current platform):**
 ```bash
-# Run application (from agent-studio directory)
+# Run application
+cargo run
+
+# Run with logging
+set RUST_LOG=info && cargo run
+
+# Run from workspace root
+cd ..\.. && cargo run --example agentx
+
+# Build without running
+cargo build
+
+# Check for compilation errors (fast)
+cargo check
+
+# Release build (optimized)
+cargo build --release
+```
+
+**Unix/Linux/macOS:**
+```bash
+# Run application
 cargo run
 
 # Run with logging
@@ -209,6 +244,26 @@ cargo build --release
 
 Control log verbosity with `RUST_LOG` environment variable:
 
+**Windows:**
+```bash
+# General info logging
+set RUST_LOG=info && cargo run
+
+# Debug specific modules
+set RUST_LOG=info,agentx::core::services=debug && cargo run
+set RUST_LOG=info,agentx::panels::conversation=debug && cargo run
+
+# Debug event buses
+set RUST_LOG=info,agentx::core::event_bus=debug && cargo run
+
+# Combined debugging (services + panels)
+set RUST_LOG=info,agentx::core=debug,agentx::panels=debug && cargo run
+
+# Trace all updates
+set RUST_LOG=trace && cargo run
+```
+
+**Unix/Linux/macOS:**
 ```bash
 # General info logging
 RUST_LOG=info cargo run
@@ -537,13 +592,34 @@ dock_area.push_panel_to_stack(
 
 ### For Large Panels: Use Subdirectory Structure
 
+The codebase follows this pattern for complex panels:
+
+**Conversation Panel** (`src/panels/conversation/`):
 ```
-src/panels/my_panel/
-├── mod.rs       # Export MyPanel
-├── panel.rs     # Main implementation
-├── types.rs     # Shared types
-├── components.rs  # UI components
-└── helpers.rs   # Utility functions
+src/panels/conversation/
+├── mod.rs           # Module exports
+├── panel.rs         # ConversationPanel implementation
+├── types.rs         # SessionUpdate, Message types
+├── components.rs    # UI subcomponents
+├── helpers.rs       # Utility functions
+└── rendered_item.rs # Message rendering logic
+```
+
+**Code Editor Panel** (`src/panels/code_editor/`):
+```
+src/panels/code_editor/
+├── mod.rs           # Module exports
+├── panel.rs         # CodeEditorPanel implementation
+├── lsp_store.rs     # LSP state management
+├── lsp_providers.rs # LSP provider implementations
+└── types.rs         # Editor-specific types
+```
+
+**Task Panel** (`src/panels/task_panel/`):
+```
+src/panels/task_panel/
+├── mod.rs           # Module exports
+└── panel.rs         # TaskPanel implementation
 ```
 
 ## Coding Conventions
@@ -665,26 +741,94 @@ This Agent Studio is part of a Cargo workspace at `../../`:
 
 Run the complete component gallery from workspace root:
 
+**Windows:**
+```bash
+cd ..\.. && cargo run
+```
+
+**Unix/Linux/macOS:**
 ```bash
 cd ../.. && cargo run
 ```
+
+## Platform-Specific Considerations
+
+### Windows
+- Use `set RUST_LOG=... && cargo run` for environment variables
+- Path separators use backslash (`\`) but Rust handles both
+- Agent executables should have `.exe` extension in config.json
+- Layout files stored in `target\` directory (debug builds)
+
+### macOS
+- MTL_HUD_ENABLED available for GPU performance metrics
+- Performance profiling with `samply` works best on macOS
+- Use forward slash (`/`) for paths
+- Metal backend provides optimal performance
+
+### Linux
+- Vulkan backend used for rendering
+- Ensure graphics drivers are up to date
+- May require additional system dependencies for UI rendering
+
+## Internationalization (i18n)
+
+AgentX uses the `rust-i18n` crate for multilingual support:
+
+- Translation files are managed in `src/i18n.rs`
+- Locale selection available in Settings panel
+- UI components support dynamic language switching
+- Use `t!("key")` macro for translated strings in code
+
+## Asset Management
+
+Assets are embedded at compile time using `rust-embed`:
+
+**Location**: `src/assets.rs` and `assets/` directory
+
+**Structure**:
+```
+assets/
+├── icons/        # General UI icons (SVG)
+├── icons2/       # Additional icon set (SVG)
+└── logo/         # Application logo assets (SVG)
+```
+
+**Usage**:
+```rust
+use crate::Assets;
+
+// Initialize asset source in lib.rs
+cx.asset_source().clone().add_source(
+    std::sync::Arc::new(Box::new(Assets))
+);
+
+// Load assets via IconNamed trait
+Icon::Claude.named()  // Returns SharedString for icon path
+```
+
+Assets are loaded at runtime from the embedded binary, eliminating the need for external asset files in distribution.
 
 ## Dependencies
 
 Key dependencies from `Cargo.toml`:
 
 **Core Framework:**
-- `gpui = "0.2.2"`: Core GPUI framework
-- `gpui-component`: UI component library (workspace)
+- `gpui = "0.2.2"`: Core GPUI framework (Git dependency from Zed)
+- `gpui-component = "0.5.0"`: UI component library (Git dependency from LongBridge)
 
 **Agent Communication:**
 - `agent-client-protocol = "0.9.0"`: ACP protocol
 - `tokio = "1.48.0"`: Async runtime (with process, fs, io-util)
 - `tokio-util = "0.7.17"`: Stream compatibility
 
+**HTTP Client (Embedded in `src/reqwest_client/`):**
+- Custom reqwest wrapper with TLS support
+- Platform-specific certificate verification
+- Used by the auto-update system
+
 **Language Support:**
 - `tree-sitter-navi = "0.2.2"`: Syntax highlighting
-- `lsp-types`: Language Server Protocol
+- `lsp-types = "0.97.0"`: Language Server Protocol
 - `color-lsp = "0.2.0"`: Color support
 
 **Utilities:**
@@ -738,10 +882,68 @@ async fn my_operation() -> Result<()> {
 - Single-target communication
 - Local component interactions
 
+### Component Communication Patterns
+
+**Pattern 1: Parent → Child (Props)**
+```rust
+// Pass data down via constructor or method calls
+let child = cx.new(|cx| ChildComponent::new(data, cx));
+```
+
+**Pattern 2: Child → Parent (Callbacks)**
+```rust
+// Use callbacks for upward communication
+pub struct ChatInputBox {
+    on_send: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
+}
+
+// Parent provides callback
+ChatInputBox::new(id, cx)
+    .on_send(|_event, _window, cx| {
+        // Handle send action
+    })
+```
+
+**Pattern 3: Cross-Component (Event Bus)**
+```rust
+// Subscribe in one component
+let session_bus = AppState::global(cx).session_bus.clone();
+let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+session_bus.lock().unwrap().subscribe(move |event| {
+    let _ = tx.send((*event.update).clone());
+});
+
+// Publish from another component/thread
+session_bus.lock().unwrap().publish(SessionUpdateEvent { ... });
+```
+
+**Pattern 4: Global State (AppState)**
+```rust
+// Access shared state from anywhere
+let app_state = AppState::global(cx);
+let agent_service = app_state.agent_service()?;
+```
+
 ## Debugging Tips
 
 ### Enable Detailed Logging
 
+**Windows:**
+```bash
+# Session bus events
+set RUST_LOG=info,agentx::core::event_bus::session_bus=debug && cargo run
+
+# Service layer
+set RUST_LOG=info,agentx::core::services=debug && cargo run
+
+# Specific panel
+set RUST_LOG=info,agentx::panels::conversation=debug && cargo run
+
+# Everything in core
+set RUST_LOG=info,agentx::core=trace && cargo run
+```
+
+**Unix/Linux/macOS:**
 ```bash
 # Session bus events
 RUST_LOG=info,agentx::core::event_bus::session_bus=debug cargo run

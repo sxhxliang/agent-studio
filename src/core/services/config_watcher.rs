@@ -16,20 +16,20 @@ use notify::{
 };
 use tokio::sync::mpsc;
 
-use crate::core::{agent::AgentManager, config::Config};
+use crate::core::services::AgentConfigService;
 
 /// Configuration file watcher service
 pub struct ConfigWatcher {
     config_path: PathBuf,
-    agent_manager: Arc<AgentManager>,
+    agent_config_service: Arc<AgentConfigService>,
 }
 
 impl ConfigWatcher {
     /// Create a new configuration watcher
-    pub fn new(config_path: PathBuf, agent_manager: Arc<AgentManager>) -> Self {
+    pub fn new(config_path: PathBuf, agent_config_service: Arc<AgentConfigService>) -> Self {
         Self {
             config_path,
-            agent_manager,
+            agent_config_service,
         }
     }
 
@@ -116,24 +116,17 @@ impl ConfigWatcher {
         }
     }
 
-    /// Reload the configuration file and update agent manager
+    /// Reload the configuration file and update all configurations via AgentConfigService
     async fn reload_config(&self) -> Result<()> {
-        log::info!("Reading configuration from: {}", self.config_path.display());
+        log::info!("Configuration file changed, reloading via AgentConfigService");
 
-        // Read and parse configuration file
-        let config_content = std::fs::read_to_string(&self.config_path)
-            .with_context(|| format!("Failed to read {}", self.config_path.display()))?;
-
-        let config: Config = serde_json::from_str(&config_content)
-            .with_context(|| format!("Invalid config at {}", self.config_path.display()))?;
-
-        // Reload agent manager with new configuration
-        self.agent_manager
-            .reload_config(config.agent_servers)
+        // Delegate to AgentConfigService - handles all config types + event publishing
+        self.agent_config_service
+            .reload_from_file()
             .await
-            .context("Failed to reload agent configuration")?;
+            .context("Failed to reload configuration")?;
 
-        log::info!("Agent configuration reloaded successfully");
+        log::info!("Configuration reloaded successfully");
         Ok(())
     }
 }

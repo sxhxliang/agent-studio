@@ -28,6 +28,16 @@
       "session_id": "8c0eb056-d680-4793-a047-d008ea25e65a",
       "status": "Completed",
       "created_at": 1766077283
+    },
+    {
+      "id": "4d4a6fd8-9df8-49ef-92f2-340031cdf89a",
+      "workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10",
+      "name": "根据最近4次git commit 更新readme",
+      "agent_name": "Iflow",
+      "mode": "Auto",
+      "session_id": "bf469853-baad-4568-8310-1b3b8b630c07",
+      "status": "Completed",
+      "created_at": 1766909205
     }
   ],
   "active_workspace_id": "9f86bc8d-1ab9-47a2-9ded-f01d9e954c10"

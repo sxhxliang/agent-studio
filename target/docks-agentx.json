@@ -14,11 +14,20 @@
                 "story_klass": "ConversationPanel"
               }
             }
+          },
+          {
+            "panel_name": "DockPanelContainer",
+            "children": [],
+            "info": {
+              "panel": {
+                "story_klass": "SettingsPanel"
+              }
+            }
           }
         ],
         "info": {
           "tabs": {
-            "active_index": 0
+            "active_index": 1
           }
         }
       }
@@ -26,7 +35,7 @@
     "info": {
       "stack": {
         "sizes": [
-          1100.6666
+          985.0
         ],
         "axis": 0
       }
@@ -59,14 +68,14 @@
       "info": {
         "stack": {
           "sizes": [
-            872.6667
+            801.0
           ],
           "axis": 1
         }
       }
     },
     "placement": "left",
-    "size": 350.0,
+    "size": 300.85547,
     "open": true
   },
   "right_dock": {
@@ -84,11 +93,29 @@
                   "story_klass": "CodeEditorPanel"
                 }
               }
+            },
+            {
+              "panel_name": "DockPanelContainer",
+              "children": [],
+              "info": {
+                "panel": {
+                  "story_klass": "ToolCallDetailPanel"
+                }
+              }
+            },
+            {
+              "panel_name": "DockPanelContainer",
+              "children": [],
+              "info": {
+                "panel": {
+                  "story_klass": "ToolCallDetailPanel"
+                }
+              }
             }
           ],
           "info": {
             "tabs": {
-              "active_index": 0
+              "active_index": 2
             }
           }
         }
@@ -103,7 +130,7 @@
       }
     },
     "placement": "right",
-    "size": 521.3281,
+    "size": 443.4961,
     "open": false
   },
   "bottom_dock": {
@@ -133,7 +160,7 @@
       "info": {
         "stack": {
           "sizes": [
-            200.0
+            29.0
           ],
           "axis": 1
         }
@@ -141,6 +168,6 @@
     },
     "placement": "bottom",
     "size": 200.0,
-    "open": true
+    "open": false
   }
 }

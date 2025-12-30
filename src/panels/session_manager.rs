@@ -67,7 +67,7 @@ impl SessionManagerPanel {
         };
 
         let weak_self = cx.entity().downgrade();
-        cx.spawn(async move |_entity, mut cx| {
+        cx.spawn(async move |_entity, cx| {
             // Get all agents
             let agents = agent_service.list_agents().await;
 

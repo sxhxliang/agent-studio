@@ -1,114 +1,37 @@
 use gpui::{
     App, AppContext, ClipboardEntry, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Styled, Subscription, Window, px,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window, px,
 };
 
 use gpui_component::{
     ActiveTheme, IndexPath, StyledExt,
     input::InputState,
-    list::{ListDelegate, ListItem, ListState},
+    list::ListState,
     select::{SelectEvent, SelectState},
     v_flex,
 };
 
-use agent_client_protocol::ImageContent;
+use agent_client_protocol::{AvailableCommand, ImageContent};
 
 use crate::{
-    AppState, CreateTaskFromWelcome, WelcomeSession, app::actions::AddCodeSelection,
-    components::ChatInputBox,
+    AppState, CreateTaskFromWelcome, WelcomeSession,
+    app::actions::AddCodeSelection,
+    components::{AgentItem, ChatInputBox, FileItem, FilePickerDelegate},
+    core::config::McpServerConfig,
 };
 
-/// Delegate for the context list in the chat input popover
-struct ContextListDelegate {
-    items: Vec<ContextItem>,
-}
+// File picker delegate is now imported from components module
 
-#[derive(Clone)]
-struct ContextItem {
-    name: &'static str,
-    icon: &'static str,
-}
-
-impl ContextListDelegate {
-    fn new() -> Self {
-        Self {
-            items: vec![
-                ContextItem {
-                    name: "Files",
-                    icon: "file",
-                },
-                ContextItem {
-                    name: "Folders",
-                    icon: "folder",
-                },
-                ContextItem {
-                    name: "Code",
-                    icon: "code",
-                },
-                ContextItem {
-                    name: "Git Changes",
-                    icon: "git-branch",
-                },
-                ContextItem {
-                    name: "Terminal",
-                    icon: "terminal",
-                },
-                ContextItem {
-                    name: "Problems",
-                    icon: "alert-circle",
-                },
-                ContextItem {
-                    name: "URLs",
-                    icon: "link",
-                },
-            ],
-        }
-    }
-}
-
-impl ListDelegate for ContextListDelegate {
-    type Item = ListItem;
-
-    fn items_count(&self, _: usize, _: &App) -> usize {
-        self.items.len()
-    }
-
-    fn render_item(
-        &mut self,
-        ix: IndexPath,
-        _: &mut Window,
-        _: &mut gpui::Context<'_, gpui_component::list::ListState<ContextListDelegate>>,
-    ) -> Option<Self::Item> {
-        let item = self.items.get(ix.row)?;
-        Some(ListItem::new(ix).child(item.name))
-    }
-
-    fn set_selected_index(
-        &mut self,
-        _: Option<IndexPath>,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) {
-    }
-
-    fn confirm(&mut self, _: bool, _: &mut Window, _cx: &mut Context<ListState<Self>>) {
-        // Handle item selection - for now just close the popover
-    }
-
-    fn cancel(&mut self, _: &mut Window, _cx: &mut Context<ListState<Self>>) {
-        // Close the popover on cancel
-    }
-}
+const MAX_FILE_SUGGESTIONS: usize = 8;
 
 /// Welcome panel displayed when creating a new task.
 /// Shows a centered input form with title, instructions, and send button.
 pub struct WelcomePanel {
     focus_handle: FocusHandle,
     input_state: Entity<InputState>,
-    context_list: Entity<ListState<ContextListDelegate>>,
-    context_popover_open: bool,
+    context_list: Entity<ListState<FilePickerDelegate>>,
     mode_select: Entity<SelectState<Vec<&'static str>>>,
-    agent_select: Entity<SelectState<Vec<String>>>,
+    agent_select: Entity<SelectState<Vec<AgentItem>>>,
     session_select: Entity<SelectState<Vec<String>>>,
     current_session_id: Option<String>,
     has_agents: bool,
@@ -118,7 +41,18 @@ pub struct WelcomePanel {
     workspace_id: Option<String>,
     pasted_images: Vec<(ImageContent, String)>,
     code_selections: Vec<AddCodeSelection>,
+    selected_files: Vec<String>,
+    file_suggestions: Vec<FileItem>,
+    /// Command suggestions based on input
+    command_suggestions: Vec<AvailableCommand>,
+    /// Whether to show command suggestions (input starts with /)
+    show_command_suggestions: bool,
+    /// Selected command index for keyboard navigation
     _subscriptions: Vec<Subscription>,
+    /// Available MCP servers (name, config)
+    available_mcps: Vec<(String, McpServerConfig)>,
+    /// Selected MCP server names
+    selected_mcps: Vec<String>,
 }
 
 impl crate::panels::dock_panel::DockPanel for WelcomePanel {
@@ -204,6 +138,19 @@ impl WelcomePanel {
 
         // Subscribe to agent_select focus to refresh agents list when no agents available
         entity.update(cx, |this, cx| {
+            // Subscribe to input changes to detect @ symbol
+            let input_subscription = cx.subscribe_in(
+                &this.input_state,
+                window,
+                |this, _input, event: &gpui_component::input::InputEvent, _window, cx| match event {
+                    gpui_component::input::InputEvent::Change => {
+                        this.on_input_change(cx);
+                    }
+                    _ => {}
+                },
+            );
+            this._subscriptions.push(input_subscription);
+
             let agent_select_focus = this.agent_select.focus_handle(cx);
             let subscription = cx.on_focus(
                 &agent_select_focus,
@@ -229,6 +176,16 @@ impl WelcomePanel {
                 },
             );
             this._subscriptions.push(session_select_sub);
+
+            // Subscribe to mode_select changes to send SetSessionMode command to agent
+            let mode_select_sub = cx.subscribe_in(
+                &this.mode_select,
+                window,
+                |this, _, _: &SelectEvent<Vec<&'static str>>, _window, cx| {
+                    this.on_mode_changed(cx);
+                },
+            );
+            this._subscriptions.push(mode_select_sub);
         });
 
         // Load workspace info immediately and refresh on each panel creation
@@ -289,17 +246,24 @@ impl WelcomePanel {
     fn new(workspace_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
+                .code_editor("markdown")
+                .multi_line(true)
                 .auto_grow(2, 8) // Auto-grow from 2 to 8 rows
                 .soft_wrap(true) // Enable word wrapping
                 .placeholder("Describe what you'd like to build...")
         });
 
-        let context_list =
-            cx.new(|cx| ListState::new(ContextListDelegate::new(), window, cx).searchable(true));
+        // Get the current working directory for file picker
+        let working_dir = AppState::global(cx).current_working_dir().clone();
+
+        let context_list = cx.new(|cx| {
+            let delegate = FilePickerDelegate::new(&working_dir);
+            ListState::new(delegate, window, cx).searchable(true)
+        });
 
         let mode_select = cx.new(|cx| {
             SelectState::new(
-                vec!["Auto", "Ask", "Plan", "Code", "Explain"],
+                vec!["default", "acceptedits", "plan", "dontAsk", "bypassPermissions"],
                 Some(IndexPath::default()), // Select "Auto" by default
                 window,
                 cx,
@@ -308,7 +272,7 @@ impl WelcomePanel {
 
         // Get available agents from AppState - we'll load them asynchronously
         // For now, start with placeholder
-        let agent_list = vec!["Loading agents...".to_string()];
+        let agent_list = vec![AgentItem::new("Loading agents...")];
         let agent_select = cx.new(|cx| SelectState::new(agent_list, None, window, cx));
 
         let has_agents = false; // Will be updated after async load
@@ -322,7 +286,6 @@ impl WelcomePanel {
             focus_handle: cx.focus_handle(),
             input_state,
             context_list,
-            context_popover_open: false,
             mode_select,
             agent_select,
             session_select,
@@ -333,7 +296,13 @@ impl WelcomePanel {
             workspace_id,
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
+            selected_files: Vec::new(),
+            file_suggestions: Vec::new(),
+            command_suggestions: Vec::new(),
+            show_command_suggestions: false,
             _subscriptions: Vec::new(),
+            available_mcps: Vec::new(),
+            selected_mcps: Vec::new(),
         };
 
         // Load sessions for the initially selected agent if any
@@ -343,7 +312,34 @@ impl WelcomePanel {
             }
         }
 
+        // Load MCP servers asynchronously
+        panel.load_mcp_servers(cx);
+
         panel
+    }
+
+    /// Load MCP servers from AgentConfigService
+    fn load_mcp_servers(&mut self, cx: &mut Context<Self>) {
+        let agent_config_service = match AppState::global(cx).agent_config_service() {
+            Some(service) => service.clone(),
+            None => return,
+        };
+
+        let weak_self = cx.entity().downgrade();
+        cx.spawn(async move |_this, cx| {
+            let mcp_servers = agent_config_service.list_mcp_servers().await;
+
+            _ = cx.update(|cx| {
+                if let Some(this) = weak_self.upgrade() {
+                    this.update(cx, |this, cx| {
+                        // Directly use the HashMap as Vec of tuples
+                        this.available_mcps = mcp_servers.into_iter().collect();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
     }
 
     /// Try to refresh agents list from AppState if we don't have agents yet
@@ -371,9 +367,13 @@ impl WelcomePanel {
                     this.update(cx, |this, cx| {
                         // We now have agents, update the select
                         this.has_agents = true;
-                        let agents_clone = agents.clone();
+                        let agent_items: Vec<AgentItem> = agents
+                            .clone()
+                            .into_iter()
+                            .map(|name| AgentItem::new(name))
+                            .collect();
                         agent_select.update(cx, |state, cx| {
-                            state.set_items(agents_clone, window, cx);
+                            state.set_items(agent_items, window, cx);
                             state.set_selected_index(Some(IndexPath::default()), window, cx);
                         });
                         cx.notify();
@@ -417,10 +417,22 @@ impl WelcomePanel {
                 log::info!("[WelcomePanel] Agent updated: {}", name);
                 // No action needed - agent name hasn't changed
             }
-            AgentConfigEvent::AgentConfigReloaded { .. } => {
+            AgentConfigEvent::ConfigReloaded { .. } => {
                 log::info!("[WelcomePanel] Agent config reloaded");
                 // Force full refresh
                 self.has_agents = false;
+            }
+            // Model, MCP Server, and Command events don't affect WelcomePanel
+            AgentConfigEvent::ModelAdded { .. }
+            | AgentConfigEvent::ModelUpdated { .. }
+            | AgentConfigEvent::ModelRemoved { .. }
+            | AgentConfigEvent::McpServerAdded { .. }
+            | AgentConfigEvent::McpServerUpdated { .. }
+            | AgentConfigEvent::McpServerRemoved { .. }
+            | AgentConfigEvent::CommandAdded { .. }
+            | AgentConfigEvent::CommandUpdated { .. }
+            | AgentConfigEvent::CommandRemoved { .. } => {
+                // No action needed for non-agent config changes
             }
         }
 
@@ -485,6 +497,231 @@ impl WelcomePanel {
                 agent_name
             );
         }
+    }
+
+    /// Handle mode selection change - send SetSessionMode command to agent
+    fn on_mode_changed(&mut self, cx: &mut Context<Self>) {
+        // Get the selected mode
+        let mode = match self.mode_select.read(cx).selected_value() {
+            Some(m) => m.to_lowercase(),
+            None => return,
+        };
+
+        // Get the current session ID
+        let session_id = match &self.current_session_id {
+            Some(id) => id.clone(),
+            None => {
+                log::debug!("[WelcomePanel] Cannot change mode: no session selected");
+                return;
+            }
+        };
+
+        // Get the agent name
+        let agent_name = match self.agent_select.read(cx).selected_value().cloned() {
+            Some(name) if name != "No agents" => name,
+            _ => {
+                log::debug!("[WelcomePanel] Cannot change mode: no agent selected");
+                return;
+            }
+        };
+
+        // Get the agent service to access agent manager
+        let app_state = AppState::global(cx);
+        let agent_manager = match app_state.agent_manager() {
+            Some(manager) => manager.clone(),
+            None => {
+                log::error!("[WelcomePanel] Cannot change mode: agent manager not available");
+                return;
+            }
+        };
+
+        log::info!(
+            "[WelcomePanel] Mode changed to: {} for session: {}",
+            mode,
+            session_id
+        );
+
+        // Send SetSessionMode command to agent asynchronously
+        cx.spawn(async move |_entity, _cx| {
+            // Get the agent handle
+            let agent_handle = match agent_manager.get(&agent_name).await {
+                Some(handle) => handle,
+                None => {
+                    log::error!("[WelcomePanel] Cannot change mode: agent '{}' not found", agent_name);
+                    return;
+                }
+            };
+
+            // Create the SetSessionModeRequest
+            use agent_client_protocol as acp;
+            let mut request = acp::SetSessionModeRequest::new(
+                acp::SessionId::from(session_id.clone()),
+                mode.clone(),
+            );
+            request.meta = None;
+
+            // Send the request to the agent
+            match agent_handle.set_session_mode(request).await {
+                Ok(response) => {
+                    log::info!(
+                        "[WelcomePanel] Successfully set session mode to '{}' for session '{}': {:?}",
+                        mode,
+                        session_id,
+                        response
+                    );
+                }
+                Err(e) => {
+                    log::error!(
+                        "[WelcomePanel] Failed to set session mode to '{}' for session '{}': {}",
+                        mode,
+                        session_id,
+                        e
+                    );
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Handle input change - detect @ symbol to open file picker and / for commands
+    fn on_input_change(&mut self, cx: &mut Context<Self>) {
+        let value = self.input_state.read(cx).value();
+
+        let mention_query = value.rfind('@').and_then(|at_index| {
+            let query = &value[at_index + 1..];
+            if query.chars().any(char::is_whitespace) {
+                None
+            } else {
+                Some(query)
+            }
+        });
+
+        if let Some(query) = mention_query {
+            if self.show_command_suggestions {
+                self.show_command_suggestions = false;
+                self.command_suggestions.clear();
+            }
+            self.update_file_suggestions(query, cx);
+            return;
+        }
+
+        self.clear_file_suggestions(cx);
+
+        // Check if input starts with / for command suggestions
+        if value.trim_start().starts_with('/') {
+            // Get the command prefix (everything after the /)
+            let trimmed = value.trim_start();
+            let command_text = trimmed.trim_start_matches('/');
+            if command_text.chars().any(char::is_whitespace) {
+                if self.show_command_suggestions {
+                    self.show_command_suggestions = false;
+                    self.command_suggestions.clear();
+                    cx.notify();
+                }
+                return;
+            }
+            let command_prefix = command_text;
+
+            // Get available commands for the current session
+            let all_commands = self.get_available_commands(cx);
+
+            // Filter commands by prefix
+            if command_prefix.is_empty() {
+                // Show all commands when just "/" is entered
+                self.command_suggestions = all_commands;
+                self.show_command_suggestions = !self.command_suggestions.is_empty();
+            } else {
+                // Filter commands that start with the prefix
+                self.command_suggestions = all_commands
+                    .into_iter()
+                    .filter(|cmd| cmd.name.starts_with(command_prefix))
+                    .collect();
+                self.show_command_suggestions = !self.command_suggestions.is_empty();
+            }
+
+            log::debug!(
+                "[WelcomePanel] Command suggestions: {} matches for prefix '{}'",
+                self.command_suggestions.len(),
+                command_prefix
+            );
+            cx.notify();
+        } else {
+            // Not a command input, hide suggestions
+            if self.show_command_suggestions {
+                self.show_command_suggestions = false;
+                self.command_suggestions.clear();
+                cx.notify();
+            }
+        }
+    }
+
+    fn clear_file_suggestions(&mut self, cx: &mut Context<Self>) {
+        if !self.file_suggestions.is_empty() {
+            self.file_suggestions.clear();
+            cx.notify();
+        }
+    }
+
+    fn update_file_suggestions(&mut self, query: &str, cx: &mut Context<Self>) {
+        let query = query.trim();
+        self.context_list.update(cx, |state, cx| {
+            state.delegate_mut().set_search_query(query.to_string());
+            cx.notify();
+        });
+
+        let items = self
+            .context_list
+            .read(cx)
+            .delegate()
+            .filtered_items()
+            .iter()
+            .take(MAX_FILE_SUGGESTIONS)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        self.file_suggestions = items;
+        cx.notify();
+    }
+
+    fn apply_command_selection(
+        &mut self,
+        command: &AvailableCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = format!("/{} ", command.name);
+        self.input_state.update(cx, |state, cx| {
+            state.set_value(SharedString::from(value), window, cx);
+        });
+        self.show_command_suggestions = false;
+        self.command_suggestions.clear();
+        cx.notify();
+    }
+
+    /// Get available commands for the current session
+    fn get_available_commands(&self, cx: &Context<Self>) -> Vec<AvailableCommand> {
+        // Get the current session ID
+        let session_id = match &self.current_session_id {
+            Some(id) => id,
+            None => {
+                log::debug!("[WelcomePanel] No current session, cannot get commands");
+                return Vec::new();
+            }
+        };
+
+        // Get MessageService
+        let message_service = match AppState::global(cx).message_service() {
+            Some(service) => service,
+            None => {
+                log::warn!("[WelcomePanel] MessageService not available");
+                return Vec::new();
+            }
+        };
+
+        // Get commands for the session
+        message_service
+            .get_commands_by_session_id(session_id)
+            .unwrap_or_default()
     }
 
     /// Refresh sessions for the currently selected agent
@@ -737,7 +974,7 @@ impl WelcomePanel {
 }
 
 impl Render for WelcomePanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // log::debug!(
         //     "[WelcomePanel::render] Rendering with {} code_selections and {} pasted_images",
         //     self.code_selections.len(),
@@ -790,23 +1027,74 @@ impl Render for WelcomePanel {
                         // Chat input with title and send handler
                         {
                             let entity = cx.entity().clone();
-                            log::debug!(
-                                "[WelcomePanel::render] Creating ChatInputBox with {} code_selections",
-                                self.code_selections.len()
-                            );
+                            // log::debug!(
+                            //     "[WelcomePanel::render] Creating ChatInputBox with {} code_selections",
+                            //     self.code_selections.len()
+                            // );
                             ChatInputBox::new("welcome-chat-input", self.input_state.clone())
                                 // .title("New Task")
-                                .context_list(self.context_list.clone(), cx)
-                                .context_popover_open(self.context_popover_open)
-                                .on_context_popover_change(cx.listener(|this, open: &bool, _, cx| {
-                                    this.context_popover_open = *open;
-                                    cx.notify();
-                                }))
                                 .mode_select(self.mode_select.clone())
                                 .agent_select(self.agent_select.clone())
                                 .session_select(self.session_select.clone())
                                 .pasted_images(self.pasted_images.clone())
                                 .code_selections(self.code_selections.clone())
+                                .file_suggestions(self.file_suggestions.clone())
+                                .on_file_select(cx.listener(|this, file: &FileItem, window, cx| {
+                                    let file_path = file.path.to_string_lossy().to_string();
+                                    let mut filename = file.relative_path.clone();
+                                    if file.is_folder && !filename.ends_with('/') {
+                                        filename.push('/');
+                                    }
+
+                                    let input_state = this.input_state.clone();
+                                    let current_value = input_state.read(cx).value();
+                                    let mut applied_to_input = false;
+                                    if let Some(at_index) = current_value.rfind('@') {
+                                        let query = &current_value[at_index + 1..];
+                                        if !query.chars().any(char::is_whitespace) {
+                                            let prefix = &current_value[..at_index];
+                                            let new_value =
+                                                SharedString::from(format!("{prefix}@{filename} "));
+                                            window.defer(cx, move |window, cx| {
+                                                input_state.update(cx, |state, cx| {
+                                                    state.set_value(new_value, window, cx);
+                                                });
+                                            });
+                                            applied_to_input = true;
+                                        }
+                                    }
+
+                                    if !applied_to_input
+                                        && !file.is_folder
+                                        && !this.selected_files.contains(&file_path)
+                                    {
+                                        this.selected_files.push(file_path);
+                                    }
+
+                                    this.file_suggestions.clear();
+                                    cx.notify();
+                                }))
+                                // Pass command suggestions to ChatInputBox
+                                .command_suggestions(self.command_suggestions.clone())
+                                .show_command_suggestions(self.show_command_suggestions)
+                                .on_command_select(cx.listener(|this, command, window, cx| {
+                                    this.apply_command_selection(command, window, cx);
+                                }))
+                                // Pass MCP servers and selection to ChatInputBox
+                                .available_mcps(self.available_mcps.clone())
+                                .selected_mcps(self.selected_mcps.clone())
+                                .on_mcp_toggle(cx.listener(|this, (name, checked): &(String, bool), _window, cx| {
+                                    // Simple toggle logic
+                                    if *checked {
+                                        if !this.selected_mcps.contains(name) {
+                                            this.selected_mcps.push(name.clone());
+                                        }
+                                    } else {
+                                        this.selected_mcps.retain(|s| s != name);
+                                    }
+                                    log::info!("[WelcomePanel] MCP '{}' {}", name, if *checked { "selected" } else { "deselected" });
+                                    cx.notify();
+                                }))
                                 .on_paste(move |window, cx| {
                                     entity.update(cx, |this, cx| {
                                         this.handle_paste(window, cx);
@@ -823,6 +1111,14 @@ impl Render for WelcomePanel {
                                     // Remove the code selection at the given index
                                     if *idx < this.code_selections.len() {
                                         this.code_selections.remove(*idx);
+                                        cx.notify();
+                                    }
+                                }))
+                                .selected_files(self.selected_files.clone())
+                                .on_remove_file(cx.listener(|this, idx, _, cx| {
+                                    // Remove the file at the given index
+                                    if *idx < this.selected_files.len() {
+                                        this.selected_files.remove(*idx);
                                         cx.notify();
                                     }
                                 }))

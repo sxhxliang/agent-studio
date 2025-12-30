@@ -6,11 +6,14 @@
 use std::sync::Arc;
 
 use agent_client_protocol::{
-    ContentBlock, ContentChunk, ImageContent, PromptResponse, SessionUpdate, TextContent,
+    AvailableCommand, ContentBlock, ContentChunk, ImageContent, PromptResponse, SessionUpdate,
+    TextContent,
 };
 use anyhow::{Result, anyhow};
 
 use crate::core::event_bus::session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
+use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
+use crate::core::services::SessionStatus;
 
 use super::agent_service::AgentService;
 use super::persistence_service::{PersistedMessage, PersistenceService};
@@ -20,6 +23,7 @@ pub struct MessageService {
     session_bus: SessionUpdateBusContainer,
     agent_service: Arc<AgentService>,
     persistence_service: Arc<PersistenceService>,
+    workspace_bus: WorkspaceUpdateBusContainer,
 }
 
 impl MessageService {
@@ -27,25 +31,58 @@ impl MessageService {
         session_bus: SessionUpdateBusContainer,
         agent_service: Arc<AgentService>,
         persistence_service: Arc<PersistenceService>,
+        workspace_bus: WorkspaceUpdateBusContainer,
     ) -> Self {
         Self {
             session_bus,
             agent_service,
             persistence_service,
+            workspace_bus,
         }
     }
 
     /// Initialize persistence subscription
     ///
-    /// This should be called after the MessageService is created
+    /// This should be called after the MessageService is created.
+    /// Subscribes to both session_bus and workspace_bus events.
     pub fn init_persistence(&self) {
         let persistence_service = self.persistence_service.clone();
         let session_bus = self.session_bus.clone();
+        let agent_service = self.agent_service.clone();
 
+        // Subscribe to session bus for all session updates
         session_bus.subscribe(move |event| {
             let session_id = event.session_id.clone();
             let update = (*event.update).clone();
+            let agent_name = event.agent_name.clone();
             let service = persistence_service.clone();
+            let agent_svc = agent_service.clone();
+
+            // Handle AvailableCommandsUpdate to store in AgentService
+            if let SessionUpdate::AvailableCommandsUpdate(ref commands_update) = update {
+                log::debug!(
+                    "Received AvailableCommandsUpdate for session {}: {} commands",
+                    session_id,
+                    commands_update.available_commands.len()
+                );
+
+                // Get agent name for this session (prefer event metadata if available)
+                let agent_name =
+                    agent_name.or_else(|| agent_svc.get_agent_for_session(&session_id));
+
+                if let Some(agent_name) = agent_name {
+                    agent_svc.update_session_commands(
+                        &agent_name,
+                        &session_id,
+                        commands_update.available_commands.clone(),
+                    );
+                } else {
+                    log::warn!(
+                        "Could not find agent for session {} when processing AvailableCommandsUpdate",
+                        session_id
+                    );
+                }
+            }
 
             // Spawn async task using smol to save message
             smol::spawn(async move {
@@ -60,7 +97,37 @@ impl MessageService {
             .detach();
         });
 
-        log::info!("MessageService persistence subscription initialized");
+        // Subscribe to workspace bus for session status changes
+        let persistence_service_ws = self.persistence_service.clone();
+        let workspace_bus = self.workspace_bus.clone();
+
+        workspace_bus.lock().unwrap().subscribe(move |event| {
+            if let WorkspaceUpdateEvent::SessionStatusUpdated {
+                session_id, status, ..
+            } = event
+            {
+                // Flush accumulator when session completes or becomes idle
+                if matches!(status, SessionStatus::Completed | SessionStatus::Idle) {
+                    let service = persistence_service_ws.clone();
+                    let session_id = session_id.clone();
+
+                    smol::spawn(async move {
+                        if let Err(e) = service.flush_session(&session_id).await {
+                            log::error!(
+                                "Failed to flush session {} on status change: {}",
+                                session_id,
+                                e
+                            );
+                        }
+                    })
+                    .detach();
+                }
+            }
+        });
+
+        log::info!(
+            "MessageService persistence subscriptions initialized (session_bus + workspace_bus)"
+        );
     }
 
     /// Send a user message to an existing session
@@ -109,6 +176,7 @@ impl MessageService {
 
         let user_event = SessionUpdateEvent {
             session_id: session_id.to_string(),
+            agent_name: self.agent_service.get_agent_for_session(session_id),
             update: Arc::new(SessionUpdate::UserMessageChunk(content_chunk)),
         };
 
@@ -140,6 +208,7 @@ impl MessageService {
         let content_chunk = ContentChunk::new(schema_block);
         let user_event = SessionUpdateEvent {
             session_id: session_id.to_string(),
+            agent_name: self.agent_service.get_agent_for_session(session_id),
             update: Arc::new(SessionUpdate::UserMessageChunk(content_chunk)),
         };
 
@@ -189,5 +258,28 @@ impl MessageService {
     /// List all available sessions with history
     pub async fn list_sessions_with_history(&self) -> Result<Vec<String>> {
         self.persistence_service.list_sessions().await
+    }
+
+    /// Get available commands for a session
+    ///
+    /// Returns the list of available commands (slash commands, etc.) for a given session.
+    /// Returns None if the session or agent is not found.
+    pub fn get_session_commands(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Option<Vec<AvailableCommand>> {
+        self.agent_service
+            .get_session_commands(agent_name, session_id)
+    }
+
+    /// Get available commands for a session by session_id only
+    ///
+    /// Automatically looks up the agent name for the session.
+    /// Returns None if the session is not found.
+    pub fn get_commands_by_session_id(&self, session_id: &str) -> Option<Vec<AvailableCommand>> {
+        let agent_name = self.agent_service.get_agent_for_session(session_id)?;
+        self.agent_service
+            .get_session_commands(&agent_name, session_id)
     }
 }

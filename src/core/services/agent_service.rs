@@ -5,12 +5,12 @@
 //! and Session is a child entity.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     sync::{Arc, RwLock},
     time::Duration,
 };
 
-use agent_client_protocol::{self as acp, PromptResponse};
+use agent_client_protocol::{self as acp, AvailableCommand, PromptResponse};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,8 @@ pub struct AgentSessionInfo {
     pub created_at: DateTime<Utc>,
     pub last_active: DateTime<Utc>,
     pub status: SessionStatus,
+    /// Available commands for this session (slash commands, etc.)
+    pub available_commands: Vec<AvailableCommand>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -71,6 +73,19 @@ impl AgentService {
         self.agent_manager.list_agents().await
     }
 
+    /// Get the initialize response for a specific agent
+    pub async fn get_agent_init_response(
+        &self,
+        agent_name: &str,
+    ) -> Option<acp::InitializeResponse> {
+        self.agent_manager.get_agent_init_response(agent_name).await
+    }
+
+    /// Get all agents with their initialize responses
+    pub async fn list_agents_with_info(&self) -> Vec<(String, Option<acp::InitializeResponse>)> {
+        self.agent_manager.list_agents_with_info().await
+    }
+
     /// Get agent handle (internal use)
     async fn get_agent_handle(&self, name: &str) -> Result<Arc<AgentHandle>> {
         self.agent_manager
@@ -97,23 +112,40 @@ impl AgentService {
             .session_id
             .to_string();
 
-        // Store session information
+        let now = Utc::now();
         let session_info = AgentSessionInfo {
             session_id: session_id.clone(),
             agent_name: agent_name.to_string(),
-            created_at: Utc::now(),
-            last_active: Utc::now(),
+            created_at: now,
+            last_active: now,
             status: SessionStatus::Active,
+            available_commands: Vec::new(), // Will be populated by AvailableCommandsUpdate
         };
 
         // Insert into nested HashMap structure
         let mut sessions = self.sessions.write().unwrap();
-        sessions
+        let agent_sessions = sessions
             .entry(agent_name.to_string())
-            .or_insert_with(HashMap::new)
-            .insert(session_id.clone(), session_info);
+            .or_insert_with(HashMap::new);
 
-        log::info!("Created session {} for agent {}", session_id, agent_name);
+        match agent_sessions.entry(session_id.clone()) {
+            Entry::Occupied(mut entry) => {
+                let info = entry.get_mut();
+                info.agent_name = agent_name.to_string();
+                info.created_at = now;
+                info.last_active = now;
+                info.status = SessionStatus::Active;
+                log::info!(
+                    "Session {} for agent {} already exists; refreshed metadata",
+                    session_id,
+                    agent_name
+                );
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(session_info);
+                log::info!("Created session {} for agent {}", session_id, agent_name);
+            }
+        }
         Ok(session_id)
     }
 
@@ -209,6 +241,59 @@ impl AgentService {
                 info.last_active = Utc::now();
             }
         }
+    }
+
+    /// Update session's available commands
+    pub fn update_session_commands(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        commands: Vec<AvailableCommand>,
+    ) {
+        let now = Utc::now();
+        let command_count = commands.len();
+        let mut sessions = self.sessions.write().unwrap();
+        let agent_sessions = sessions
+            .entry(agent_name.to_string())
+            .or_insert_with(HashMap::new);
+        log::info!(
+            "Updating available commands for {}:{} - {} commands",
+            agent_name,
+            session_id,
+            command_count
+        );
+
+        match agent_sessions.entry(session_id.to_string()) {
+            Entry::Occupied(mut entry) => {
+                let info = entry.get_mut();
+                info.available_commands = commands;
+                info.last_active = now;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(AgentSessionInfo {
+                    session_id: session_id.to_string(),
+                    agent_name: agent_name.to_string(),
+                    created_at: now,
+                    last_active: now,
+                    status: SessionStatus::Active,
+                    available_commands: commands,
+                });
+            }
+        }
+    }
+
+    /// Get available commands for a session
+    pub fn get_session_commands(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Option<Vec<AvailableCommand>> {
+        self.sessions
+            .read()
+            .unwrap()
+            .get(agent_name)?
+            .get(session_id)
+            .map(|info| info.available_commands.clone())
     }
     pub fn update_session_status(&self, agent_name: &str, session_id: &str, status: SessionStatus) {
         if let Some(agent_sessions) = self.sessions.write().unwrap().get_mut(agent_name) {

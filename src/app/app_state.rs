@@ -119,6 +119,7 @@ impl AppState {
             self.session_bus.clone(),
             agent_service.clone(),
             persistence_service,
+            self.workspace_bus.clone(),
         ));
 
         // Initialize AgentConfigService if config_path is set

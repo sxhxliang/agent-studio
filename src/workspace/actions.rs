@@ -1,17 +1,19 @@
 use agent_client_protocol as acp;
 use gpui::*;
-use gpui_component::dock::{DockItem, DockPlacement};
+use gpui_component::dock::{
+    DockItem, DockPlacement, Panel, PanelInfo, PanelState, PanelView, TabPanel
+};
 use std::sync::Arc;
 
 use crate::{
-    AddPanel, AppState, ConversationPanel, CreateTaskFromWelcome, NewSessionConversationPanel,
-    SendMessageToSession, SettingsPanel, ShowConversationPanel, ShowToolCallDetail,
-    ShowWelcomePanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
+    AddPanel, AddSessionPanel, AppState, ConversationPanel, CreateTaskFromWelcome,
+    NewSessionConversationPanel, SendMessageToSession, SettingsPanel, ShowConversationPanel,
+    ShowToolCallDetail, ShowWelcomePanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
     app::actions::{
         AddAgent, CancelSession, ChangeConfigPath, ReloadAgentConfig, RemoveAgent, RestartAgent,
         SetUploadDir, Submit, UpdateAgent,
     },
-    panels::{DockPanel, dock_panel::DockPanelContainer},
+    panels::{DockPanel, dock_panel::{DockPanelContainer, DockPanelState}},
     title_bar::OpenSettings,
     utils,
 };
@@ -39,40 +41,269 @@ impl DockWorkspace {
         });
     }
 
-    /// Helper method to show ConversationPanel in the current active tab
-    /// This will add the panel to the current TabPanel instead of replacing the entire center
+    /// Helper method to show ConversationPanel in the active center tab
     ///
-    /// If session_id is provided, it will load the conversation history for that session
-    /// Otherwise, it will create a new conversation panel with mock data
+    /// If session_id is provided, it will load the conversation history for that session.
+    /// Otherwise, it will create a new conversation panel with mock data.
     fn show_conversation_panel(
         &mut self,
         session_id: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let conversation_panel = if let Some(session_id) = session_id {
-            // Create panel for specific session (will load history automatically)
-            DockPanelContainer::panel_for_session(session_id, window, cx)
-        } else {
-            // Create new panel without session (mock data)
-            DockPanelContainer::panel::<ConversationPanel>(window, cx)
-        };
+        if let Some(session_id) = session_id.as_deref() {
+            if self.activate_existing_session_panel(session_id, window, cx) {
+                return;
+            }
 
-        let conversation_item =
-            DockItem::tab(conversation_panel, &self.dock_area.downgrade(), window, cx);
-
-        let conversation_dock = DockItem::split_with_sizes(
-            Axis::Horizontal,
-            vec![conversation_item],
-            vec![None, None],
-            &self.dock_area.downgrade(),
-            window,
-            cx,
-        );
+            let session_id = session_id.to_string();
+            self.dock_area.update(cx, |dock_area, cx| {
+                let conversation_panel =
+                    DockPanelContainer::panel_for_session(session_id.clone(), window, cx);
+                dock_area.add_panel(
+                    Arc::new(conversation_panel),
+                    DockPlacement::Center,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+            return;
+        }
 
         self.dock_area.update(cx, |dock_area, cx| {
-            dock_area.set_center(conversation_dock, window, cx);
+            let selection =
+                Self::find_focused_tab_panel(dock_area.items(), window, cx)
+                    .or_else(|| Self::find_first_tab_panel(dock_area.items(), cx));
+
+            if let Some((_, active_panel)) = selection {
+                if let Ok(container) = active_panel.view().downcast::<DockPanelContainer>() {
+                    container.update(cx, |container, cx| {
+                        container
+                            .replace_with_conversation_session(session_id.clone(), window, cx);
+                    });
+                    return;
+                }
+            }
+
+            let conversation_panel = if let Some(session_id) = session_id.clone() {
+                DockPanelContainer::panel_for_session(session_id, window, cx)
+            } else {
+                DockPanelContainer::panel::<ConversationPanel>(window, cx)
+            };
+            dock_area.add_panel(
+                Arc::new(conversation_panel),
+                DockPlacement::Center,
+                None,
+                window,
+                cx,
+            );
         });
+    }
+
+    fn find_focused_tab_panel(
+        item: &DockItem,
+        window: &Window,
+        cx: &App,
+    ) -> Option<(Entity<TabPanel>, Arc<dyn PanelView>)> {
+        match item {
+            DockItem::Tabs { view, .. } => {
+                let active_panel = view.read(cx).active_panel(cx)?;
+                if active_panel
+                    .focus_handle(cx)
+                    .contains_focused(window, cx)
+                {
+                    Some((view.clone(), active_panel))
+                } else {
+                    None
+                }
+            }
+            DockItem::Split { items, .. } => items
+                .iter()
+                .find_map(|item| Self::find_focused_tab_panel(item, window, cx)),
+            DockItem::Tiles { .. } | DockItem::Panel { .. } => None,
+        }
+    }
+
+    fn find_first_tab_panel(
+        item: &DockItem,
+        cx: &App,
+    ) -> Option<(Entity<TabPanel>, Arc<dyn PanelView>)> {
+        match item {
+            DockItem::Tabs { view, .. } => view
+                .read(cx)
+                .active_panel(cx)
+                .map(|active_panel| (view.clone(), active_panel)),
+            DockItem::Split { items, .. } => items
+                .iter()
+                .find_map(|item| Self::find_first_tab_panel(item, cx)),
+            DockItem::Tiles { .. } | DockItem::Panel { .. } => None,
+        }
+    }
+
+    fn activate_existing_session_panel(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        log::debug!(
+            "Searching existing session panel: session_id={}",
+            session_id
+        );
+        let items = self.dock_area.read(cx).items().clone();
+        let found = Self::activate_session_in_item(&items, session_id, window, cx);
+        if found {
+            log::debug!(
+                "Activated existing session panel: session_id={}",
+                session_id
+            );
+        } else {
+            log::debug!("No existing session panel found: session_id={}", session_id);
+        }
+        found
+    }
+
+    fn activate_session_in_item(
+        item: &DockItem,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        match item {
+            DockItem::Tabs {
+                view,
+                ..
+            } => {
+                let tab_state = view.read(cx).dump(cx);
+                let active_ix = tab_state.info.active_index().unwrap_or(0);
+
+                for (ix, child_state) in tab_state.children.iter().enumerate() {
+                    if !Self::panel_state_contains_session(child_state, session_id) {
+                        continue;
+                    }
+
+                    log::debug!(
+                        "Found session panel in tabs: session_id={} active_ix={} target_ix={}",
+                        session_id,
+                        active_ix,
+                        ix
+                    );
+
+                    if ix != active_ix {
+                        let _ = item.clone().active_index(ix, cx);
+                    }
+
+                    if let Some(active_panel) = view.read(cx).active_panel(cx) {
+                        active_panel.focus_handle(cx).focus(window, cx);
+                    }
+                    let _ = view.update(cx, |_, cx| {
+                        cx.notify();
+                    });
+                    return true;
+                }
+
+                false
+            }
+            DockItem::Split { items, .. } => items.iter().any(|item| {
+                Self::activate_session_in_item(item, session_id, window, cx)
+            }),
+            DockItem::Panel { view, .. } => {
+                if Self::panel_matches_session(view, session_id, cx) {
+                    view.set_active(true, window, cx);
+                    view.focus_handle(cx).focus(window, cx);
+                    return true;
+                }
+                false
+            }
+            DockItem::Tiles { .. } => false,
+        }
+    }
+
+    fn panel_state_contains_session(panel_state: &PanelState, session_id: &str) -> bool {
+        match &panel_state.info {
+            PanelInfo::Panel(value) => {
+                let dock_state = DockPanelState::from_value(value.clone());
+                if dock_state.story_klass.as_ref() == "ConversationPanel"
+                    && dock_state.session_id.as_deref() == Some(session_id)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+
+        panel_state
+            .children
+            .iter()
+            .any(|child| Self::panel_state_contains_session(child, session_id))
+    }
+
+    fn panel_matches_session(
+        panel: &Arc<dyn PanelView>,
+        session_id: &str,
+        cx: &App,
+    ) -> bool {
+        let panel_id = panel.panel_id(cx);
+        let Ok(container) = panel.view().downcast::<DockPanelContainer>() else {
+            log::debug!(
+                "Panel is not DockPanelContainer: session_id={} panel_id={:?}",
+                session_id,
+                panel_id
+            );
+            return false;
+        };
+
+        let container = container.read(cx);
+        let Some(story_klass) = container.story_klass.as_ref() else {
+            log::debug!(
+                "Panel has no story klass: session_id={} panel_id={:?}",
+                session_id,
+                panel_id
+            );
+            return false;
+        };
+
+        if story_klass.as_ref() != "ConversationPanel" {
+            log::debug!(
+                "Panel story klass mismatch: session_id={} panel_id={:?} story_klass={}",
+                session_id,
+                panel_id,
+                story_klass.as_ref()
+            );
+            return false;
+        }
+
+        let Some(story) = container.story.clone() else {
+            log::debug!(
+                "Conversation panel missing story: session_id={} panel_id={:?}",
+                session_id,
+                panel_id
+            );
+            return false;
+        };
+
+        let Ok(conversation) = story.downcast::<ConversationPanel>() else {
+            log::debug!(
+                "Conversation panel downcast failed: session_id={} panel_id={:?}",
+                session_id,
+                panel_id
+            );
+            return false;
+        };
+
+        let panel_session_id = conversation.read(cx).session_id();
+        if panel_session_id.as_deref() == Some(session_id) {
+            return true;
+        }
+
+        log::debug!(
+            "Conversation panel session mismatch: session_id={} panel_id={:?} panel_session_id={:?}",
+            session_id,
+            panel_id,
+            panel_session_id
+        );
+        false
     }
     /// Handle AddPanel action - randomly add a conversation panel to specified dock area
     pub(super) fn on_action_add_panel(
@@ -86,6 +317,30 @@ impl DockWorkspace {
 
         self.dock_area.update(cx, |dock_area, cx| {
             dock_area.add_panel(panel, action.0, None, window, cx);
+        });
+    }
+
+    /// Handle AddSessionPanel action - add a conversation panel for a specific session
+    pub(super) fn on_action_add_session_panel(
+        &mut self,
+        action: &AddSessionPanel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !action.session_id.is_empty()
+            && self.activate_existing_session_panel(&action.session_id, window, cx)
+        {
+            return;
+        }
+
+        let panel = if action.session_id.is_empty() {
+            Arc::new(DockPanelContainer::panel::<ConversationPanel>(window, cx))
+        } else {
+            Arc::new(Self::panel_for_session(action.session_id.clone(), window, cx))
+        };
+
+        self.dock_area.update(cx, |dock_area, cx| {
+            dock_area.add_panel(panel, action.placement, None, window, cx);
         });
     }
 
@@ -483,6 +738,7 @@ impl DockWorkspace {
 
             let user_event = crate::core::event_bus::session_bus::SessionUpdateEvent {
                 session_id: session_id.clone(),
+                agent_name: None,
                 update: Arc::new(acp::SessionUpdate::UserMessageChunk(content_chunk)),
             };
 

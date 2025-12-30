@@ -5,6 +5,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub struct SessionUpdateEvent {
     pub session_id: String,
+    pub agent_name: Option<String>,
     pub update: Arc<SessionUpdate>,
 }
 

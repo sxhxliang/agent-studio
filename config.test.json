@@ -1,0 +1,45 @@
+{
+  "agent_servers": {
+    "Claude Code": {
+      "command": "claude-code-acp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "upload_dir": ".",
+  "models": {},
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "D:\\Code",
+        "D:\\Documents"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "ghp_test_token_1234567890"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  },
+  "commands": {
+    "summarize": {
+      "description": "Summarize the current conversation",
+      "template": "Please provide a concise summary."
+    }
+  }
+}

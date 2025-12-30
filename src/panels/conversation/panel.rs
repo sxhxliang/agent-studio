@@ -1,23 +1,23 @@
 use gpui::{
     App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
-    Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
+    Render, ScrollHandle, SharedString, Styled, Timer, Window, div, prelude::*, px,
 };
-use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex, input::InputState, scroll::ScrollableElement, v_flex,
-};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, input::InputState, v_flex};
 
 // Use the published ACP schema crate
 use agent_client_protocol::{ContentChunk, ImageContent, SessionUpdate, ToolCall};
 use chrono::{DateTime, Utc};
+use std::time::Duration;
 
 use crate::{
-    AgentMessage, AgentTodoList, AppState, CancelSession, ChatInputBox, SendMessageToSession,
-    app::actions::AddCodeSelection, core::services::SessionStatus, panels::dock_panel::DockPanel,
+    AgentMessage, AgentTodoList, AppState, CancelSession, ChatInputBox, DiffSummary,
+    DiffSummaryData, SendMessageToSession, app::actions::AddCodeSelection,
+    core::services::SessionStatus, panels::dock_panel::DockPanel,
 };
 
 // Import from submodules
 use super::{
-    components::{ResourceItemState, ToolCallItemState, UserMessageView},
+    components::{AgentThoughtItemState, ResourceItemState, ToolCallItemState, UserMessageView},
     helpers::{extract_text_from_content, get_element_id, session_update_type_name},
     rendered_item::{RenderedItem, create_agent_message_data},
     types::ResourceInfo,
@@ -81,6 +81,10 @@ impl ConversationPanel {
         entity
     }
 
+    pub fn session_id(&self) -> Option<String> {
+        self.session_id.clone()
+    }
+
     fn new(_window: &mut Window, cx: &mut App) -> Self {
         log::info!("🔧 Initializing ConversationPanel (new)");
         let focus_handle = cx.focus_handle();
@@ -91,13 +95,7 @@ impl ConversationPanel {
                 .soft_wrap(true)
                 .placeholder("Type a message...")
         });
-        let session_updates = Self::load_mock_data();
-
-        let mut rendered_items = Vec::new();
-        for (index, update) in session_updates.into_iter().enumerate() {
-            Self::add_update_to_list(&mut rendered_items, update, index, cx);
-        }
-
+        let rendered_items = Vec::new();
         let next_index = rendered_items.len();
 
         Self {
@@ -142,20 +140,46 @@ impl ConversationPanel {
 
     /// Load historical messages for a session
     pub fn load_history_for_session(entity: &Entity<Self>, session_id: String, cx: &mut App) {
-        let weak_entity = entity.downgrade();
+        Self::load_history_for_session_with_retry(entity.clone(), session_id, 20, cx);
+    }
 
-        // Get MessageService
+    fn load_history_for_session_with_retry(
+        entity: Entity<Self>,
+        session_id: String,
+        remaining_attempts: usize,
+        cx: &mut App,
+    ) {
         let message_service = match AppState::global(cx).message_service() {
             Some(service) => service.clone(),
             None => {
-                log::error!("MessageService not initialized, cannot load history");
+                if remaining_attempts == 0 {
+                    log::error!("MessageService not initialized, cannot load history");
+                    return;
+                }
+
+                let weak_entity = entity.downgrade();
+                cx.spawn(async move |cx| {
+                    Timer::after(Duration::from_millis(500)).await;
+                    let _ = cx.update(|cx| {
+                        if let Some(entity) = weak_entity.upgrade() {
+                            Self::load_history_for_session_with_retry(
+                                entity,
+                                session_id,
+                                remaining_attempts - 1,
+                                cx,
+                            );
+                        }
+                    });
+                })
+                .detach();
                 return;
             }
         };
 
+        let weak_entity = entity.downgrade();
+
         log::info!("Loading history for session: {}", session_id);
 
-        // Spawn background task to load history
         cx.spawn(async move |cx| {
             match message_service.load_history(&session_id).await {
                 Ok(messages) => {
@@ -169,7 +193,6 @@ impl ConversationPanel {
                     let _ = cx.update(|cx| {
                         if let Some(entity) = weak.upgrade() {
                             entity.update(cx, |this, cx| {
-                                // Process each historical message
                                 for (index, persisted_msg) in messages.into_iter().enumerate() {
                                     log::debug!(
                                         "Loading historical message {}: timestamp={}",
@@ -184,7 +207,6 @@ impl ConversationPanel {
                                     );
                                 }
 
-                                // Update next_index to continue after historical messages
                                 this.next_index = this.rendered_items.len();
 
                                 log::info!(
@@ -194,14 +216,9 @@ impl ConversationPanel {
                                     this.next_index
                                 );
 
-                                cx.notify(); // Trigger re-render
-
-                                // Scroll to bottom after loading history
-                                let scroll_handle = this.scroll_handle.clone();
-                                cx.defer(move |_| {
-                                    scroll_handle
-                                        .set_offset(gpui::point(gpui::px(0.), gpui::px(999999.)));
-                                });
+                                this.add_diff_summary_if_needed(cx);
+                                this.scroll_handle.scroll_to_bottom();
+                                cx.notify();
                             });
                         } else {
                             log::warn!("Entity dropped while loading history");
@@ -266,13 +283,7 @@ impl ConversationPanel {
                             cx.notify(); // Trigger re-render immediately
 
                             // Scroll to bottom after render completes
-                            let scroll_handle = this.scroll_handle.clone();
-                            cx.defer(move |_| {
-                                // Set to a very large Y offset to ensure scrolling to bottom
-                                scroll_handle
-                                    .set_offset(gpui::point(gpui::px(0.), gpui::px(999999.)));
-                            });
-
+                            this.scroll_handle.scroll_to_bottom();
                             log::info!(
                                 "Rendered session update, total items: {}",
                                 this.rendered_items.len()
@@ -486,6 +497,9 @@ impl ConversationPanel {
                                         last_item.mark_complete();
                                         log::debug!("Marked last message as complete due to status change to {:?}", status);
                                     }
+
+                                    // Add DiffSummary to message stream when session ends
+                                    this.add_diff_summary_if_needed(cx);
                                 }
 
                                 // Update session status
@@ -514,6 +528,41 @@ impl ConversationPanel {
             "Subscribed to workspace bus for status updates: {}",
             filter_log3.as_deref().unwrap_or("all sessions")
         );
+    }
+
+    /// Collect all ToolCall instances from rendered items
+    fn collect_tool_calls(&self, cx: &App) -> Vec<ToolCall> {
+        let mut tool_calls = Vec::new();
+
+        for item in &self.rendered_items {
+            if let RenderedItem::ToolCall(entity) = item {
+                // Read the ToolCallItemState and extract the ToolCall
+                let tool_call = entity.read(cx).tool_call.clone();
+                tool_calls.push(tool_call);
+            }
+        }
+
+        tool_calls
+    }
+
+    /// Add DiffSummary to the message stream if there are any tool calls with diffs
+    fn add_diff_summary_if_needed(&mut self, cx: &mut Context<Self>) {
+        // Collect all tool calls
+        let tool_calls = self.collect_tool_calls(cx);
+
+        // Create summary data from tool calls
+        let summary_data = DiffSummaryData::from_tool_calls(&tool_calls);
+
+        // Only add summary if there are actual changes
+        if summary_data.has_changes() {
+            log::info!(
+                "Adding DiffSummary to message stream with {} files changed",
+                summary_data.total_files()
+            );
+            let diff_summary = cx.new(|_| DiffSummary::new(summary_data));
+            self.rendered_items
+                .push(RenderedItem::DiffSummary(diff_summary));
+        }
     }
 
     /// Helper to add an update to the rendered items list
@@ -575,7 +624,7 @@ impl ConversationPanel {
                     .last_mut()
                     .map(|last_item| {
                         if last_item.can_accept_agent_thought_chunk() {
-                            last_item.try_append_agent_thought_chunk(text.clone())
+                            last_item.try_append_agent_thought_chunk(text.clone(), cx)
                         } else {
                             // Different type, mark the last item as complete
                             last_item.mark_complete();
@@ -588,7 +637,8 @@ impl ConversationPanel {
                     log::debug!("  └─ Merged AgentThoughtChunk into existing thought");
                 } else {
                     log::debug!("  └─ Creating new AgentThought");
-                    items.push(RenderedItem::AgentThought(text));
+                    let entity = cx.new(|_| AgentThoughtItemState::new(text));
+                    items.push(RenderedItem::AgentThought(entity));
                 }
             }
             SessionUpdate::ToolCall(tool_call) => {
@@ -725,24 +775,6 @@ impl ConversationPanel {
                     update_type,
                     update
                 );
-            }
-        }
-    }
-
-    /// Load mock session updates from JSON file
-    fn load_mock_data() -> Vec<SessionUpdate> {
-        let json_str = include_str!("../../../mock_conversation_acp.json");
-        match serde_json::from_str::<Vec<SessionUpdate>>(json_str) {
-            Ok(updates) => {
-                log::info!(
-                    "✅ Successfully loaded {} mock conversation updates",
-                    updates.len()
-                );
-                updates
-            }
-            Err(e) => {
-                log::error!("❌ Failed to load mock conversation data: {}", e);
-                Vec::new()
             }
         }
     }
@@ -1086,41 +1118,8 @@ impl Render for ConversationPanel {
                     let msg = AgentMessage::new(get_element_id(id), data.clone());
                     children = children.child(msg);
                 }
-                RenderedItem::AgentThought(text) => {
-                    children = children.child(
-                        div().pl_6().child(
-                            div()
-                                .p_3()
-                                .rounded_lg()
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .bg(cx.theme().muted.opacity(0.3))
-                                .child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(
-                                            Icon::new(IconName::Bot)
-                                                .size(px(14.))
-                                                .text_color(cx.theme().muted_foreground),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child("Thinking..."),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .mt_2()
-                                        .text_sm()
-                                        .italic()
-                                        .text_color(cx.theme().foreground.opacity(0.8))
-                                        .child(text.clone()),
-                                ),
-                        ),
-                    );
+                RenderedItem::AgentThought(entity) => {
+                    children = children.child(entity.clone());
                 }
                 RenderedItem::Plan(plan) => {
                     let todo_list = AgentTodoList::from_plan(plan.clone());
@@ -1131,6 +1130,10 @@ impl Render for ConversationPanel {
                 }
                 RenderedItem::PermissionRequest(entity) => {
                     children = children.child(v_flex().pl_6().child(entity.clone()));
+                }
+                RenderedItem::DiffSummary(entity) => {
+                    // Render DiffSummary as part of message stream
+                    children = children.child(entity.clone());
                 }
                 RenderedItem::InfoUpdate(text) => {
                     children = children.child(
@@ -1155,18 +1158,38 @@ impl Render for ConversationPanel {
 
         // Main layout: vertical flex with scroll area on top and input box at bottom
         v_flex()
+            .id("messages")
             .size_full()
-            .track_focus(&self.focus_handle) // CRITICAL: Track focus to enable action propagation
             .child(
                 // Scrollable message area - takes remaining space
                 div()
                     .id("conversation-scroll-container")
                     .flex_1()
+                    .w_full()
+                    .track_scroll(&self.scroll_handle)
                     .overflow_y_scroll()
-                    .overflow_y_scrollbar()
-                    // .track_scroll(&self.scroll_handle)
-                    .pb_3() // Add padding at bottom so messages don't get hidden behind input box
-                    .child(children),
+                    .size_full()
+                    .when(self.rendered_items.is_empty(), |this| {
+                        // Show empty state with centered text
+                        this.child(
+                            div()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .text_sm()
+                                        .child("暂无消息"),
+                                ),
+                        )
+                    })
+                    .when(!self.rendered_items.is_empty(), |this| {
+                        // Show message list
+                        this.pb_3() // Add padding at bottom so messages don't get hidden behind input box
+                            .child(children)
+                    }),
             )
             .when_some(self.render_status_bar(cx), |this, status_bar| {
                 this.child(status_bar)
