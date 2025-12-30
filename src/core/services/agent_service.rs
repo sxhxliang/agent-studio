@@ -73,6 +73,16 @@ impl AgentService {
         self.agent_manager.list_agents().await
     }
 
+    /// Get the initialize response for a specific agent
+    pub async fn get_agent_init_response(&self, agent_name: &str) -> Option<acp::InitializeResponse> {
+        self.agent_manager.get_agent_init_response(agent_name).await
+    }
+
+    /// Get all agents with their initialize responses
+    pub async fn list_agents_with_info(&self) -> Vec<(String, Option<acp::InitializeResponse>)> {
+        self.agent_manager.list_agents_with_info().await
+    }
+
     /// Get agent handle (internal use)
     async fn get_agent_handle(&self, name: &str) -> Result<Arc<AgentHandle>> {
         self.agent_manager
