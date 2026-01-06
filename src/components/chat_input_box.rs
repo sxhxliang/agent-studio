@@ -19,6 +19,7 @@ use agent_client_protocol::{AvailableCommand, ImageContent};
 use crate::app::actions::AddCodeSelection;
 use crate::components::{
     AgentItem, FileItem, InputSuggestion, InputSuggestionItem, InputSuggestionState,
+    ModeSelectItem, ModelSelectItem,
 };
 use crate::core::config::McpServerConfig;
 use crate::core::services::SessionStatus;
@@ -66,7 +67,7 @@ impl InputSuggestionItem for ChatSuggestion {
 /// Features:
 /// - @ trigger for file suggestions
 /// - Multi-line textarea with auto-grow (2-8 rows)
-/// - Action buttons (attach, mode select, sources)
+/// - Action buttons (attach, mode/model select, sources)
 /// - Send button with icon
 /// - Optional title displayed above the input box
 /// - Support for pasting multiple images with filename display
@@ -77,7 +78,8 @@ pub struct ChatInputBox {
     title: Option<String>,
     on_send: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
     on_cancel: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
-    mode_select: Option<Entity<SelectState<Vec<&'static str>>>>,
+    mode_select: Option<Entity<SelectState<Vec<ModeSelectItem>>>>,
+    model_select: Option<Entity<SelectState<Vec<ModelSelectItem>>>>,
     agent_select: Option<Entity<SelectState<Vec<AgentItem>>>>,
     session_select: Option<Entity<SelectState<Vec<String>>>>,
     on_new_session: Option<Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>>,
@@ -116,6 +118,7 @@ impl ChatInputBox {
             on_send: None,
             on_cancel: None,
             mode_select: None,
+            model_select: None,
             agent_select: None,
             session_select: None,
             on_new_session: None,
@@ -164,8 +167,14 @@ impl ChatInputBox {
     }
 
     /// Set the mode select state
-    pub fn mode_select(mut self, select: Entity<SelectState<Vec<&'static str>>>) -> Self {
+    pub fn mode_select(mut self, select: Entity<SelectState<Vec<ModeSelectItem>>>) -> Self {
         self.mode_select = Some(select);
+        self
+    }
+
+    /// Set the model select state
+    pub fn model_select(mut self, select: Entity<SelectState<Vec<ModelSelectItem>>>) -> Self {
+        self.model_select = Some(select);
         self
     }
 
@@ -717,6 +726,11 @@ impl RenderOnce for ChatInputBox {
                                     .when_some(self.mode_select, |this, mode_select| {
                                         this.child(
                                             Select::new(&mode_select).small().appearance(false),
+                                        )
+                                    })
+                                    .when_some(self.model_select, |this, model_select| {
+                                        this.child(
+                                            Select::new(&model_select).small().appearance(false),
                                         )
                                     })
                                     // MCP multi-select popover (simplified)

@@ -302,6 +302,26 @@ impl AgentHandle {
         result
     }
 
+    /// Set the session model
+    #[cfg(feature = "unstable")]
+    pub async fn set_session_model(
+        &self,
+        request: acp::SetSessionModelRequest,
+    ) -> Result<acp::SetSessionModelResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(AgentCommand::SetSessionModel {
+                request,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| anyhow!("agent {} is not running", self.name))?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("agent {} stopped", self.name))?;
+        result
+    }
+
     /// Shutdown the agent gracefully
     pub async fn shutdown(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();

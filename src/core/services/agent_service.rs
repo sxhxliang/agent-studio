@@ -35,6 +35,8 @@ pub struct AgentSessionInfo {
     pub created_at: DateTime<Utc>,
     pub last_active: DateTime<Utc>,
     pub status: SessionStatus,
+    /// Session metadata returned on creation (modes/models/etc.)
+    pub new_session_response: Option<acp::NewSessionResponse>,
     /// Available commands for this session (slash commands, etc.)
     pub available_commands: Vec<AvailableCommand>,
 }
@@ -114,22 +116,14 @@ impl AgentService {
         request.mcp_servers = mcp_servers;
         request.meta = None;
 
-        let session_id = agent_handle
+        let new_session_response: agent_client_protocol::NewSessionResponse = agent_handle
             .new_session(request)
             .await
-            .map_err(|e| anyhow!("Failed to create session: {}", e))?
-            .session_id
-            .to_string();
+            .map_err(|e| anyhow!("Failed to create session: {}", e))?;
+
+        let session_id = new_session_response.session_id.to_string();
 
         let now = Utc::now();
-        let session_info = AgentSessionInfo {
-            session_id: session_id.clone(),
-            agent_name: agent_name.to_string(),
-            created_at: now,
-            last_active: now,
-            status: SessionStatus::Active,
-            available_commands: Vec::new(), // Will be populated by AvailableCommandsUpdate
-        };
 
         // Insert into nested HashMap structure
         let mut sessions = self.sessions.write().unwrap();
@@ -144,6 +138,7 @@ impl AgentService {
                 info.created_at = now;
                 info.last_active = now;
                 info.status = SessionStatus::Active;
+                info.new_session_response = Some(new_session_response);
                 log::info!(
                     "Session {} for agent {} already exists; refreshed metadata",
                     session_id,
@@ -151,7 +146,15 @@ impl AgentService {
                 );
             }
             Entry::Vacant(entry) => {
-                entry.insert(session_info);
+                entry.insert(AgentSessionInfo {
+                    session_id: session_id.clone(),
+                    agent_name: agent_name.to_string(),
+                    created_at: now,
+                    last_active: now,
+                    status: SessionStatus::Active,
+                    new_session_response: Some(new_session_response),
+                    available_commands: Vec::new(), // Will be populated by AvailableCommandsUpdate
+                });
                 log::info!("Created session {} for agent {}", session_id, agent_name);
             }
         }
@@ -285,6 +288,7 @@ impl AgentService {
                     created_at: now,
                     last_active: now,
                     status: SessionStatus::Active,
+                    new_session_response: None,
                     available_commands: commands,
                 });
             }

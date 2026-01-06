@@ -17,8 +17,10 @@ use agent_client_protocol::{AvailableCommand, ImageContent};
 use crate::{
     AppState, CreateTaskFromWelcome, WelcomeSession,
     app::actions::AddCodeSelection,
-    components::{AgentItem, ChatInputBox, FileItem, FilePickerDelegate},
-    core::config::McpServerConfig,
+    components::{
+        AgentItem, ChatInputBox, FileItem, FilePickerDelegate, ModeSelectItem, ModelSelectItem,
+    },
+    core::{config::McpServerConfig, services::AgentSessionInfo},
 };
 
 // File picker delegate is now imported from components module
@@ -31,12 +33,14 @@ pub struct WelcomePanel {
     focus_handle: FocusHandle,
     input_state: Entity<InputState>,
     context_list: Entity<ListState<FilePickerDelegate>>,
-    mode_select: Entity<SelectState<Vec<&'static str>>>,
+    mode_select: Entity<SelectState<Vec<ModeSelectItem>>>,
+    model_select: Entity<SelectState<Vec<ModelSelectItem>>>,
     agent_select: Entity<SelectState<Vec<AgentItem>>>,
     session_select: Entity<SelectState<Vec<String>>>,
     current_agent_name: Option<String>,
     current_session_id: Option<String>,
     has_agents: bool,
+    has_models: bool,
     has_workspace: bool,
     active_workspace_name: Option<String>,
     /// Specific workspace ID to display (if provided via action)
@@ -183,8 +187,8 @@ impl WelcomePanel {
             let session_select_sub = cx.subscribe_in(
                 &this.session_select,
                 window,
-                |this, _, _: &SelectEvent<Vec<String>>, _window, cx| {
-                    this.on_session_changed(cx);
+                |this, _, _: &SelectEvent<Vec<String>>, window, cx| {
+                    this.on_session_changed(window, cx);
                 },
             );
             this._subscriptions.push(session_select_sub);
@@ -193,11 +197,20 @@ impl WelcomePanel {
             let mode_select_sub = cx.subscribe_in(
                 &this.mode_select,
                 window,
-                |this, _, _: &SelectEvent<Vec<&'static str>>, _window, cx| {
+                |this, _, _: &SelectEvent<Vec<ModeSelectItem>>, _window, cx| {
                     this.on_mode_changed(cx);
                 },
             );
             this._subscriptions.push(mode_select_sub);
+
+            let model_select_sub = cx.subscribe_in(
+                &this.model_select,
+                window,
+                |this, _, _: &SelectEvent<Vec<ModelSelectItem>>, _window, cx| {
+                    this.on_model_changed(cx);
+                },
+            );
+            this._subscriptions.push(model_select_sub);
         });
 
         // Load workspace info immediately and refresh on each panel creation
@@ -275,11 +288,15 @@ impl WelcomePanel {
 
         let mode_select = cx.new(|cx| {
             SelectState::new(
-                vec!["default", "acceptedits", "plan", "dontAsk", "bypassPermissions"],
-                Some(IndexPath::default()), // Select "Auto" by default
+                Self::default_mode_items(),
+                Some(IndexPath::default()),
                 window,
                 cx,
             )
+        });
+
+        let model_select = cx.new(|cx| {
+            SelectState::new(Vec::<ModelSelectItem>::new(), None, window, cx)
         });
 
         // Get available agents from AppState - we'll load them asynchronously
@@ -299,11 +316,13 @@ impl WelcomePanel {
             input_state,
             context_list,
             mode_select,
+            model_select,
             agent_select,
             session_select,
             current_agent_name: None,
             current_session_id: None,
             has_agents,
+            has_models: false,
             has_workspace: false,
             active_workspace_name: None,
             workspace_id,
@@ -537,6 +556,7 @@ impl WelcomePanel {
                 self.current_agent_name = None;
                 self.current_session_id = None;
                 AppState::global_mut(cx).clear_welcome_session();
+                self.sync_session_capabilities(None, window, cx);
                 cx.notify();
                 return;
             }
@@ -564,7 +584,7 @@ impl WelcomePanel {
     }
 
     /// Handle session selection change - update welcome_session
-    fn on_session_changed(&mut self, cx: &mut Context<Self>) {
+    fn on_session_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let agent_name = match self.agent_select.read(cx).selected_value().cloned() {
             Some(name) if name != "No agents" => name,
             _ => return,
@@ -600,6 +620,9 @@ impl WelcomePanel {
                 selected_session.session_id,
                 agent_name
             );
+
+            self.sync_session_capabilities(Some(selected_session), window, cx);
+            cx.notify();
         }
     }
 
@@ -607,7 +630,7 @@ impl WelcomePanel {
     fn on_mode_changed(&mut self, cx: &mut Context<Self>) {
         // Get the selected mode
         let mode = match self.mode_select.read(cx).selected_value() {
-            Some(m) => m.to_lowercase(),
+            Some(m) => m.clone(),
             None => return,
         };
 
@@ -678,6 +701,90 @@ impl WelcomePanel {
                     log::error!(
                         "[WelcomePanel] Failed to set session mode to '{}' for session '{}': {}",
                         mode,
+                        session_id,
+                        e
+                    );
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Handle model selection change - send SetSessionModel command to agent
+    fn on_model_changed(&mut self, cx: &mut Context<Self>) {
+        // Get the selected model ID
+        let model_id = match self.model_select.read(cx).selected_value() {
+            Some(model) => model.clone(),
+            None => return,
+        };
+
+        // Get the current session ID
+        let session_id = match &self.current_session_id {
+            Some(id) => id.clone(),
+            None => {
+                log::debug!("[WelcomePanel] Cannot change model: no session selected");
+                return;
+            }
+        };
+
+        // Get the agent name
+        let agent_name = match self.agent_select.read(cx).selected_value().cloned() {
+            Some(name) if name != "No agents" => name,
+            _ => {
+                log::debug!("[WelcomePanel] Cannot change model: no agent selected");
+                return;
+            }
+        };
+
+        // Get the agent service to access agent manager
+        let app_state = AppState::global(cx);
+        let agent_manager = match app_state.agent_manager() {
+            Some(manager) => manager.clone(),
+            None => {
+                log::error!("[WelcomePanel] Cannot change model: agent manager not available");
+                return;
+            }
+        };
+
+        log::info!(
+            "[WelcomePanel] Model changed to: {} for session: {}",
+            model_id,
+            session_id
+        );
+
+        // Send SetSessionModel command to agent asynchronously
+        cx.spawn(async move |_entity, _cx| {
+            let agent_handle = match agent_manager.get(&agent_name).await {
+                Some(handle) => handle,
+                None => {
+                    log::error!(
+                        "[WelcomePanel] Cannot change model: agent '{}' not found",
+                        agent_name
+                    );
+                    return;
+                }
+            };
+
+            use agent_client_protocol as acp;
+            let mut request = acp::SetSessionModelRequest::new(
+                acp::SessionId::from(session_id.clone()),
+                model_id.clone(),
+            );
+            request.meta = None;
+
+            match agent_handle.set_session_model(request).await {
+                Ok(response) => {
+                    log::info!(
+                        "[WelcomePanel] Successfully set session model to '{}' for session '{}': {:?}",
+                        model_id,
+                        session_id,
+                        response
+                    );
+                }
+                Err(e) => {
+                    log::error!(
+                        "[WelcomePanel] Failed to set session model to '{}' for session '{}': {}",
+                        model_id,
                         session_id,
                         e
                     );
@@ -828,6 +935,95 @@ impl WelcomePanel {
             .unwrap_or_default()
     }
 
+    fn default_mode_items() -> Vec<ModeSelectItem> {
+        ["default", "acceptedits", "plan", "dontAsk", "bypassPermissions"]
+            .into_iter()
+            .map(|mode| ModeSelectItem::new(mode, mode))
+            .collect()
+    }
+
+    fn sync_session_capabilities(
+        &mut self,
+        session: Option<&AgentSessionInfo>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_mode_select(session, window, cx);
+        self.update_model_select(session, window, cx);
+    }
+
+    fn update_mode_select(
+        &mut self,
+        session: Option<&AgentSessionInfo>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (mode_items, selected_mode_id) = session
+            .and_then(|info| info.new_session_response.as_ref())
+            .and_then(|response| response.modes.as_ref())
+            .map(|modes| {
+                let items = modes
+                    .available_modes
+                    .iter()
+                    .map(|mode| ModeSelectItem::new(mode.id.to_string(), mode.name.clone()))
+                    .collect::<Vec<_>>();
+                (items, Some(modes.current_mode_id.to_string()))
+            })
+            .unwrap_or_else(|| (Self::default_mode_items(), None));
+
+        let has_items = !mode_items.is_empty();
+        self.mode_select.update(cx, |state, cx| {
+            state.set_items(mode_items, window, cx);
+            if let Some(mode_id) = selected_mode_id {
+                state.set_selected_value(&mode_id, window, cx);
+            } else if has_items {
+                state.set_selected_index(Some(IndexPath::default()), window, cx);
+            } else {
+                state.set_selected_index(None, window, cx);
+            }
+        });
+    }
+
+    fn update_model_select(
+        &mut self,
+        session: Option<&AgentSessionInfo>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (model_items, selected_model_id) = session
+            .and_then(|info| info.new_session_response.as_ref())
+            .and_then(|response| response.models.as_ref())
+            .map(|models| {
+                let items = models
+                    .available_models
+                    .iter()
+                    .map(|model| {
+                        let label = if model.name.is_empty() {
+                            model.model_id.to_string()
+                        } else {
+                            model.name.clone()
+                        };
+                        ModelSelectItem::new(model.model_id.to_string(), label)
+                    })
+                    .collect::<Vec<_>>();
+                (items, Some(models.current_model_id.to_string()))
+            })
+            .unwrap_or_else(|| (Vec::new(), None));
+
+        let has_models = !model_items.is_empty();
+        self.has_models = has_models;
+        self.model_select.update(cx, |state, cx| {
+            state.set_items(model_items, window, cx);
+            if let Some(model_id) = selected_model_id {
+                state.set_selected_value(&model_id, window, cx);
+            } else if has_models {
+                state.set_selected_index(Some(IndexPath::default()), window, cx);
+            } else {
+                state.set_selected_index(None, window, cx);
+            }
+        });
+    }
+
     /// Refresh sessions for the currently selected agent
     fn refresh_sessions_for_agent(
         &mut self,
@@ -854,6 +1050,7 @@ impl WelcomePanel {
 
             // Clear welcome session when no sessions available
             AppState::global_mut(cx).clear_welcome_session();
+            self.sync_session_capabilities(None, window, cx);
         } else {
             // Display sessions (show first 8 chars of session ID)
             let session_display: Vec<String> = sessions
@@ -890,6 +1087,8 @@ impl WelcomePanel {
                     session_id: selected_session.session_id.clone(),
                     agent_name: agent_name.to_string(),
                 });
+
+                self.sync_session_capabilities(Some(selected_session), window, cx);
             }
         }
 
@@ -909,6 +1108,7 @@ impl WelcomePanel {
             state.set_items(vec!["Creating session...".to_string()], window, cx);
             state.set_selected_index(None, window, cx);
         });
+        self.sync_session_capabilities(None, window, cx);
         cx.notify();
 
         self.create_session_for_agent(agent_name, window, cx);
@@ -964,6 +1164,7 @@ impl WelcomePanel {
                                     cx,
                                 );
                                 this.apply_selected_mode_to_session(cx);
+                                this.apply_selected_model_to_session(cx);
                             });
                         }
                     });
@@ -978,6 +1179,10 @@ impl WelcomePanel {
 
     fn apply_selected_mode_to_session(&mut self, cx: &mut Context<Self>) {
         self.on_mode_changed(cx);
+    }
+
+    fn apply_selected_model_to_session(&mut self, cx: &mut Context<Self>) {
+        self.on_model_changed(cx);
     }
 
     /// Create a new session for the currently selected agent
@@ -1008,8 +1213,7 @@ impl WelcomePanel {
                 .read(cx)
                 .selected_value()
                 .cloned()
-                .unwrap_or("Auto")
-                .to_string();
+                .unwrap_or_else(|| "default".to_string());
 
             let agent_name = self
                 .agent_select
@@ -1200,6 +1404,9 @@ impl Render for WelcomePanel {
                                 ChatInputBox::new("welcome-chat-input", self.input_state.clone());
                             if self.current_session_id.is_some() {
                                 chat = chat.mode_select(self.mode_select.clone());
+                                if self.has_models {
+                                    chat = chat.model_select(self.model_select.clone());
+                                }
                             }
 
                             // log::debug!(

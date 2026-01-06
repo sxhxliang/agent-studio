@@ -7,6 +7,7 @@ mod diff_summary;
 mod file_picker;
 mod input_suggestion;
 mod permission_request;
+mod select_items;
 mod status_indicator;
 // mod task_list_item;
 mod tool_call_item;
@@ -31,5 +32,7 @@ pub use tool_call_item::{ToolCallItem, ToolCallItemView};
 pub use user_message::{UserMessage, UserMessageData, UserMessageView};
 
 pub use permission_request::{PermissionRequest, PermissionRequestView};
+
+pub use select_items::{ModeSelectItem, ModelSelectItem};
 
 pub use status_indicator::StatusIndicator;
