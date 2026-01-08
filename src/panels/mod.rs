@@ -14,7 +14,7 @@ pub use code_editor::CodeEditorPanel;
 pub use conversation::ConversationPanel;
 pub use dock_panel::{DockPanel, DockPanelContainer, DockPanelState};
 pub use session_manager::SessionManagerPanel;
-pub use settings_panel::SettingsPanel;
+pub use settings_panel::{SettingsPanel, AppSettings};
 pub use task_panel::TaskPanel;
 pub use tool_call_detail_panel::ToolCallDetailPanel;
 pub use welcome_panel::WelcomePanel;

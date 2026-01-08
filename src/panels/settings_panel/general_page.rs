@@ -65,26 +65,12 @@ impl SettingsPanel {
                                 (GroupBoxVariant::Outline.as_str().into(), "Outline".into()),
                                 (GroupBoxVariant::Fill.as_str().into(), "Fill".into()),
                             ],
-                            {
-                                let view = view.clone();
-                                move |cx: &App| {
-                                    SharedString::from(
-                                        view.read(cx).group_variant.as_str().to_string(),
-                                    )
-                                }
-                            },
-                            {
-                                let view = view.clone();
-                                move |val: SharedString, cx: &mut App| {
-                                    view.update(cx, |view, cx| {
-                                        view.group_variant =
-                                            GroupBoxVariant::from_str(val.as_str());
-                                        cx.notify();
-                                    });
-                                }
+                            |cx: &App| AppSettings::global(cx).group_variant.clone(),
+                            |val: SharedString, cx: &mut App| {
+                                AppSettings::global_mut(cx).group_variant = val;
                             },
                         )
-                        .default_value(GroupBoxVariant::Fill.as_str().to_string()),
+                        .default_value(default_settings.group_variant),
                     )
                     .description("Select the variant for setting groups."),
                     SettingItem::new(
@@ -95,23 +81,12 @@ impl SettingsPanel {
                                 (Size::Small.as_str().into(), "Small".into()),
                                 (Size::XSmall.as_str().into(), "XSmall".into()),
                             ],
-                            {
-                                let view = view.clone();
-                                move |cx: &App| {
-                                    SharedString::from(view.read(cx).size.as_str().to_string())
-                                }
-                            },
-                            {
-                                let view = view.clone();
-                                move |val: SharedString, cx: &mut App| {
-                                    view.update(cx, |view, cx| {
-                                        view.size = Size::from_str(val.as_str());
-                                        cx.notify();
-                                    });
-                                }
+                            |cx: &App| AppSettings::global(cx).size.clone(),
+                            |val: SharedString, cx: &mut App| {
+                                AppSettings::global_mut(cx).size = val;
                             },
                         )
-                        .default_value(Size::Small.as_str().to_string()),
+                        .default_value(default_settings.size),
                     )
                     .description("Select the size for the setting group."),
                 ]),

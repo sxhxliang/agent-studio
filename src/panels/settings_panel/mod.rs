@@ -10,3 +10,4 @@ mod types;
 mod update_page;
 
 pub use panel::SettingsPanel;
+pub use types::AppSettings;

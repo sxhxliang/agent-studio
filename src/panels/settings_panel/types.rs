@@ -4,7 +4,9 @@ use gpui_component::{
     button::Button,
     setting::{RenderOptions, SettingFieldElement},
 };
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub auto_switch_theme: bool,
     pub cli_path: SharedString,
@@ -16,6 +18,8 @@ pub struct AppSettings {
     pub auto_check_on_startup: bool,
     pub check_frequency_days: f64,
     pub resettable: bool,
+    pub group_variant: SharedString,
+    pub size: SharedString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +44,8 @@ impl Default for AppSettings {
             auto_check_on_startup: true,
             check_frequency_days: 7.0,
             resettable: true,
+            group_variant: "Fill".into(),
+            size: "Small".into(),
         }
     }
 }

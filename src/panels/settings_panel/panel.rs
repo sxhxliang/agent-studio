@@ -2,8 +2,6 @@ use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, IntoElement, Render, Window, px,
 };
 use gpui_component::{
-    Sizable, Size,
-    group_box::GroupBoxVariant,
     input::InputState,
     setting::{SettingPage, Settings},
 };
@@ -21,8 +19,6 @@ use super::types::{AppSettings, UpdateStatus};
 
 pub struct SettingsPanel {
     pub(super) focus_handle: FocusHandle,
-    pub(super) group_variant: GroupBoxVariant,
-    pub(super) size: Size,
     pub(super) update_status: UpdateStatus,
     pub(super) update_manager: UpdateManager,
     // Cached configuration state (synchronized by events)
@@ -65,7 +61,7 @@ impl SettingsPanel {
     }
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.set_global::<AppSettings>(AppSettings::default());
+        // AppSettings is now initialized globally in themes::init(), so we don't need to set it here
 
         let mcp_json_editor = cx.new(|cx| {
             InputState::new(window, cx)
@@ -88,8 +84,6 @@ impl SettingsPanel {
 
         let panel = Self {
             focus_handle: cx.focus_handle(),
-            group_variant: GroupBoxVariant::Outline,
-            size: Size::default(),
             update_status: UpdateStatus::Idle,
             update_manager: UpdateManager::default(),
             cached_agents: HashMap::new(),
@@ -256,9 +250,15 @@ impl Focusable for SettingsPanel {
 
 impl Render for SettingsPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui_component::{group_box::GroupBoxVariant, Sizable, Size};
+
+        let app_settings = AppSettings::global(cx);
+        let size = Size::from_str(app_settings.size.as_str());
+        let group_variant = GroupBoxVariant::from_str(app_settings.group_variant.as_str());
+
         Settings::new("app-settings")
-            .with_size(self.size)
-            .with_group_variant(self.group_variant)
+            .with_size(size)
+            .with_group_variant(group_variant)
             .pages(self.setting_pages(window, cx))
     }
 }
