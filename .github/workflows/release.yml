@@ -79,7 +79,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p installer
-          cp agent-studio/target/release/agentx.exe installer/agentx-windows.exe
+          cp target/release/agentx.exe installer/agentx-windows.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -120,7 +120,7 @@ jobs:
       - name: Create tarball
         run: |
           mkdir -p agentx-linux
-          cp agent-studio/target/release/agentx agentx-linux/agentx
+          cp target/release/agentx agentx-linux/agentx
           chmod +x agentx-linux/agentx
           tar -czvf agentx-linux.tar.gz agentx-linux
 
