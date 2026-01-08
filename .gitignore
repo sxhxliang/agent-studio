@@ -4,7 +4,7 @@
 .github
 # Session data
 /sessions
-
+/docs
 # Application state
 /docks-agentx.json
 /state.json
