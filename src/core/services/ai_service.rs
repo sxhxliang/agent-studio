@@ -169,29 +169,34 @@ impl AiService {
         user_prompt: &str,
         max_tokens: Option<u32>,
     ) -> Result<String> {
-        let config = self.config.read().unwrap();
+        // Extract config data and release lock immediately
+        let (url, model_name, api_key) = {
+            let config = self.config.read().unwrap();
 
-        let model_name = config
-            .default_model
-            .as_ref()
-            .ok_or_else(|| anyhow!("No default AI model configured"))?;
+            let model_name = config
+                .default_model
+                .as_ref()
+                .ok_or_else(|| anyhow!("No default AI model configured"))?;
 
-        let model_config = config
-            .models
-            .get(model_name)
-            .ok_or_else(|| anyhow!("Model '{}' not found in configuration", model_name))?;
+            let model_config = config
+                .models
+                .get(model_name)
+                .ok_or_else(|| anyhow!("Model '{}' not found in configuration", model_name))?;
 
-        if !model_config.enabled {
-            return Err(anyhow!("Model '{}' is disabled", model_name));
-        }
+            if !model_config.enabled {
+                return Err(anyhow!("Model '{}' is disabled", model_name));
+            }
 
-        let url = format!(
-            "{}/chat/completions",
-            model_config.base_url.trim_end_matches('/')
-        );
+            let url = format!(
+                "{}/chat/completions",
+                model_config.base_url.trim_end_matches('/')
+            );
+
+            (url, model_config.model_name.clone(), model_config.api_key.clone())
+        }; // Lock is released here
 
         let request = ChatCompletionRequest {
-            model: model_config.model_name.clone(),
+            model: model_name.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -209,14 +214,13 @@ impl AiService {
         log::debug!(
             "Calling AI API: {} (model: {})",
             url,
-            model_config.model_name
+            model_name
         );
 
         let body = serde_json::to_string(&request).context("Failed to serialize request")?;
 
         // Execute HTTP request in Tokio runtime
         let http_client = self.http_client.clone();
-        let api_key = model_config.api_key.clone();
 
         let response = self
             .runtime_handle

@@ -171,7 +171,7 @@ impl DiffSummaryData {
     /// Get files sorted by total changes (descending)
     pub fn sorted_files(&self) -> Vec<&FileChangeStats> {
         let mut files: Vec<_> = self.files.values().collect();
-        files.sort_unstable_by(|a, b| b.total_changes().cmp(&a.total_changes()));
+        files.sort_unstable_by_key(|b| std::cmp::Reverse(b.total_changes()));
         files
     }
 

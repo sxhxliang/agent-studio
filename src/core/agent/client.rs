@@ -261,7 +261,7 @@ impl AgentHandle {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(AgentCommand::ResumeSession {
-                request,
+                request: Box::new(request),
                 respond: tx,
             })
             .await
@@ -360,7 +360,7 @@ impl AgentHandle {
 
 enum AgentCommand {
     Initialize {
-        request: acp::InitializeRequest,
+        request: Box<acp::InitializeRequest>,
         respond: oneshot::Sender<Result<acp::InitializeResponse>>,
     },
     NewSession {
@@ -368,7 +368,7 @@ enum AgentCommand {
         respond: oneshot::Sender<Result<acp::NewSessionResponse>>,
     },
     ResumeSession {
-        request: acp::ResumeSessionRequest,
+        request: Box<acp::ResumeSessionRequest>,
         respond: oneshot::Sender<Result<acp::ResumeSessionResponse>>,
     },
     Prompt {
@@ -520,7 +520,7 @@ async fn agent_event_loop(
     while let Some(command) = command_rx.recv().await {
         match command {
             AgentCommand::Initialize { request, respond } => {
-                let result = conn.initialize(request).await.map_err(|err| anyhow!(err));
+                let result = conn.initialize(*request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
             AgentCommand::NewSession { request, respond } => {
@@ -529,7 +529,7 @@ async fn agent_event_loop(
             }
             AgentCommand::ResumeSession { request, respond } => {
                 let result = conn
-                    .resume_session(request)
+                    .resume_session(*request)
                     .await
                     .map_err(|err| anyhow!(err));
                 let _ = respond.send(result);

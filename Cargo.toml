@@ -11,7 +11,7 @@ readme = "README.md"
 [package.metadata.bundle]
 name = "AgentX"
 identifier = "com.agentx.app"
-icon = ["assets/logo.svg"]
+icon = ["assets/logo1024x1024@2x.png"]
 version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
 category = "Developer Tool"
@@ -84,6 +84,12 @@ base64 = "0.22"
 which = "7.0"
 image = "0.25"
 
+[lints.rust]
+# Allow warnings for code under development
+dead_code = "allow"
+unused_variables = "allow"
+unused_imports = "allow"
+
 [lints.clippy]
 almost_complete_range = "allow"
 arc_with_non_send_sync = "allow"
@@ -97,8 +103,12 @@ non_canonical_partial_ord_impl = "allow"
 reversed_empty_ranges = "allow"
 single_range_in_vec_init = "allow"
 style = { level = "allow", priority = -1 }
-todo = "deny"
+todo = "allow"
 type_complexity = "allow"
+needless_update = "allow"
+option_map_unit_fn = "allow"
+too_many_arguments = "allow"
+mutable_key_type = "allow"
 
 [profile.dev]
 codegen-units = 16

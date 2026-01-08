@@ -97,7 +97,7 @@ impl ChunkAccumulator {
                 self.chunk_type = AccumulatedChunkType::AgentMessage;
                 self.first_timestamp = Utc::now().to_rfc3339();
                 self.agent_message_chunks.push(chunk);
-                Some(FlushData::Accumulated(flushed))
+                Some(FlushData::Accumulated(Box::new(flushed)))
             }
         }
     }
@@ -124,7 +124,7 @@ impl ChunkAccumulator {
                 self.chunk_type = AccumulatedChunkType::AgentThought;
                 self.first_timestamp = Utc::now().to_rfc3339();
                 self.agent_thought_text = text;
-                Some(FlushData::Accumulated(flushed))
+                Some(FlushData::Accumulated(Box::new(flushed)))
             }
         }
     }
@@ -148,7 +148,7 @@ impl ChunkAccumulator {
                 self.chunk_type = AccumulatedChunkType::UserMessage;
                 self.first_timestamp = Utc::now().to_rfc3339();
                 self.user_message_chunks.push(chunk);
-                Some(FlushData::Accumulated(flushed))
+                Some(FlushData::Accumulated(Box::new(flushed)))
             }
         }
     }
@@ -191,7 +191,7 @@ impl ChunkAccumulator {
                 (timestamp, SessionUpdate::ToolCallUpdate(update))
             };
 
-            Some(FlushData::ToolCallCompleted(final_update.0, final_update.1))
+            Some(FlushData::ToolCallCompleted(Box::new(final_update)))
         } else {
             // Non-terminal state: accumulate
             self.tool_call_updates
@@ -275,12 +275,12 @@ impl ChunkAccumulator {
 
 /// Data to be flushed to disk
 enum FlushData {
-    /// Only accumulated data to write
-    Accumulated(Option<(String, SessionUpdate)>),
-    /// Both accumulated data and a new non-chunk update
-    Both(Option<(String, SessionUpdate)>, SessionUpdate),
-    /// A completed tool call update (status=Completed/Failed)
-    ToolCallCompleted(String, SessionUpdate),
+    /// Only accumulated data to write (boxed for size)
+    Accumulated(Box<Option<(String, SessionUpdate)>>),
+    /// Both accumulated data and a new non-chunk update (boxed for size)
+    Both(Box<(Option<(String, SessionUpdate)>, SessionUpdate)>),
+    /// A completed tool call update (status=Completed/Failed) (boxed for size)
+    ToolCallCompleted(Box<(String, SessionUpdate)>),
 }
 
 /// Merge multiple ContentChunks into a single ContentChunk
@@ -410,7 +410,7 @@ impl PersistenceService {
                         session_id
                     );
                     let flushed = accumulator.flush();
-                    Some(FlushData::Both(flushed, update))
+                    Some(FlushData::Both(Box::new((flushed, update))))
                 }
             }
         }; // Lock released here
@@ -426,12 +426,15 @@ impl PersistenceService {
     /// Write flush data to disk
     async fn write_flush_data(&self, session_id: &str, data: FlushData) -> Result<()> {
         match data {
-            FlushData::Accumulated(Some((timestamp, update))) => {
-                // Write only accumulated data
-                self.write_with_timestamp(session_id, update, timestamp)
-                    .await?;
+            FlushData::Accumulated(boxed_data) => {
+                if let Some((timestamp, update)) = *boxed_data {
+                    // Write only accumulated data
+                    self.write_with_timestamp(session_id, update, timestamp)
+                        .await?;
+                }
             }
-            FlushData::Both(accumulated, non_chunk) => {
+            FlushData::Both(boxed_data) => {
+                let (accumulated, non_chunk) = *boxed_data;
                 // Write accumulated data first (if any)
                 if let Some((timestamp, update)) = accumulated {
                     self.write_with_timestamp(session_id, update, timestamp)
@@ -441,7 +444,8 @@ impl PersistenceService {
                 self.write_with_current_timestamp(session_id, non_chunk)
                     .await?;
             }
-            FlushData::ToolCallCompleted(timestamp, update) => {
+            FlushData::ToolCallCompleted(boxed_data) => {
+                let (timestamp, update) = *boxed_data;
                 // Write completed tool call update immediately
                 log::debug!(
                     "Writing completed tool_call_update for session: {}",
@@ -449,9 +453,6 @@ impl PersistenceService {
                 );
                 self.write_with_timestamp(session_id, update, timestamp)
                     .await?;
-            }
-            FlushData::Accumulated(None) => {
-                // Nothing to write
             }
         }
         Ok(())
