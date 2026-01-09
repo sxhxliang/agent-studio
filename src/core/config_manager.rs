@@ -82,3 +82,95 @@ pub fn load_user_config() -> Result<crate::core::config::Config> {
 
     Ok(config)
 }
+
+/// Get the themes directory path in the user data directory
+pub fn get_themes_dir() -> Result<PathBuf> {
+    Ok(get_user_data_dir()?.join("themes"))
+}
+
+/// Initialize themes directory and theme files
+/// If themes directory doesn't exist, create it and populate with embedded themes
+pub fn initialize_themes_dir() -> Result<PathBuf> {
+    let themes_dir = get_themes_dir()?;
+
+    // Create themes directory if it doesn't exist
+    if !themes_dir.exists() {
+        log::info!("Creating themes directory: {:?}", themes_dir);
+        std::fs::create_dir_all(&themes_dir)
+            .with_context(|| format!("Failed to create themes directory: {:?}", themes_dir))?;
+    }
+
+    // Get all embedded theme files
+    let embedded_themes = crate::assets::get_embedded_themes();
+
+    if embedded_themes.is_empty() {
+        log::warn!("No embedded themes found");
+        return Ok(themes_dir);
+    }
+
+    // Write each theme file if it doesn't exist
+    for (filename, content) in embedded_themes {
+        let theme_path = themes_dir.join(&filename);
+
+        if !theme_path.exists() {
+            log::info!("Creating theme file: {:?}", theme_path);
+            std::fs::write(&theme_path, content)
+                .with_context(|| format!("Failed to write theme file: {:?}", theme_path))?;
+        }
+    }
+
+    log::info!("Themes directory initialized: {:?}", themes_dir);
+    Ok(themes_dir)
+}
+
+/// Get state file path based on build mode
+/// - Debug mode: target/state.json
+/// - Release mode: <user_data_dir>/state.json
+pub fn get_state_file_path() -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from("target/state.json")
+    } else {
+        get_user_data_dir()
+            .map(|dir| dir.join("state.json"))
+            .unwrap_or_else(|_| PathBuf::from("state.json"))
+    }
+}
+
+/// Get workspace config file path based on build mode
+/// - Debug mode: target/workspace-config.json
+/// - Release mode: <user_data_dir>/workspace-config.json
+pub fn get_workspace_config_path() -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from("target/workspace-config.json")
+    } else {
+        get_user_data_dir()
+            .map(|dir| dir.join("workspace-config.json"))
+            .unwrap_or_else(|_| PathBuf::from("workspace-config.json"))
+    }
+}
+
+/// Get docks layout file path based on build mode
+/// - Debug mode: target/docks-agentx.json
+/// - Release mode: <user_data_dir>/docks-agentx.json
+pub fn get_docks_layout_path() -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from("target/docks-agentx.json")
+    } else {
+        get_user_data_dir()
+            .map(|dir| dir.join("docks-agentx.json"))
+            .unwrap_or_else(|_| PathBuf::from("docks-agentx.json"))
+    }
+}
+
+/// Get sessions directory path based on build mode
+/// - Debug mode: target/sessions
+/// - Release mode: <user_data_dir>/sessions
+pub fn get_sessions_dir() -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from("target/sessions")
+    } else {
+        get_user_data_dir()
+            .map(|dir| dir.join("sessions"))
+            .unwrap_or_else(|_| PathBuf::from("sessions"))
+    }
+}

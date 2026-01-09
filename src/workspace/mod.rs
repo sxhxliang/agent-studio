@@ -21,11 +21,6 @@ const MAIN_DOCK_AREA: DockAreaTab = DockAreaTab {
     version: 5,
 };
 
-#[cfg(debug_assertions)]
-const STATE_FILE: &str = "./target/docks-agentx.json";
-#[cfg(not(debug_assertions))]
-const STATE_FILE: &str = "docks-agentx.json";
-
 pub struct DockWorkspace {
     title_bar: Entity<AppTitleBar>,
     dock_area: Entity<DockArea>,
@@ -180,7 +175,8 @@ impl DockWorkspace {
     fn save_state(state: &DockAreaState) -> Result<()> {
         println!("Save layout...");
         let json = serde_json::to_string_pretty(state)?;
-        std::fs::write(STATE_FILE, json)?;
+        let state_file = crate::core::config_manager::get_docks_layout_path();
+        std::fs::write(state_file, json)?;
         Ok(())
     }
 
@@ -189,7 +185,8 @@ impl DockWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        let json = std::fs::read_to_string(STATE_FILE)?;
+        let state_file = crate::core::config_manager::get_docks_layout_path();
+        let json = std::fs::read_to_string(state_file)?;
         let state = serde_json::from_str::<DockAreaState>(&json)?;
 
         // Check if the saved layout version is different from the current version

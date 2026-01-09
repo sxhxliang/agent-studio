@@ -52,11 +52,7 @@ pub struct AppState {
 impl AppState {
     pub fn init(cx: &mut App) {
         // Initialize WorkspaceService with config path
-        let config_path = if cfg!(debug_assertions) {
-            std::path::PathBuf::from("target/workspace-config.json")
-        } else {
-            std::path::PathBuf::from("workspace-config.json")
-        };
+        let config_path = crate::core::config_manager::get_workspace_config_path();
 
         // Create workspace bus
         let workspace_bus = Arc::new(std::sync::Mutex::new(
@@ -110,11 +106,7 @@ impl AppState {
         log::info!("Setting AgentManager");
 
         // Determine sessions directory path
-        let sessions_dir = if cfg!(debug_assertions) {
-            std::path::PathBuf::from("target/sessions")
-        } else {
-            std::path::PathBuf::from("sessions")
-        };
+        let sessions_dir = crate::core::config_manager::get_sessions_dir();
 
         // Initialize services when agent_manager is set
         let mut agent_service = AgentService::new(manager.clone());

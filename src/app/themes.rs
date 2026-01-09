@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::app::actions::{SwitchTheme, SwitchThemeMode};
 use crate::panels::AppSettings;
 
-const STATE_FILE: &str = "target/state.json";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct State {
     theme: SharedString,
@@ -28,9 +26,12 @@ impl Default for State {
 }
 
 pub fn init(cx: &mut App) {
+    // Get state file path based on build mode
+    let state_file = crate::core::config_manager::get_state_file_path();
+
     // Load last theme state and app settings
-    let json = std::fs::read_to_string(STATE_FILE).unwrap_or(String::default());
-    tracing::info!("Load themes and app settings...");
+    let json = std::fs::read_to_string(&state_file).unwrap_or(String::default());
+    tracing::info!("Load themes and app settings from: {:?}", state_file);
     let state = serde_json::from_str::<State>(&json).unwrap_or_default();
 
     // Initialize AppSettings globally (before it was only initialized in SettingsPanel::new)
@@ -41,7 +42,27 @@ pub fn init(cx: &mut App) {
     );
     cx.set_global::<AppSettings>(app_settings.clone());
 
-    if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./themes"), cx, move |cx| {
+    // Get themes directory based on build mode
+    let themes_dir = if cfg!(debug_assertions) {
+        // Debug mode: use local ./themes for development
+        let dir = PathBuf::from("./themes");
+        tracing::info!("Debug mode: using local themes directory: {:?}", dir);
+        dir
+    } else {
+        // Release mode: use user data directory, fallback to ./themes
+        match crate::core::config_manager::initialize_themes_dir() {
+            Ok(dir) => {
+                tracing::info!("Release mode: using themes from user data directory: {:?}", dir);
+                dir
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize user themes directory: {}, falling back to ./themes", e);
+                PathBuf::from("./themes")
+            }
+        }
+    };
+
+    if let Err(err) = ThemeRegistry::watch_dir(themes_dir, cx, move |cx| {
         if let Some(theme) = ThemeRegistry::global(cx)
             .themes()
             .get(&state.theme)
@@ -131,7 +152,8 @@ fn save_state(cx: &mut App) {
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&state) {
-        // Ignore write errors - if STATE_FILE doesn't exist or can't be written, do nothing
-        let _ = std::fs::write(STATE_FILE, json);
+        let state_file = crate::core::config_manager::get_state_file_path();
+        // Ignore write errors - if state file doesn't exist or can't be written, do nothing
+        let _ = std::fs::write(state_file, json);
     }
 }

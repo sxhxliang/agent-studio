@@ -16,6 +16,11 @@ pub struct Assets;
 #[include = "config.json"]
 pub struct ConfigAssets;
 
+#[derive(RustEmbed)]
+#[folder = "./themes"]
+#[include = "*.json"]
+pub struct ThemeAssets;
+
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         Self::get(path)
@@ -114,4 +119,21 @@ pub fn get_default_config() -> Option<String> {
     ConfigAssets::get("config.json").map(|file| {
         String::from_utf8_lossy(&file.data).to_string()
     })
+}
+
+/// Get all embedded theme files
+pub fn get_embedded_themes() -> Vec<(String, String)> {
+    ThemeAssets::iter()
+        .filter_map(|name| {
+            let name_str = name.to_string();
+            if name_str.ends_with(".json") {
+                ThemeAssets::get(&name_str).map(|file| {
+                    let content = String::from_utf8_lossy(&file.data).to_string();
+                    (name_str, content)
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
