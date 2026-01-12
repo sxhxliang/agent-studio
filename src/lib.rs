@@ -21,7 +21,7 @@ mod test_mock_data;
 use crate::panels::{DockPanel, DockPanelContainer, DockPanelState};
 pub use panels::{
     CodeEditorPanel, ConversationPanel, SessionManagerPanel, SettingsPanel, TaskPanel,
-    ToolCallDetailPanel, WelcomePanel,
+    TerminalPanel, ToolCallDetailPanel, WelcomePanel,
 };
 
 // Re-export from core module
@@ -304,6 +304,7 @@ fn create_panel_view(
             ConversationPanel::paddings(),
         ),
         "SessionManagerPanel" => story!(SessionManagerPanel),
+        "TerminalPanel" => story!(TerminalPanel),
         "WelcomePanel" => story!(WelcomePanel),
         "SettingsPanel" => story!(SettingsPanel),
         "ToolCallDetailPanel" => story!(ToolCallDetailPanel),

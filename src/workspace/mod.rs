@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     AddPanel, AppState, AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel,
-    TaskPanel, ToggleDockToggleButton, TogglePanelVisible, panels::dock_panel::DockPanelContainer,
+    TaskPanel, TerminalPanel, ToggleDockToggleButton, TogglePanelVisible, panels::dock_panel::DockPanelContainer,
 };
 
 // Action handlers module
@@ -248,9 +248,10 @@ impl DockWorkspace {
         let bottom_panels = DockItem::split_with_sizes(
             Axis::Vertical,
             vec![DockItem::tabs(
-                vec![Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(
-                    window, cx,
-                ))],
+                vec![
+                    Arc::new(DockPanelContainer::panel::<TerminalPanel>(window, cx)),
+                    Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(window, cx)),
+                ],
                 &dock_area,
                 window,
                 cx,
@@ -266,7 +267,7 @@ impl DockWorkspace {
             vec![DockItem::tabs(
                 vec![
                     Arc::new(DockPanelContainer::panel::<CodeEditorPanel>(window, cx)),
-                    Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(window, cx)),
+                    // Arc::new(DockPanelContainer::panel::<TerminalPanel>(window, cx)),
                 ],
                 &dock_area,
                 window,
