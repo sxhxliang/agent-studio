@@ -29,6 +29,8 @@ pub struct TerminalPanel {
     status: TerminalStatus,
     /// 工作目录 (如果为 None,使用当前目录)
     working_directory: Option<std::path::PathBuf>,
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,12 +89,29 @@ impl TerminalPanel {
             text_style,
             status: TerminalStatus::Initializing,
             working_directory,
+            workspace_id: None,
+            workspace_name: None,
         };
 
         // Initialize terminal asynchronously
         panel.initialize_terminal(window, cx);
 
         panel
+    }
+
+    /// Get the workspace_id (if available)
+    pub fn workspace_id(&self) -> Option<String> {
+        self.workspace_id.clone()
+    }
+
+    /// Get the workspace_name (if available)
+    pub fn workspace_name(&self) -> Option<String> {
+        self.workspace_name.clone()
+    }
+
+    /// Get the working_directory (if available)
+    pub fn working_directory(&self) -> Option<std::path::PathBuf> {
+        self.working_directory.clone()
     }
 
     /// Initialize the terminal in the background

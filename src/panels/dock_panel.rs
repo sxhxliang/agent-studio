@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::panels::conversation::ConversationPanel;
 use crate::panels::welcome_panel::WelcomePanel;
+use crate::panels::code_editor::CodeEditorPanel;
+use crate::panels::terminal_panel::TerminalPanel;
 use crate::{AppState, ToolCallDetailPanel};
 use crate::{ShowPanelInfo, ToggleSearch};
 
@@ -470,6 +472,12 @@ pub struct DockPanelState {
     pub story_klass: SharedString,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
+    #[serde(default)]
+    pub working_directory: Option<String>,
 }
 
 impl DockPanelState {
@@ -477,6 +485,9 @@ impl DockPanelState {
         serde_json::json!({
             "story_klass": self.story_klass,
             "session_id": self.session_id,
+            "workspace_id": self.workspace_id,
+            "workspace_name": self.workspace_name,
+            "working_directory": self.working_directory,
         })
     }
 
@@ -582,22 +593,69 @@ impl Panel for DockPanelContainer {
 
     fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
-        let session_id = self
-            .story_klass
-            .as_ref()
-            .filter(|klass| klass.as_ref() == "ConversationPanel")
-            .and_then(|_| {
-                self.story.as_ref().and_then(|story| {
-                    story
-                        .clone()
-                        .downcast::<ConversationPanel>()
-                        .ok()
-                        .and_then(|entity| entity.read(cx).session_id())
-                })
-            });
+
+        let story_klass = self.story_klass.clone().unwrap();
+        let mut session_id = None;
+        let mut workspace_id = None;
+        let mut workspace_name = None;
+        let mut working_directory = None;
+
+        // Helper function to normalize Windows paths (remove \\?\ prefix)
+        fn normalize_path(path: std::path::PathBuf) -> String {
+            let path_str = path.to_string_lossy().to_string();
+            // Remove Windows extended-length path prefix
+            if cfg!(windows) && path_str.starts_with(r"\\?\") {
+                path_str.trim_start_matches(r"\\?\").to_string()
+            } else {
+                path_str
+            }
+        }
+
+        if let Some(story) = &self.story {
+            match story_klass.as_ref() {
+                "ConversationPanel" => {
+                    if let Ok(entity) = story.clone().downcast::<ConversationPanel>() {
+                        let panel = entity.read(cx);
+                        session_id = panel.session_id();
+                        workspace_id = panel.workspace_id();
+                        workspace_name = panel.workspace_name();
+                        working_directory = panel.working_directory();
+                    }
+                }
+                "WelcomePanel" => {
+                    if let Ok(entity) = story.clone().downcast::<WelcomePanel>() {
+                        let panel = entity.read(cx);
+                        workspace_id = panel.workspace_id();
+                        workspace_name = panel.workspace_name();
+                        working_directory = Some(normalize_path(panel.working_directory()));
+                    }
+                }
+                "CodeEditorPanel" => {
+                    if let Ok(entity) = story.clone().downcast::<CodeEditorPanel>() {
+                        let panel = entity.read(cx);
+                        workspace_id = panel.workspace_id();
+                        workspace_name = panel.workspace_name();
+                        working_directory = Some(normalize_path(panel.working_directory()));
+                    }
+                }
+                "TerminalPanel" => {
+                    if let Ok(entity) = story.clone().downcast::<TerminalPanel>() {
+                        let panel = entity.read(cx);
+                        workspace_id = panel.workspace_id();
+                        workspace_name = panel.workspace_name();
+                        working_directory = panel.working_directory().map(normalize_path);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let story_state = DockPanelState {
-            story_klass: self.story_klass.clone().unwrap(),
+            story_klass,
             session_id,
+            workspace_id,
+            workspace_name,
+            working_directory,
         };
         state.info = PanelInfo::panel(story_state.to_value());
         state

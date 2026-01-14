@@ -57,6 +57,10 @@ pub struct ConversationPanel {
     code_selections: Vec<AddCodeSelection>,
     /// Session status information for display
     session_status: Option<SessionStatusInfo>,
+    /// Workspace information
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
+    working_directory: Option<String>,
 }
 
 impl ConversationPanel {
@@ -91,6 +95,21 @@ impl ConversationPanel {
         self.session_id.clone()
     }
 
+    /// Get the workspace_id (if available)
+    pub fn workspace_id(&self) -> Option<String> {
+        self.workspace_id.clone()
+    }
+
+    /// Get the workspace_name (if available)
+    pub fn workspace_name(&self) -> Option<String> {
+        self.workspace_name.clone()
+    }
+
+    /// Get the working_directory (if available)
+    pub fn working_directory(&self) -> Option<String> {
+        self.working_directory.clone()
+    }
+
     fn new(window: &mut Window, cx: &mut App) -> Self {
         log::info!("🔧 Initializing ConversationPanel (new)");
         Self::new_internal(None, window, cx)
@@ -121,6 +140,9 @@ impl ConversationPanel {
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
             session_status: None,
+            workspace_id: None,
+            workspace_name: None,
+            working_directory: None,
         }
     }
 

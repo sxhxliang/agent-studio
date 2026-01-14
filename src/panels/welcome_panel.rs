@@ -48,6 +48,8 @@ pub struct WelcomePanel {
     active_workspace_name: Option<String>,
     /// Specific workspace ID to display (if provided via action)
     workspace_id: Option<String>,
+    /// Working directory for file operations
+    working_directory: std::path::PathBuf,
     pasted_images: Vec<(ImageContent, String)>,
     code_selections: Vec<AddCodeSelection>,
     selected_files: Vec<String>,
@@ -122,12 +124,46 @@ impl WelcomePanel {
         Self::view_internal(Some(workspace_id), window, cx)
     }
 
+    /// Get the workspace_id (if this panel is associated with a workspace)
+    pub fn workspace_id(&self) -> Option<String> {
+        self.workspace_id.clone()
+    }
+
+    /// Get the workspace_name (if available)
+    pub fn workspace_name(&self) -> Option<String> {
+        self.active_workspace_name.clone()
+    }
+
+    /// Get the working_directory
+    pub fn working_directory(&self) -> std::path::PathBuf {
+        self.working_directory.clone()
+    }
+
+    /// Create a WelcomePanel with specific workspace and working directory (for restoration from persistence)
+    pub fn view_with_workspace_and_dir(
+        workspace_id: Option<String>,
+        working_directory: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        Self::view_internal_with_dir(workspace_id, Some(working_directory), window, cx)
+    }
+
     fn view_internal(
         workspace_id: Option<String>,
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-        let entity = cx.new(|cx| Self::new(workspace_id.clone(), window, cx));
+        Self::view_internal_with_dir(workspace_id, None, window, cx)
+    }
+
+    fn view_internal_with_dir(
+        workspace_id: Option<String>,
+        working_directory: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        let entity = cx.new(|cx| Self::new(workspace_id.clone(), working_directory, window, cx));
 
         // Subscribe to CodeSelectionBus using the shared helper function
         crate::core::event_bus::subscribe_entity_to_code_selections(
@@ -291,7 +327,7 @@ impl WelcomePanel {
         .detach();
     }
 
-    fn new(workspace_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(workspace_id: Option<String>, working_directory: Option<std::path::PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .code_editor("markdown")
@@ -301,8 +337,8 @@ impl WelcomePanel {
                 .placeholder(t!("welcome.input.placeholder").to_string())
         });
 
-        // Get the current working directory for file picker
-        let working_dir = AppState::global(cx).current_working_dir().clone();
+        // Get the working directory - use provided or get from AppState
+        let working_dir = working_directory.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
 
         let context_list = cx.new(|cx| {
             let delegate = FilePickerDelegate::new(&working_dir);
@@ -343,6 +379,7 @@ impl WelcomePanel {
             has_workspace: false,
             active_workspace_name: None,
             workspace_id,
+            working_directory: working_dir,
             pasted_images: Vec::new(),
             code_selections: Vec::new(),
             selected_files: Vec::new(),

@@ -32,6 +32,9 @@ pub struct CodeEditorPanel {
     lsp_store: CodeEditorPanelLspStore,
     current_file_path: Option<PathBuf>,
     has_opened_file: bool,
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
+    working_directory: PathBuf,
     _subscriptions: Vec<Subscription>,
     _lint_task: Task<()>,
 }
@@ -96,7 +99,7 @@ impl CodeEditorPanel {
 
         let tree_state = cx.new(|cx| TreeState::new(cx));
         let working_dir = working_dir.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
-        Self::load_files(tree_state.clone(), working_dir, cx);
+        Self::load_files(tree_state.clone(), working_dir.clone(), cx);
 
         let _subscriptions = vec![cx.subscribe(&editor, |this, _, _: &InputEvent, cx| {
             this.lint_document(cx);
@@ -114,6 +117,9 @@ impl CodeEditorPanel {
             lsp_store,
             current_file_path: None,
             has_opened_file: false,
+            workspace_id: None,
+            workspace_name: None,
+            working_directory: working_dir,
             _subscriptions,
             _lint_task: Task::ready(()),
         }
@@ -128,6 +134,21 @@ impl CodeEditorPanel {
             });
         })
         .detach();
+    }
+
+    /// Get the workspace_id (if available)
+    pub fn workspace_id(&self) -> Option<String> {
+        self.workspace_id.clone()
+    }
+
+    /// Get the workspace_name (if available)
+    pub fn workspace_name(&self) -> Option<String> {
+        self.workspace_name.clone()
+    }
+
+    /// Get the working_directory
+    pub fn working_directory(&self) -> PathBuf {
+        self.working_directory.clone()
     }
 
     fn go_to_line(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {

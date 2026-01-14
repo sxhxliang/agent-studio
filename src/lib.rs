@@ -227,8 +227,7 @@ pub fn init(cx: &mut App) {
         let view = cx.new(|cx| {
             let (title, description, closable, zoomable, story, on_active, paddings) =
                 create_panel_view(
-                    &story_state.story_klass,
-                    story_state.session_id.clone(),
+                    &story_state,
                     window,
                     cx,
                 );
@@ -260,8 +259,7 @@ pub fn init(cx: &mut App) {
 }
 
 fn create_panel_view(
-    story_klass: &SharedString,
-    session_id: Option<String>,
+    story_state: &DockPanelState,
     window: &mut Window,
     cx: &mut App,
 ) -> (
@@ -287,15 +285,36 @@ fn create_panel_view(
         };
     }
 
-    match story_klass.to_string().as_str() {
+    match story_state.story_klass.to_string().as_str() {
         "TaskPanel" => story!(TaskPanel),
-        "CodeEditorPanel" => story!(CodeEditorPanel),
+        "CodeEditorPanel" => {
+            // Use working_directory from story_state if available
+            let view = if let Some(working_dir_str) = &story_state.working_directory {
+                if let Ok(working_dir) = std::path::PathBuf::from(working_dir_str).canonicalize() {
+                    CodeEditorPanel::view_with_working_dir(window, Some(working_dir), cx)
+                } else {
+                    CodeEditorPanel::view(window, cx)
+                }
+            } else {
+                CodeEditorPanel::view(window, cx)
+            };
+
+            (
+                CodeEditorPanel::title(),
+                CodeEditorPanel::description(),
+                CodeEditorPanel::closable(),
+                CodeEditorPanel::zoomable(),
+                view.into(),
+                CodeEditorPanel::on_active_any,
+                CodeEditorPanel::paddings(),
+            )
+        }
         "ConversationPanel" => (
             ConversationPanel::title(),
             ConversationPanel::description(),
             ConversationPanel::closable(),
             ConversationPanel::zoomable(),
-            match session_id {
+            match story_state.session_id.clone() {
                 Some(session_id) => ConversationPanel::view_for_session(session_id, window, cx),
                 None => ConversationPanel::view(window, cx),
             }
@@ -304,12 +323,63 @@ fn create_panel_view(
             ConversationPanel::paddings(),
         ),
         "SessionManagerPanel" => story!(SessionManagerPanel),
-        "TerminalPanel" => story!(TerminalPanel),
-        "WelcomePanel" => story!(WelcomePanel),
+        "TerminalPanel" => {
+            // Use working_directory from story_state if available
+            let view = if let Some(working_dir_str) = &story_state.working_directory {
+                if let Ok(working_dir) = std::path::PathBuf::from(working_dir_str).canonicalize() {
+                    TerminalPanel::view_with_cwd(working_dir, window, cx)
+                } else {
+                    TerminalPanel::view(window, cx)
+                }
+            } else {
+                TerminalPanel::view(window, cx)
+            };
+
+            (
+                TerminalPanel::title(),
+                TerminalPanel::description(),
+                TerminalPanel::closable(),
+                TerminalPanel::zoomable(),
+                view.into(),
+                TerminalPanel::on_active_any,
+                TerminalPanel::paddings(),
+            )
+        }
+        "WelcomePanel" => {
+            // Use workspace_id and working_directory from story_state if available
+            let view = if let Some(working_dir_str) = &story_state.working_directory {
+                if let Ok(working_dir) = std::path::PathBuf::from(working_dir_str).canonicalize() {
+                    WelcomePanel::view_with_workspace_and_dir(
+                        story_state.workspace_id.clone(),
+                        working_dir,
+                        window,
+                        cx,
+                    )
+                } else if let Some(workspace_id) = story_state.workspace_id.clone() {
+                    WelcomePanel::view_for_workspace(workspace_id, window, cx)
+                } else {
+                    WelcomePanel::view(window, cx)
+                }
+            } else if let Some(workspace_id) = story_state.workspace_id.clone() {
+                WelcomePanel::view_for_workspace(workspace_id, window, cx)
+            } else {
+                WelcomePanel::view(window, cx)
+            };
+
+            (
+                WelcomePanel::title(),
+                WelcomePanel::description(),
+                WelcomePanel::closable(),
+                WelcomePanel::zoomable(),
+                view.into(),
+                WelcomePanel::on_active_any,
+                WelcomePanel::paddings(),
+            )
+        }
         "SettingsPanel" => story!(SettingsPanel),
         "ToolCallDetailPanel" => story!(ToolCallDetailPanel),
         _ => {
-            unreachable!("Invalid story klass: {}", story_klass)
+            unreachable!("Invalid story klass: {}", story_state.story_klass)
         }
     }
 }
