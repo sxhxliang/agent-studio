@@ -323,7 +323,7 @@ impl AgentService {
                         last_active: info.last_active,
                         message_count: 0,
                     };
-                    workspace_bus.lock().unwrap().publish(event);
+                    workspace_bus.publish(event);
                     log::info!("AgentService: Published session status update to workspace bus");
                 }
             } else {
@@ -441,7 +441,7 @@ impl AgentService {
                         last_active: info.last_active,
                         message_count: 0, // TODO: Track actual message count
                     };
-                    workspace_bus.lock().unwrap().publish(event);
+                    workspace_bus.publish(event);
                     log::debug!("Published session status update to workspace bus");
                 }
             }

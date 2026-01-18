@@ -43,7 +43,7 @@ impl WorkspaceService {
     fn publish_event(&self, event: WorkspaceUpdateEvent) {
         if let Some(bus) = &self.workspace_bus {
             log::debug!("[WorkspaceService] Publishing event: {:?}", &event);
-            bus.lock().unwrap().publish(event);
+            bus.publish(event);
         }
     }
 

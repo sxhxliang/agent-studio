@@ -493,7 +493,7 @@ impl ConversationPanel {
         let filter_log3 = session_filter.clone();
 
         // Subscribe to workspace bus, send status updates to channel in callback
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             // Only handle SessionStatusUpdated events
             if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } = event {
                 // Filter by session_id if specified

@@ -101,7 +101,7 @@ impl MessageService {
         let persistence_service_ws = self.persistence_service.clone();
         let workspace_bus = self.workspace_bus.clone();
 
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             if let WorkspaceUpdateEvent::SessionStatusUpdated {
                 session_id, status, ..
             } = event

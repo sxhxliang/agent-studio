@@ -409,7 +409,7 @@ impl TaskPanel {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Subscribe to workspace bus
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             let _ = tx.send(event.clone());
         });
 
