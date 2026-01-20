@@ -71,6 +71,15 @@ impl RenderedItem {
 // ============================================================================
 
 /// Create AgentMessageData from a ContentChunk
-pub fn create_agent_message_data(chunk: ContentChunk, _index: usize) -> AgentMessageData {
-    AgentMessageData::new("default-session").add_chunk(chunk)
+pub fn create_agent_message_data(
+    chunk: ContentChunk,
+    session_id: Option<&str>,
+    agent_name: Option<&str>,
+) -> AgentMessageData {
+    let session_id = session_id.unwrap_or("default-session").to_string();
+    let mut data = AgentMessageData::new(session_id).add_chunk(chunk);
+    if let Some(agent_name) = agent_name {
+        data = data.with_agent_name(agent_name);
+    }
+    data
 }

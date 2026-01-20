@@ -58,9 +58,7 @@ impl AppState {
         let config_path = crate::core::config_manager::get_workspace_config_path();
 
         // Create workspace bus
-        let workspace_bus = Arc::new(std::sync::Mutex::new(
-            crate::core::event_bus::workspace_bus::WorkspaceUpdateBus::new(),
-        ));
+        let workspace_bus = WorkspaceUpdateBusContainer::new();
 
         // Create workspace service and set its bus
         let mut workspace_service = WorkspaceService::new(config_path);

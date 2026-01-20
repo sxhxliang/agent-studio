@@ -78,21 +78,34 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
+
       - name: Build release
         # working-directory: agent-studio
         run: cargo build --release
 
-      - name: Create installer directory
+      - name: Create MSI installer
         shell: bash
         run: |
-          mkdir -p installer
-          cp target/release/agentx.exe installer/agentx-windows.exe
+          cargo bundle --release
+          installer=$(ls target/release/bundle/msi/*.msi | head -n 1)
+          cp "$installer" agentx-windows.msi
+
+      - name: Create portable executable
+        shell: bash
+        run: cp target/release/agentx.exe agentx-windows.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: agentx-windows
-          path: installer/agentx-windows.exe
+          path: |
+            agentx-windows.exe
+            agentx-windows.msi
 
   build-linux:
     runs-on: ubuntu-latest
@@ -107,6 +120,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            fakeroot \
+            dpkg-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
@@ -124,9 +139,18 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
+
       - name: Build release
         # working-directory: agent-studio
         run: cargo build --release
+
+      - name: Create DEB package
+        run: |
+          cargo bundle --release
+          package=$(ls target/release/bundle/deb/*.deb | head -n 1)
+          cp "$package" agentx-linux.deb
 
       - name: Create tarball
         run: |
@@ -139,7 +163,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentx-linux
-          path: agentx-linux.tar.gz
+          path: |
+            agentx-linux.tar.gz
+            agentx-linux.deb
 
   release:
     needs: [build-macos, build-windows, build-linux]
@@ -181,7 +207,9 @@ jobs:
           prerelease: false
           files: |
             agentx-macos.dmg
+            agentx-windows.msi
             agentx-windows.exe
+            agentx-linux.deb
             agentx-linux.tar.gz
           body: |
             ## AgentX - AI Agent Studio
@@ -204,15 +232,17 @@ jobs:
             3. On first launch: right-click the app > Open > Open (to bypass Gatekeeper)
 
             ### Windows
-            1. Download `agentx-windows.exe`
-            2. Run the executable directly
+            1. Download `agentx-windows.msi`
+            2. Run the installer
             3. You may need to allow the app through Windows Defender SmartScreen
+            4. (Optional) `agentx-windows.exe` is a portable build
 
             ### Linux
-            1. Download `agentx-linux.tar.gz`
-            2. Extract: `tar -xzvf agentx-linux.tar.gz`
-            3. Run: `./agentx-linux/agentx`
-            4. Ensure required dependencies are installed (Vulkan, GTK3, etc.)
+            1. Download `agentx-linux.deb`
+            2. Install: `sudo dpkg -i agentx-linux.deb`
+            3. Fix deps if needed: `sudo apt-get -f install`
+            4. (Optional) `agentx-linux.tar.gz` is a portable build
+            5. Ensure required dependencies are installed (Vulkan, GTK3, etc.)
 
             ## Configuration
 

@@ -215,12 +215,12 @@ impl DiffSummary {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         h_flex()
-            .gap_2()
+            .gap_1()
             .items_center()
             .when(additions > 0, |this| {
                 this.child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(11.))
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(cx.theme().green)
                         .child(format!("+{}", additions)),
@@ -229,7 +229,7 @@ impl DiffSummary {
             .when(deletions > 0, |this| {
                 this.child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(11.))
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(cx.theme().red)
                         .child(format!("-{}", deletions)),
@@ -272,31 +272,32 @@ impl DiffSummary {
                 h_flex()
                     .w_full()
                     .items_center()
-                    .gap_3()
-                    .p_2()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
                     .rounded(px(4.))
                     .hover(|this| this.bg(cx.theme().muted.opacity(0.3)))
                     .cursor_pointer()
                     .child(
                         Icon::new(IconName::File)
-                            .size(px(16.))
+                            .size(px(14.))
                             .text_color(cx.theme().muted_foreground),
                     )
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(13.))
+                            .text_size(px(12.))
                             .text_color(cx.theme().foreground)
                             .child(filename),
                     )
                     .when(stats.is_new_file, |this| {
                         this.child(
                             div()
-                                .px_2()
-                                .py(px(2.))
-                                .rounded(px(4.))
+                                .px_1p5()
+                                .py(px(1.))
+                                .rounded(px(3.))
                                 .bg(cx.theme().green.opacity(0.2))
-                                .text_size(px(11.))
+                                .text_size(px(10.))
                                 .text_color(cx.theme().green)
                                 .child("NEW"),
                         )
@@ -304,7 +305,7 @@ impl DiffSummary {
                     .child(self.render_stats(stats.additions, stats.deletions, cx))
                     .child(
                         Icon::new(IconName::ChevronRight)
-                            .size(px(14.))
+                            .size(px(12.))
                             .text_color(cx.theme().muted_foreground),
                     ),
             )
@@ -336,27 +337,28 @@ impl Render for DiffSummary {
 
         v_flex()
             .w_full()
-            .gap_2()
-            .p_4()
+            .gap_1()
+            .p_3()
             .rounded(cx.theme().radius)
-            // .bg(cx.theme().secondary)
+            .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
+            // .border_style(gpui::BorderStyle::Dashed)
             // Header
             .child(
                 h_flex()
                     .w_full()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
                     .child(
                         Icon::new(IconName::Asterisk)
-                            .size(px(16.))
+                            .size(px(14.))
                             .text_color(cx.theme().accent),
                     )
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(14.))
+                            .text_size(px(13.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(cx.theme().foreground)
                             .child(format!(
@@ -382,7 +384,7 @@ impl Render for DiffSummary {
             )
             // File list (only shown when not collapsed)
             .when(!is_collapsed, |this| {
-                this.child(v_flex().w_full().gap_1().children(file_rows))
+                this.child(v_flex().w_full().gap_0p5().children(file_rows))
             })
             .into_any_element()
     }

@@ -45,6 +45,10 @@ impl DockPanel for TerminalPanel {
         "Terminal"
     }
 
+    fn title_key() -> Option<&'static str> {
+        Some("terminal.title")
+    }
+
     fn description() -> &'static str {
         "Integrated terminal emulator"
     }

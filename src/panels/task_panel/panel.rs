@@ -21,6 +21,7 @@ use gpui_component::{
     v_flex,
 };
 use rust_i18n::t;
+use smol::Timer;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
@@ -74,6 +75,8 @@ pub struct TaskPanel {
     last_click_task_id: Option<String>,
     /// Loading state indicator
     is_loading: bool,
+    /// Optional callback for custom item focus handling
+    on_item_focus: Option<Box<dyn Fn(&str, &mut Window, &mut Context<Self>)>>,
 }
 
 impl DockPanel for TaskPanel {
@@ -134,7 +137,18 @@ impl TaskPanel {
             pending_click_generation: 0,
             last_click_task_id: None,
             is_loading: false,
+            on_item_focus: None,
         }
+    }
+
+    /// Set a custom callback for handling item focus
+    /// This allows external code to control the selection behavior
+    pub fn on_item_focus<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&str, &mut Window, &mut Context<Self>) + 'static,
+    {
+        self.on_item_focus = Some(Box::new(callback));
+        self
     }
 
     // ========================================================================
@@ -395,7 +409,7 @@ impl TaskPanel {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Subscribe to workspace bus
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             let _ = tx.send(event.clone());
         });
 
@@ -710,6 +724,17 @@ impl TaskPanel {
         cx.notify();
     }
 
+    /// Manually set the selected task (for external control)
+    pub fn set_selected_task(&mut self, task_id: Option<String>, cx: &mut Context<Self>) {
+        self.selected_task_id = task_id;
+        cx.notify();
+    }
+
+    /// Get the currently selected task ID
+    pub fn selected_task(&self) -> Option<&str> {
+        self.selected_task_id.as_deref()
+    }
+
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
         self.view_mode = mode;
         cx.notify();
@@ -766,7 +791,7 @@ impl TaskPanel {
 
         cx.spawn_in(window, async move |entity, cx| {
             // Delay single-click handling to allow double-click to preempt it.
-            gpui::Timer::after(Duration::from_millis(250)).await;
+            Timer::after(Duration::from_millis(250)).await;
             let _ = cx.update(|window, cx| {
                 let Some(entity) = entity.upgrade() else {
                     return;
@@ -796,6 +821,13 @@ impl TaskPanel {
         self.last_click_task_id = Some(task_id.clone());
 
         self.select_task(task_id.clone(), cx);
+
+        // Call custom focus handler if provided
+        if let Some(callback) = self.on_item_focus.take() {
+            callback(&task_id, window, cx);
+            self.on_item_focus = Some(callback);
+            return; // Let the custom handler decide what to do
+        }
 
         if click_count >= 2 && is_same_task {
             self.pending_click_generation = self.pending_click_generation.wrapping_add(1);
@@ -1015,7 +1047,6 @@ impl TaskPanel {
         let workspace_id = workspace.id.clone();
         let is_expanded = workspace.is_expanded;
         let workspace_name = workspace.name.clone();
-        let task_count = workspace.tasks.len();
 
         // Sort tasks by created_at descending (newest first)
         let mut sorted_tasks = workspace.tasks.clone();
@@ -1065,14 +1096,6 @@ impl TaskPanel {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .when(task_count > 0, |this| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(format!("{}", task_count)),
-                                )
-                            })
                             .child({
                                 let workspace_id = workspace_id.clone();
                                 let workspace_path = workspace.path.clone();
@@ -1259,6 +1282,8 @@ impl TaskPanel {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
+                            .min_w(px(60.0)) // Fixed width to prevent layout shift
+                            .text_right()
                             .child(self.format_relative_time(&task.created_at)),
                     ),
             )
@@ -1464,6 +1489,8 @@ impl TaskPanel {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
+                            .min_w(px(60.0)) // Fixed width to prevent layout shift
+                            .text_right()
                             .child(self.format_relative_time(&task.created_at)),
                     ),
             )

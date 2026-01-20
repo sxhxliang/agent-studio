@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tray_icon::{
-    TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton,
+    MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 
@@ -48,7 +48,7 @@ impl SystemTray {
         // 注意：菜单只在右键点击时显示，左键点击不显示菜单
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu))
-            .with_menu_on_left_click(false)  // 禁用左键显示菜单
+            .with_menu_on_left_click(false) // 禁用左键显示菜单
             .with_tooltip("AgentX Studio")
             .with_icon(icon)
             .build()
@@ -176,7 +176,7 @@ pub fn setup_tray_event_handler(tray: SystemTray, cx: &mut gpui::App) {
 
             // 如果没有事件，休眠以避免忙等待；如果有事件，立即继续轮询
             if !has_event {
-                std::thread::sleep(std::time::Duration::from_millis(16));  // 约60fps的轮询频率
+                std::thread::sleep(std::time::Duration::from_millis(16)); // 约60fps的轮询频率
             }
         }
     });

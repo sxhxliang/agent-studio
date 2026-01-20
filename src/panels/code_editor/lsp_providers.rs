@@ -2,9 +2,13 @@ use std::{ops::Range, str::FromStr, time::Duration};
 
 use anyhow::anyhow;
 use gpui::{App, AppContext, Context, Entity, Result, SharedString, Task, Window};
-use gpui_component::input::{
-    CodeActionProvider, CompletionProvider, DefinitionProvider, DocumentColorProvider,
-    HoverProvider, InputState, Rope, RopeExt,
+use gpui_component::{
+    WindowExt,
+    input::{
+        CodeActionProvider, CompletionProvider, DefinitionProvider, DocumentColorProvider,
+        HoverProvider, InputState, Rope, RopeExt,
+    },
+    notification::Notification,
 };
 use lsp_types::{
     CodeAction, CodeActionKind, CompletionContext, CompletionResponse, TextEdit, WorkspaceEdit,
@@ -321,141 +325,141 @@ impl CodeActionProvider for TextConvertor {
         let end = state.text().offset_to_position(range.end);
         let range = lsp_types::Range { start, end };
 
-        actions.push(CodeAction {
-            title: "Convert to Uppercase".into(),
-            kind: Some(CodeActionKind::REFACTOR),
-            edit: Some(WorkspaceEdit {
-                changes: Some(
-                    std::iter::once((
-                        document_uri.clone(),
-                        vec![TextEdit {
-                            range,
-                            new_text: old_text.to_uppercase(),
-                            ..Default::default()
-                        }],
-                    ))
-                    .collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        });
+        // actions.push(CodeAction {
+        //     title: "Convert to Uppercase".into(),
+        //     kind: Some(CodeActionKind::REFACTOR),
+        //     edit: Some(WorkspaceEdit {
+        //         changes: Some(
+        //             std::iter::once((
+        //                 document_uri.clone(),
+        //                 vec![TextEdit {
+        //                     range,
+        //                     new_text: old_text.to_uppercase(),
+        //                     ..Default::default()
+        //                 }],
+        //             ))
+        //             .collect(),
+        //         ),
+        //         ..Default::default()
+        //     }),
+        //     ..Default::default()
+        // });
 
-        actions.push(CodeAction {
-            title: "Convert to Lowercase".into(),
-            kind: Some(CodeActionKind::REFACTOR),
-            edit: Some(WorkspaceEdit {
-                changes: Some(
-                    std::iter::once((
-                        document_uri.clone(),
-                        vec![TextEdit {
-                            range: range,
-                            new_text: old_text.to_lowercase(),
-                            ..Default::default()
-                        }],
-                    ))
-                    .collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        });
+        // actions.push(CodeAction {
+        //     title: "Convert to Lowercase".into(),
+        //     kind: Some(CodeActionKind::REFACTOR),
+        //     edit: Some(WorkspaceEdit {
+        //         changes: Some(
+        //             std::iter::once((
+        //                 document_uri.clone(),
+        //                 vec![TextEdit {
+        //                     range: range,
+        //                     new_text: old_text.to_lowercase(),
+        //                     ..Default::default()
+        //                 }],
+        //             ))
+        //             .collect(),
+        //         ),
+        //         ..Default::default()
+        //     }),
+        //     ..Default::default()
+        // });
 
-        actions.push(CodeAction {
-            title: "Titleize".into(),
-            kind: Some(CodeActionKind::REFACTOR),
-            edit: Some(WorkspaceEdit {
-                changes: Some(
-                    std::iter::once((
-                        document_uri.clone(),
-                        vec![TextEdit {
-                            range: range,
-                            new_text: old_text
-                                .split_whitespace()
-                                .map(|word| {
-                                    let mut chars = word.chars();
-                                    chars
-                                        .next()
-                                        .map(|c| c.to_uppercase().collect::<String>())
-                                        .unwrap_or_default()
-                                        + chars.as_str()
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                            ..Default::default()
-                        }],
-                    ))
-                    .collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        });
+        // actions.push(CodeAction {
+        //     title: "Titleize".into(),
+        //     kind: Some(CodeActionKind::REFACTOR),
+        //     edit: Some(WorkspaceEdit {
+        //         changes: Some(
+        //             std::iter::once((
+        //                 document_uri.clone(),
+        //                 vec![TextEdit {
+        //                     range: range,
+        //                     new_text: old_text
+        //                         .split_whitespace()
+        //                         .map(|word| {
+        //                             let mut chars = word.chars();
+        //                             chars
+        //                                 .next()
+        //                                 .map(|c| c.to_uppercase().collect::<String>())
+        //                                 .unwrap_or_default()
+        //                                 + chars.as_str()
+        //                         })
+        //                         .collect::<Vec<_>>()
+        //                         .join(" "),
+        //                     ..Default::default()
+        //                 }],
+        //             ))
+        //             .collect(),
+        //         ),
+        //         ..Default::default()
+        //     }),
+        //     ..Default::default()
+        // });
 
-        actions.push(CodeAction {
-            title: "Capitalize".into(),
-            kind: Some(CodeActionKind::REFACTOR),
-            edit: Some(WorkspaceEdit {
-                changes: Some(
-                    std::iter::once((
-                        document_uri.clone(),
-                        vec![TextEdit {
-                            range,
-                            new_text: old_text
-                                .chars()
-                                .enumerate()
-                                .map(|(i, c)| {
-                                    if i == 0 {
-                                        c.to_uppercase().to_string()
-                                    } else {
-                                        c.to_string()
-                                    }
-                                })
-                                .collect(),
-                            ..Default::default()
-                        }],
-                    ))
-                    .collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        });
+        // actions.push(CodeAction {
+        //     title: "Capitalize".into(),
+        //     kind: Some(CodeActionKind::REFACTOR),
+        //     edit: Some(WorkspaceEdit {
+        //         changes: Some(
+        //             std::iter::once((
+        //                 document_uri.clone(),
+        //                 vec![TextEdit {
+        //                     range,
+        //                     new_text: old_text
+        //                         .chars()
+        //                         .enumerate()
+        //                         .map(|(i, c)| {
+        //                             if i == 0 {
+        //                                 c.to_uppercase().to_string()
+        //                             } else {
+        //                                 c.to_string()
+        //                             }
+        //                         })
+        //                         .collect(),
+        //                     ..Default::default()
+        //                 }],
+        //             ))
+        //             .collect(),
+        //         ),
+        //         ..Default::default()
+        //     }),
+        //     ..Default::default()
+        // });
 
-        // snake_case
-        actions.push(CodeAction {
-            title: "Convert to snake_case".into(),
-            kind: Some(CodeActionKind::REFACTOR),
-            edit: Some(WorkspaceEdit {
-                changes: Some(
-                    std::iter::once((
-                        document_uri.clone(),
-                        vec![TextEdit {
-                            range,
-                            new_text: old_text
-                                .chars()
-                                .enumerate()
-                                .map(|(i, c)| {
-                                    if c.is_uppercase() {
-                                        if i != 0 {
-                                            format!("_{}", c.to_lowercase())
-                                        } else {
-                                            c.to_lowercase().to_string()
-                                        }
-                                    } else {
-                                        c.to_string()
-                                    }
-                                })
-                                .collect(),
-                            ..Default::default()
-                        }],
-                    ))
-                    .collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        });
+        // // snake_case
+        // actions.push(CodeAction {
+        //     title: "Convert to snake_case".into(),
+        //     kind: Some(CodeActionKind::REFACTOR),
+        //     edit: Some(WorkspaceEdit {
+        //         changes: Some(
+        //             std::iter::once((
+        //                 document_uri.clone(),
+        //                 vec![TextEdit {
+        //                     range,
+        //                     new_text: old_text
+        //                         .chars()
+        //                         .enumerate()
+        //                         .map(|(i, c)| {
+        //                             if c.is_uppercase() {
+        //                                 if i != 0 {
+        //                                     format!("_{}", c.to_lowercase())
+        //                                 } else {
+        //                                     c.to_lowercase().to_string()
+        //                                 }
+        //                             } else {
+        //                                 c.to_string()
+        //                             }
+        //                         })
+        //                         .collect(),
+        //                     ..Default::default()
+        //                 }],
+        //             ))
+        //             .collect(),
+        //         ),
+        //         ..Default::default()
+        //     }),
+        //     ..Default::default()
+        // });
 
         // AI-Powered Actions (only show if AI service is configured)
         if let Some(_ai_service) = AppState::global(cx).ai_service() {
@@ -557,6 +561,12 @@ impl TextConvertor {
         use crate::core::services::CommentStyle;
 
         let Some(ai_service) = AppState::global(cx).ai_service() else {
+            // Show error notification if AI service is not configured
+            struct AiServiceError;
+            let note =
+                Notification::error("AI service not configured. Please check your config.json")
+                    .id::<AiServiceError>();
+            window.push_notification(note, cx);
             return Task::ready(Err(anyhow!("AI service not configured")));
         };
 
@@ -580,7 +590,9 @@ impl TextConvertor {
                 let range: lsp_types::Range = match data.get("range") {
                     Some(r) => serde_json::from_value(r.clone()).unwrap(),
                     None => {
-                        return Task::ready(Err(anyhow!("Missing range data for AI comment action")))
+                        return Task::ready(Err(anyhow!(
+                            "Missing range data for AI comment action"
+                        )));
                     }
                 };
 
@@ -590,63 +602,209 @@ impl TextConvertor {
                     CommentStyle::Inline
                 };
 
+                // Show loading notification
+                struct AiCommentLoading;
+                let loading_note =
+                    Notification::info("Generating comment with AI...").id::<AiCommentLoading>();
+                window.push_notification(loading_note, cx);
+
                 window.spawn(cx, async move |cx| {
-                    let comment = ai_service
-                        .generate_comment(&code, style)
-                        .await
-                        .map_err(|e| {
+                    // Call AI service
+                    let comment_result = ai_service.generate_comment(&code, style).await;
+
+                    match comment_result {
+                        Ok(comment) => {
+                            let formatted = format_comment_for_code(&code, &comment, style);
+
+                            state_weak.update_in(cx, |state, window, cx| {
+                                state.apply_lsp_edits(
+                                    &vec![TextEdit {
+                                        range,
+                                        new_text: formatted,
+                                        ..Default::default()
+                                    }],
+                                    window,
+                                    cx,
+                                );
+
+                                // Show success notification
+                                struct AiCommentSuccess;
+                                let success_note =
+                                    Notification::success("Comment generated successfully!")
+                                        .id::<AiCommentSuccess>();
+                                window.push_notification(success_note, cx);
+                            })?;
+
+                            Ok(())
+                        }
+                        Err(e) => {
                             log::error!("Failed to generate comment: {}", e);
-                            anyhow!("Failed to generate comment: {}", e)
-                        })?;
 
-                    let formatted = format_comment_for_code(&code, &comment, style);
+                            // Show error notification
+                            struct AiCommentError;
+                            log::debug!("Attempting to show error notification...");
 
-                    state_weak.update_in(cx, |state, window, cx| {
-                        state.apply_lsp_edits(
-                            &vec![TextEdit {
-                                range,
-                                new_text: formatted,
-                                ..Default::default()
-                            }],
-                            window,
-                            cx,
-                        );
-                    })?;
+                            let result = cx.update(|_, cx| {
+                                log::debug!("Inside cx.update");
+                                if let Some(window) = cx.active_window() {
+                                    log::debug!("Found active window");
+                                    window.update(cx, |_, window, cx| {
+                                        log::debug!("Inside window.update, pushing notification");
+                                        let error_note = Notification::error(format!(
+                                            "Failed to generate comment: {}",
+                                            e
+                                        ))
+                                        .id::<AiCommentError>();
+                                        window.push_notification(error_note, cx);
+                                        log::debug!("Notification pushed successfully");
+                                    })
+                                } else {
+                                    log::warn!("No active window found!");
+                                    Err(anyhow!("No active window"))
+                                }
+                            });
 
-                    Ok(())
+                            if let Err(e) = result {
+                                log::error!("Failed to update context: {:?}", e);
+                            }
+
+                            Err(anyhow!("Failed to generate comment: {}", e))
+                        }
+                    }
                 })
             }
 
-            "explain" => window.spawn(cx, async move |_cx| {
-                let explanation = ai_service.explain_code(&code).await.map_err(|e| {
-                    log::error!("Failed to explain code: {}", e);
-                    anyhow!("Failed to explain code: {}", e)
-                })?;
+            "explain" => {
+                // Show loading notification
+                struct AiExplainLoading;
+                let loading_note =
+                    Notification::info("Analyzing code with AI...").id::<AiExplainLoading>();
+                window.push_notification(loading_note, cx);
 
-                log::info!(
-                    "=== Code Explanation ===\n{}\n========================",
-                    explanation
-                );
-                // TODO: Display in notification or panel
-                Ok(())
-            }),
+                window.spawn(cx, async move |cx| {
+                    // Call AI service
+                    let explanation_result = ai_service.explain_code(&code).await;
 
-            "improve" => window.spawn(cx, async move |_cx| {
-                let suggestions = ai_service
-                    .suggest_improvements(&code)
-                    .await
-                    .map_err(|e| {
-                        log::error!("Failed to generate suggestions: {}", e);
-                        anyhow!("Failed to generate suggestions: {}", e)
-                    })?;
+                    match explanation_result {
+                        Ok(explanation) => {
+                            log::info!(
+                                "=== Code Explanation ===\n{}\n========================",
+                                explanation
+                            );
 
-                log::info!(
-                    "=== Code Improvement Suggestions ===\n{}\n====================================",
-                    suggestions
-                );
-                // TODO: Display in notification or panel
-                Ok(())
-            }),
+                            // Show explanation in notification
+                            cx.update(|_, cx| {
+                                if let Some(window) = cx.active_window() {
+                                    window.update(cx, |_, window, cx| {
+                                        struct AiExplainResult;
+                                        let success_note = Notification::success("Code explanation generated! Check logs for details.")
+                                            .id::<AiExplainResult>();
+                                        window.push_notification(success_note, cx);
+                                    }).ok();
+                                }
+                            }).ok();
+
+                            Ok(())
+                        }
+                        Err(e) => {
+                            log::error!("Failed to explain code: {}", e);
+
+                            // Show error notification
+                            struct AiExplainError;
+                            log::debug!("Attempting to show explain error notification...");
+
+                            let result = cx.update(|_, cx| {
+                                log::debug!("Inside cx.update for explain error");
+                                if let Some(window) = cx.active_window() {
+                                    log::debug!("Found active window for explain error");
+                                    window.update(cx, |_, window, cx| {
+                                        log::debug!("Inside window.update, pushing explain error notification");
+                                        let error_note = Notification::error(format!("Failed to explain code: {}", e))
+                                            .id::<AiExplainError>();
+                                        window.push_notification(error_note, cx);
+                                        log::debug!("Explain error notification pushed successfully");
+                                    })
+                                } else {
+                                    log::warn!("No active window found for explain error!");
+                                    Err(anyhow!("No active window"))
+                                }
+                            });
+
+                            if let Err(e) = result {
+                                log::error!("Failed to update context for explain error: {:?}", e);
+                            }
+
+                            Err(anyhow!("Failed to explain code: {}", e))
+                        }
+                    }
+                })
+            }
+
+            "improve" => {
+                // Show loading notification
+                struct AiImproveLoading;
+                let loading_note = Notification::info("Analyzing code for improvements with AI...")
+                    .id::<AiImproveLoading>();
+                window.push_notification(loading_note, cx);
+
+                window.spawn(cx, async move |cx| {
+                    // Call AI service
+                    let suggestions_result = ai_service.suggest_improvements(&code).await;
+
+                    match suggestions_result {
+                        Ok(suggestions) => {
+                            log::info!(
+                                "=== Code Improvement Suggestions ===\n{}\n====================================",
+                                suggestions
+                            );
+
+                            // Show success in notification
+                            cx.update(|_, cx| {
+                                if let Some(window) = cx.active_window() {
+                                    window.update(cx, |_, window, cx| {
+                                        struct AiImproveResult;
+                                        let success_note = Notification::success("Code improvement suggestions generated! Check logs for details.")
+                                            .id::<AiImproveResult>();
+                                        window.push_notification(success_note, cx);
+                                    }).ok();
+                                }
+                            }).ok();
+
+                            Ok(())
+                        }
+                        Err(e) => {
+                            log::error!("Failed to generate suggestions: {}", e);
+
+                            // Show error notification
+                            struct AiImproveError;
+                            log::debug!("Attempting to show improve error notification...");
+
+                            let result = cx.update(|_, cx| {
+                                log::debug!("Inside cx.update for improve error");
+                                if let Some(window) = cx.active_window() {
+                                    log::debug!("Found active window for improve error");
+                                    window.update(cx, |_, window, cx| {
+                                        log::debug!("Inside window.update, pushing improve error notification");
+                                        let error_note = Notification::error(format!("Failed to generate suggestions: {}", e))
+                                            .id::<AiImproveError>();
+                                        window.push_notification(error_note, cx);
+                                        log::debug!("Improve error notification pushed successfully");
+                                    })
+                                } else {
+                                    log::warn!("No active window found for improve error!");
+                                    Err(anyhow!("No active window"))
+                                }
+                            });
+
+                            if let Err(e) = result {
+                                log::error!("Failed to update context for improve error: {:?}", e);
+                            }
+
+                            Err(anyhow!("Failed to generate suggestions: {}", e))
+                        }
+                    }
+                })
+            }
 
             _ => Task::ready(Err(anyhow!("Unknown AI action: {}", ai_action))),
         }

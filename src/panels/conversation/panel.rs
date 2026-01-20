@@ -1,17 +1,18 @@
 use gpui::{
     App, ClipboardEntry, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
-    Render, ScrollHandle, SharedString, Styled, Timer, Window, div, prelude::*, px,
+    Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
 };
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex, input::InputState, skeleton::Skeleton, spinner::Spinner,
-    v_flex,
+    ActiveTheme, Icon, IconName, Sizable, StyledExt, h_flex, input::InputState, skeleton::Skeleton,
+    spinner::Spinner, v_flex,
 };
 
 // Use the published ACP schema crate
-use agent_client_protocol::{ContentChunk, ImageContent, SessionUpdate, ToolCall};
+use agent_client_protocol::{ContentChunk, ImageContent, PlanEntryStatus, SessionUpdate, ToolCall};
 use chrono::{DateTime, Utc};
 use rust_i18n::t;
+use smol::Timer;
 use std::time::Duration;
 
 use crate::components::ToolCallItem;
@@ -27,6 +28,7 @@ use super::{
     helpers::{extract_text_from_content, get_element_id, session_update_type_name},
     rendered_item::{RenderedItem, create_agent_message_data},
     types::ResourceInfo,
+    update_state_manager::{UpdateProcessor, UpdateStateIndex},
 };
 
 /// Session status information for display
@@ -43,6 +45,8 @@ pub struct ConversationPanel {
     focus_handle: FocusHandle,
     /// List of rendered items
     rendered_items: Vec<RenderedItem>,
+    /// Fast index for O(1) lookups (tool calls, streaming messages)
+    update_index: UpdateStateIndex,
     /// Counter for generating unique IDs for new items
     next_index: usize,
     /// Optional session ID to filter updates (None = all sessions)
@@ -131,11 +135,13 @@ impl ConversationPanel {
         let scroll_handle = ScrollHandle::new();
         let input_state = Self::create_input_state(window, cx);
         let rendered_items = Vec::new();
+        let update_index = UpdateStateIndex::new();
         let next_index = rendered_items.len();
 
         Self {
             focus_handle,
             rendered_items,
+            update_index,
             next_index,
             session_id,
             scroll_handle,
@@ -185,23 +191,29 @@ impl ConversationPanel {
                     let _ = cx.update(|cx| {
                         if let Some(entity) = weak.upgrade() {
                             entity.update(cx, |this, cx| {
-                                let mut index = this.next_index;
+                                let agent_name = AppState::global(cx)
+                                    .agent_service()
+                                    .and_then(|service| service.get_agent_for_session(&session_id));
+
+                                // Use optimized UpdateProcessor for batch loading
                                 for persisted_msg in messages.into_iter() {
                                     log::debug!(
                                         "Loading historical message {}: timestamp={}",
-                                        index,
+                                        this.next_index,
                                         persisted_msg.timestamp
                                     );
-                                    Self::add_update_to_list(
-                                        &mut this.rendered_items,
-                                        persisted_msg.update,
-                                        index,
-                                        cx,
-                                    );
-                                    index += 1;
-                                }
 
-                                this.next_index = index;
+                                    let mut processor = UpdateProcessor::<ConversationPanel>::new(
+                                        &mut this.rendered_items,
+                                        &mut this.update_index,
+                                        Some(session_id.as_str()),
+                                        agent_name.as_deref(),
+                                        this.next_index,
+                                    );
+
+                                    processor.process_update(persisted_msg.update, cx);
+                                    this.next_index += 1;
+                                }
 
                                 log::info!(
                                     "Loaded history for session {}: {} items, next_index={}",
@@ -292,20 +304,31 @@ impl ConversationPanel {
                 session_filter_log.as_deref().unwrap_or("all")
             );
 
-            while let Some(update) = rx.recv().await {
+            while let Some(event) = rx.recv().await {
                 log::info!(
                     "Background task received update for session: {}",
                     session_filter_log.as_deref().unwrap_or("all")
                 );
 
+                let session_id = event.session_id.clone();
+                let agent_name = event.agent_name.clone();
+                let update = (*event.update).clone();
+
                 let weak = weak_entity.clone();
                 let _ = cx.update(|cx| {
                     if let Some(entity) = weak.upgrade() {
                         entity.update(cx, |this, cx| {
-                            let index = this.next_index;
+                            // Use optimized UpdateProcessor
+                            let mut processor = UpdateProcessor::<ConversationPanel>::new(
+                                &mut this.rendered_items,
+                                &mut this.update_index,
+                                Some(session_id.as_str()),
+                                agent_name.as_deref(),
+                                this.next_index,
+                            );
+
+                            processor.process_update(update, cx);
                             this.next_index += 1;
-                            // log::debug!("Processing update type: {:?}", update);
-                            Self::add_update_to_list(&mut this.rendered_items, update, index, cx);
 
                             cx.notify(); // Trigger re-render immediately
 
@@ -470,7 +493,7 @@ impl ConversationPanel {
         let filter_log3 = session_filter.clone();
 
         // Subscribe to workspace bus, send status updates to channel in callback
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             // Only handle SessionStatusUpdated events
             if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } = event {
                 // Filter by session_id if specified
@@ -591,239 +614,6 @@ impl ConversationPanel {
         }
     }
 
-    /// Helper to add an update to the rendered items list
-    fn add_update_to_list(
-        items: &mut Vec<RenderedItem>,
-        update: SessionUpdate,
-        index: usize,
-        cx: &mut App,
-    ) {
-        let update_type = session_update_type_name(&update);
-        log::debug!("Processing SessionUpdate[{}]: {}", index, update_type);
-
-        match update {
-            SessionUpdate::UserMessageChunk(chunk) => {
-                // Mark last message as complete if it was an AgentMessage
-                if let Some(last_item) = items.last_mut() {
-                    if !last_item.can_accept_agent_message_chunk()
-                        && !last_item.can_accept_agent_thought_chunk()
-                    {
-                        // Different type, mark complete
-                        last_item.mark_complete();
-                    }
-                }
-
-                log::debug!("  └─ Creating UserMessage");
-                items.push(Self::create_user_message(chunk, index, cx));
-            }
-            SessionUpdate::AgentMessageChunk(chunk) => {
-                // Try to merge with the last AgentMessage item
-                let merged = items
-                    .last_mut()
-                    .map(|last_item| {
-                        if last_item.can_accept_agent_message_chunk() {
-                            last_item.try_append_agent_message_chunk(chunk.clone())
-                        } else {
-                            // Different type, mark the last item as complete
-                            last_item.mark_complete();
-                            false
-                        }
-                    })
-                    .unwrap_or(false);
-
-                if merged {
-                    log::debug!("  └─ Merged AgentMessageChunk into existing message");
-                } else {
-                    log::debug!("  └─ Creating new AgentMessage");
-                    let data = create_agent_message_data(chunk, index);
-                    items.push(RenderedItem::AgentMessage(
-                        format!("agent-msg-{}", index),
-                        data,
-                    ));
-                }
-            }
-            SessionUpdate::AgentThoughtChunk(chunk) => {
-                let text = extract_text_from_content(&chunk.content);
-
-                // Try to merge with the last AgentThought item
-                let merged = items
-                    .last_mut()
-                    .map(|last_item| {
-                        if last_item.can_accept_agent_thought_chunk() {
-                            last_item.try_append_agent_thought_chunk(text.clone(), cx)
-                        } else {
-                            // Different type, mark the last item as complete
-                            last_item.mark_complete();
-                            false
-                        }
-                    })
-                    .unwrap_or(false);
-
-                if merged {
-                    log::debug!("  └─ Merged AgentThoughtChunk into existing thought");
-                } else {
-                    log::debug!("  └─ Creating new AgentThought");
-                    let entity = cx.new(|_| AgentThoughtItemState::new(text));
-                    items.push(RenderedItem::AgentThought(entity));
-                }
-            }
-            SessionUpdate::ToolCall(tool_call) => {
-                // Check if a ToolCall with this ID already exists
-                let mut found = false;
-                for item in items.iter_mut() {
-                    if let RenderedItem::ToolCall(entity) = item {
-                        let entity_clone = entity.clone();
-                        let matches =
-                            entity_clone.read(cx).tool_call_id() == &tool_call.tool_call_id;
-
-                        if matches {
-                            // Update the existing tool call by replacing it with the new data
-                            entity.update(cx, |state, cx| {
-                                log::debug!(
-                                    "  └─ Updating existing ToolCall: {} (title: {:?} -> {:?})",
-                                    tool_call.tool_call_id,
-                                    state.tool_call().title,
-                                    tool_call.title
-                                );
-                                state.update_tool_call(tool_call.clone(), cx);
-                            });
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-
-                // If no existing ToolCall found, create a new one
-                if !found {
-                    // Mark last message as complete before adding ToolCall
-                    if let Some(last_item) = items.last_mut() {
-                        last_item.mark_complete();
-                    }
-
-                    log::debug!("  └─ Creating new ToolCall: {}", tool_call.tool_call_id);
-                    let entity = cx.new(|_| ToolCallItem::new(tool_call));
-                    items.push(RenderedItem::ToolCall(entity));
-                }
-            }
-            SessionUpdate::ToolCallUpdate(tool_call_update) => {
-                log::debug!("  └─ Updating ToolCall: {}", tool_call_update.tool_call_id);
-                // Find the existing ToolCall entity by ID and update it
-                let mut found = false;
-                for item in items.iter_mut() {
-                    if let RenderedItem::ToolCall(entity) = item {
-                        let entity_clone = entity.clone();
-                        let matches =
-                            entity_clone.read(cx).tool_call_id() == &tool_call_update.tool_call_id;
-
-                        if matches {
-                            // Update the existing tool call
-                            entity.update(cx, |state, cx| {
-                                log::debug!(
-                                    "     ✓ Found and updating ToolCall {} (status: {:?})",
-                                    tool_call_update.tool_call_id,
-                                    tool_call_update.fields.status
-                                );
-                                state.apply_update(tool_call_update.fields.clone(), cx);
-                            });
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-
-                // If no existing ToolCall found, try to create one from the update
-                if !found {
-                    log::warn!(
-                        "     ⚠ ToolCallUpdate for non-existent ID: {}. Attempting to create.",
-                        tool_call_update.tool_call_id
-                    );
-
-                    // Try to convert ToolCallUpdate to ToolCall
-                    match ToolCall::try_from(tool_call_update) {
-                        Ok(tool_call) => {
-                            log::debug!("     ✓ Successfully created ToolCall from update");
-                            let entity = cx.new(|_| ToolCallItem::new(tool_call));
-                            items.push(RenderedItem::ToolCall(entity));
-                        }
-                        Err(e) => {
-                            log::error!("     ✗ Failed to create ToolCall from update: {:?}", e);
-                        }
-                    }
-                }
-            }
-            SessionUpdate::Plan(plan) => {
-                // Mark last message as complete before adding Plan
-                if let Some(last_item) = items.last_mut() {
-                    last_item.mark_complete();
-                }
-
-                log::debug!("  └─ Creating Plan with {} entries", plan.entries.len());
-                items.push(RenderedItem::Plan(plan));
-            }
-            SessionUpdate::AvailableCommandsUpdate(commands_update) => {
-                // Mark last message as complete before adding commands update
-                if let Some(last_item) = items.last_mut() {
-                    last_item.mark_complete();
-                }
-
-                log::debug!(
-                    "  └─ Commands update: {} available",
-                    commands_update.available_commands.len()
-                );
-                items.push(RenderedItem::InfoUpdate(format!(
-                    "📋 Available Commands: {} commands",
-                    commands_update.available_commands.len()
-                )));
-            }
-            SessionUpdate::CurrentModeUpdate(mode_update) => {
-                // Mark last message as complete before adding mode update
-                if let Some(last_item) = items.last_mut() {
-                    last_item.mark_complete();
-                }
-
-                log::debug!("  └─ Mode changed to: {}", mode_update.current_mode_id);
-                items.push(RenderedItem::InfoUpdate(format!(
-                    "🔄 Mode: {}",
-                    mode_update.current_mode_id
-                )));
-            }
-            _ => {
-                log::warn!(
-                    "⚠️  UNHANDLED SessionUpdate type: {}\n\
-                     This update will be ignored. Consider implementing support for this type.\n\
-                     Update details: {:?}",
-                    update_type,
-                    update
-                );
-            }
-        }
-    }
-
-    /// Create a UserMessage RenderedItem from a ContentChunk
-    fn create_user_message(chunk: ContentChunk, _index: usize, cx: &mut App) -> RenderedItem {
-        use crate::UserMessageData;
-
-        let content_vec = vec![chunk.content.clone()];
-        let user_data = UserMessageData::new("default-session").with_contents(content_vec.clone());
-
-        let entity = cx.new(|cx| {
-            let data_entity = cx.new(|_| user_data);
-
-            let resource_items: Vec<Entity<ResourceItemState>> = content_vec
-                .iter()
-                .filter_map(|content| ResourceInfo::from_content_block(content))
-                .map(|resource_info| cx.new(|_| ResourceItemState::new(resource_info)))
-                .collect();
-
-            UserMessageView {
-                data: data_entity,
-                resource_items,
-            }
-        });
-
-        RenderedItem::UserMessage(entity)
-    }
-
     /// Handle paste event and add images to pasted_images list
     /// Returns true if we handled the paste (had images), false otherwise
     fn handle_paste(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
@@ -932,130 +722,83 @@ impl ConversationPanel {
         .detach();
     }
 
-    /// Render the loading skeleton when session is in progress
-    fn render_loading_skeleton(&self) -> impl IntoElement {
-        v_flex().gap_3().w_full().child(
-            h_flex()
-                .items_start()
-                .gap_2()
-                // Agent icon skeleton (circular, same size as agent icon)
-                .child(Skeleton::new().size(px(16.)).rounded_full().mt_1())
-                // Message content skeleton (2-3 lines with different widths)
-                .child(
-                    v_flex()
-                        .w_full()
-                        .gap_2()
-                        .child(Skeleton::new().w(px(300.)).h_4().rounded_md())
-                        .child(Skeleton::new().w(px(250.)).h_4().rounded_md())
-                        .child(Skeleton::new().w(px(200.)).h_4().rounded_md()),
-                ),
-        )
-    }
+    /// Render the loading skeleton and status info when session is in progress
+    fn render_loading_skeleton(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        // Only show loading skeleton when session is actively processing
+        let should_show_loading = self.session_status.as_ref().map_or(false, |status_info| {
+            matches!(
+                status_info.status,
+                SessionStatus::InProgress | SessionStatus::Pending
+            )
+        });
 
-    /// Render the status bar at the bottom of the conversation panel
-    fn render_status_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let status_info = self.session_status.as_ref()?;
+        if !should_show_loading {
+            return v_flex().into_any_element();
+        }
 
-        // Format last active time
-        let now = chrono::Utc::now();
-        let duration = now.signed_duration_since(status_info.last_active);
-        let time_str = if duration.num_seconds() < 60 {
-            "just now".to_string()
-        } else if duration.num_minutes() < 60 {
-            format!("{}m ago", duration.num_minutes())
-        } else if duration.num_hours() < 24 {
-            format!("{}h ago", duration.num_hours())
-        } else {
-            format!("{}d ago", duration.num_days())
-        };
+        // Find the current todo from Plan entries
+        let current_todo = self.rendered_items.iter().rev().find_map(|item| {
+            if let RenderedItem::Plan(plan) = item {
+                plan.entries
+                    .iter()
+                    .find(|entry| entry.status == PlanEntryStatus::InProgress)
+                    .map(|entry| entry.content.clone())
+            } else {
+                None
+            }
+        });
 
-        // Status icon and color based on session status
+        // Build status indicator row
+        let status_info = self.session_status.as_ref().unwrap(); // Safe because of check above
         let (status_icon, status_color) = match status_info.status {
-            SessionStatus::Active => (IconName::CircleCheck, cx.theme().success),
             SessionStatus::InProgress => (IconName::Loader, cx.theme().primary),
             SessionStatus::Pending => (IconName::LoaderCircle, cx.theme().warning),
-            SessionStatus::Idle => (IconName::Moon, cx.theme().muted_foreground),
-            SessionStatus::Closed => (IconName::CircleX, cx.theme().red),
-            SessionStatus::Completed => (IconName::CircleCheck, cx.theme().success),
-            SessionStatus::Failed => (IconName::CircleX, cx.theme().red),
+            _ => return v_flex().into_any_element(), // Fallback
         };
 
-        let status_text = format!("{:?}", status_info.status);
+        // Calculate elapsed time from last_active
+        let now = chrono::Utc::now();
+        let duration = now.signed_duration_since(status_info.last_active);
+        let total_seconds = duration.num_seconds().max(0) as u64;
+        let hours = total_seconds / 3600;
+        let minutes = (total_seconds % 3600) / 60;
+        let seconds = total_seconds % 60;
+        let elapsed_time = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 
-        Some(
-            div()
-                .flex_none()
-                .w_full()
-                .border_t_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().muted.opacity(0.3))
-                .px_4()
-                .py_2()
-                .child(
-                    h_flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_4()
-                        .child(
-                            // Left side: agent name and status
-                            h_flex()
-                                .items_center()
-                                .gap_3()
-                                .child(
+        // Main skeleton layout: horizontal layout with avatar spinner + status info + content skeletons
+        v_flex()
+            .w_full()
+            .gap_3()
+            .child(
+                // Top row: Spinner avatar + status info (task + time) horizontally aligned
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        // Agent avatar as spinner with status icon
+                        Spinner::new()
+                            .icon(status_icon.clone())
+                            .with_size(gpui_component::Size::Medium)
+                            .color(status_color),
+                    )
+                    .child(
+                        // Status info row: task + time
+                        h_flex()
+                            .items_center()
+                            .gap_2p5()
+                            .flex_1()
+                            .when_some(current_todo, |this, todo| {
+                                // Current task indicator
+                                this.child(
                                     h_flex()
                                         .items_center()
-                                        .gap_2()
+                                        .gap_1p5()
+                                        .px_2()
+                                        .py_1()
+                                        .rounded(cx.theme().radius)
+                                        .bg(cx.theme().muted.opacity(0.5))
                                         .child(
-                                            Icon::new(IconName::Bot)
-                                                .size(px(14.))
-                                                .text_color(cx.theme().muted_foreground),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_weight(gpui::FontWeight::MEDIUM)
-                                                .text_color(cx.theme().foreground)
-                                                .child(status_info.agent_name.clone()),
-                                        ),
-                                )
-                                .child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .when_else(
-                                            status_info.status == SessionStatus::InProgress,
-                                            |this| {
-                                                this.child(Spinner::new().icon(status_icon.clone()))
-                                                    .size(px(12.))
-                                                    .text_color(status_color)
-                                            },
-                                            |this| {
-                                                this.child(
-                                                    Icon::new(status_icon.clone())
-                                                        .size(px(12.))
-                                                        .text_color(status_color),
-                                                )
-                                            },
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(status_color)
-                                                .child(status_text),
-                                        ),
-                                ),
-                        )
-                        .child(
-                            // Right side: last active time and message count
-                            h_flex()
-                                .items_center()
-                                .gap_4()
-                                .child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .child(
-                                            Icon::new(IconName::Info)
+                                            Icon::new(crate::assets::Icon::ListTodo)
                                                 .size(px(12.))
                                                 .text_color(cx.theme().muted_foreground),
                                         )
@@ -1063,39 +806,80 @@ impl ConversationPanel {
                                             div()
                                                 .text_xs()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(time_str),
+                                                .max_w(px(400.))
+                                                .overflow_hidden()
+                                                .text_ellipsis()
+                                                .whitespace_nowrap()
+                                                .child(todo),
                                         ),
                                 )
-                                .when(status_info.message_count > 0, |this| {
-                                    this.child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .child(
-                                                Icon::new(IconName::File)
-                                                    .size(px(12.))
-                                                    .text_color(cx.theme().muted_foreground),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .child(format!(
-                                                        "{}",
-                                                        status_info.message_count
-                                                    )),
-                                            ),
+                            })
+                            .child(
+                                // Elapsed time display
+                                h_flex()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .child(
+                                        Icon::new(IconName::Info)
+                                            .size(px(12.))
+                                            .text_color(cx.theme().muted_foreground),
                                     )
-                                }),
-                        ),
-                ),
-        )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(elapsed_time),
+                                    ),
+                            ),
+                    ),
+            )
+            .child(
+                // Content skeletons - indented to align with text content
+                h_flex()
+                    .gap_3()
+                    .child(
+                        // Spacer to align with content (matches spinner width)
+                        div().w(px(24.)),
+                    )
+                    .child(
+                        // Message content skeletons - simulate text lines with varying widths
+                        v_flex()
+                            .flex_1()
+                            .gap_2()
+                            .child(
+                                Skeleton::new()
+                                    .w_full()
+                                    .max_w(px(480.))
+                                    .h(px(16.))
+                                    .rounded(cx.theme().radius),
+                            )
+                            .child(
+                                Skeleton::new()
+                                    .w_full()
+                                    .max_w(px(420.))
+                                    .h(px(16.))
+                                    .rounded(cx.theme().radius),
+                            )
+                            .child(
+                                Skeleton::new()
+                                    .w_full()
+                                    .max_w(px(360.))
+                                    .h(px(16.))
+                                    .rounded(cx.theme().radius),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 }
 
 impl DockPanel for ConversationPanel {
     fn title() -> &'static str {
         "Conversation"
+    }
+
+    fn title_key() -> Option<&'static str> {
+        Some("conversation.title")
     }
 
     fn description() -> &'static str {
@@ -1180,12 +964,8 @@ impl Render for ConversationPanel {
             }
         }
 
-        // Add loading skeleton when session is in progress
-        if let Some(status_info) = &self.session_status {
-            if status_info.status == SessionStatus::InProgress {
-                children = children.child(self.render_loading_skeleton());
-            }
-        }
+        // Add loading skeleton when session is in progress (conditional rendering handled in function)
+        children = children.child(self.render_loading_skeleton(cx));
 
         // Main layout: vertical flex with scroll area on top and input box at bottom
         v_flex()
@@ -1222,9 +1002,6 @@ impl Render for ConversationPanel {
                             .child(children)
                     }),
             )
-            .when_some(self.render_status_bar(cx), |this, status_bar| {
-                this.child(status_bar)
-            })
             .child(
                 // Chat input box at bottom (fixed, not scrollable)
                 div()

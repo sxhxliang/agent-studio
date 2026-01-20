@@ -6,11 +6,7 @@ use rust_i18n::t;
 use std::collections::HashSet;
 
 use gpui_component::{
-    ActiveTheme, IndexPath, StyledExt,
-    input::InputState,
-    list::ListState,
-    select::{SelectEvent, SelectState},
-    v_flex,
+    ActiveTheme, IndexPath, StyledExt, WindowExt, input::InputState, list::ListState, notification::Notification, select::{SelectEvent, SelectState}, v_flex
 };
 
 use agent_client_protocol::{self as acp, AvailableCommand, ImageContent};
@@ -75,6 +71,10 @@ pub struct WelcomePanel {
 impl crate::panels::dock_panel::DockPanel for WelcomePanel {
     fn title() -> &'static str {
         "Welcome"
+    }
+
+    fn title_key() -> Option<&'static str> {
+        Some("welcome.title")
     }
 
     fn description() -> &'static str {
@@ -337,7 +337,12 @@ impl WelcomePanel {
         .detach();
     }
 
-    fn new(workspace_id: Option<String>, working_directory: Option<std::path::PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        workspace_id: Option<String>,
+        working_directory: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .code_editor("markdown")
@@ -349,7 +354,8 @@ impl WelcomePanel {
 
         // Get the working directory - use provided or get from AppState
         // If workspace_id is provided, we'll update it asynchronously in load_workspace_info
-        let working_dir = working_directory.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
+        let working_dir =
+            working_directory.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
 
         let context_list = cx.new(|cx| {
             let delegate = FilePickerDelegate::new(&working_dir);
@@ -496,43 +502,58 @@ impl WelcomePanel {
         available_mcps
             .iter()
             .filter(|(name, config)| config.enabled && selected_set.contains(name))
-            .map(|(_, config)| config.config.clone())
+            .map(|(name, config)| config.to_acp_mcp_server(name.clone()))
             .collect()
     }
 
-    /// Try to refresh agents list from AppState if we don't have agents yet
+    /// Try to refresh agents list from AppState
     fn try_refresh_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.has_agents {
-            return;
-        }
-
         let agent_service = match AppState::global(cx).agent_service() {
             Some(service) => service.clone(),
             None => return,
         };
 
         let agent_select = self.agent_select.clone();
+        let current_selection = self.agent_select.read(cx).selected_value().cloned();
+        let no_agents_label = Self::no_agents_label();
         let weak_self = cx.entity().downgrade();
         cx.spawn_in(window, async move |_this, window| {
             let agents = agent_service.list_agents().await;
 
-            if agents.is_empty() {
-                return;
-            }
-
             _ = window.update(|window, cx| {
                 if let Some(this) = weak_self.upgrade() {
                     this.update(cx, |this, cx| {
-                        // We now have agents, update the select
+                        if agents.is_empty() {
+                            this.has_agents = false;
+                            agent_select.update(cx, |state, cx| {
+                                state.set_items(
+                                    vec![AgentItem::new(no_agents_label.clone())],
+                                    window,
+                                    cx,
+                                );
+                                state.set_selected_index(Some(IndexPath::default()), window, cx);
+                            });
+                            cx.notify();
+                            return;
+                        }
+
                         this.has_agents = true;
                         let agent_items: Vec<AgentItem> = agents
                             .clone()
                             .into_iter()
                             .map(|name| AgentItem::new(name))
                             .collect();
+                        let selected_index = current_selection
+                            .as_ref()
+                            .and_then(|name| agents.iter().position(|agent| agent == name))
+                            .unwrap_or(0);
                         agent_select.update(cx, |state, cx| {
                             state.set_items(agent_items, window, cx);
-                            state.set_selected_index(Some(IndexPath::default()), window, cx);
+                            state.set_selected_index(
+                                Some(IndexPath::new(selected_index)),
+                                window,
+                                cx,
+                            );
                         });
                         cx.notify();
                     });
@@ -1189,7 +1210,7 @@ impl WelcomePanel {
         let available_mcps = self.available_mcps.clone();
         let selected_mcps = self.selected_mcps.clone();
         let mcp_selection_initialized = self.mcp_selection_initialized;
-        let cwd = self.working_directory.clone();  // 使用面板的工作目录
+        let cwd = self.working_directory.clone(); // 使用面板的工作目录
 
         let weak_self = cx.entity().downgrade();
         let agent_name_for_session = agent_name.clone();
@@ -1203,7 +1224,7 @@ impl WelcomePanel {
                     mcp_servers = defaults
                         .into_iter()
                         .filter(|(_, config)| config.enabled)
-                        .map(|(_, config)| config.config)
+                        .map(|(name, config)| config.to_acp_mcp_server(name))
                         .collect();
                 }
             }
@@ -1215,7 +1236,7 @@ impl WelcomePanel {
             );
 
             match agent_service
-                .create_session_with_mcp_and_cwd(&agent_name_for_session, mcp_servers, cwd)
+                .create_session_with_mcp_and_cwd(&agent_name_for_session, mcp_servers, cwd.clone())
                 .await
             {
                 Ok(session_id) => {
@@ -1238,12 +1259,46 @@ impl WelcomePanel {
                 }
                 Err(e) => {
                     log::error!("[WelcomePanel] Failed to create session: {}", e);
-                    _ = window.update(|_window, cx| {
+
+                    // Provide detailed error context
+                    let (error_message, error_details) = if e.to_string().contains("server shut down unexpectedly") {
+                        let details = format!(
+                            "Agent '{}' process crashed during session creation. \
+                            Possible reasons:\n\
+                            1. npx/@zed-industries/claude-code-acp is not installed (run: npm install -g @zed-industries/claude-code-acp)\n\
+                            2. Working directory '{}' does not exist or is not accessible\n\
+                            3. Node.js is not properly installed or configured\n\
+                            4. The agent binary has bugs or incompatibilities\n\n\
+                            Original error: {}",
+                            agent_name_for_session,
+                            cwd.display(),
+                            e
+                        );
+                        (
+                            format!("Failed to create session: Agent '{}' crashed", agent_name_for_session),
+                            details
+                        )
+                    } else {
+                        (
+                            format!("Failed to create session: {}", e),
+                            e.to_string()
+                        )
+                    };
+
+                    log::error!("[WelcomePanel] {}", error_details);
+
+                    _ = window.update(|window, cx| {
                         if let Some(this) = weak_self.upgrade() {
                             this.update(cx, |this, cx| {
                                 this.is_session_loading = false;
                                 cx.notify();
                             });
+
+                            // Show error notification to user
+                            struct SessionCreationError;
+                            let note = Notification::error(error_message)
+                                .id::<SessionCreationError>();
+                            window.push_notification(note, cx);
                         }
                     });
                 }
@@ -1413,7 +1468,7 @@ impl Render for WelcomePanel {
                                     .text_2xl()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
-                                    .child(t!("welcome.title").to_string()),
+                                    .child(t!("welcome.main_title").to_string()),
                             )
                             .child(
                                 gpui::div()

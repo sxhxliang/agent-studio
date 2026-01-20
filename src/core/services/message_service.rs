@@ -101,7 +101,7 @@ impl MessageService {
         let persistence_service_ws = self.persistence_service.clone();
         let workspace_bus = self.workspace_bus.clone();
 
-        workspace_bus.lock().unwrap().subscribe(move |event| {
+        workspace_bus.subscribe(move |event| {
             if let WorkspaceUpdateEvent::SessionStatusUpdated {
                 session_id, status, ..
             } = event
@@ -221,12 +221,12 @@ impl MessageService {
 
     /// Subscribe to session updates
     ///
-    /// Returns a channel receiver for session updates. If session_id is provided,
-    /// only updates for that session will be received.
+    /// Returns a channel receiver for session updates with metadata. If session_id
+    /// is provided, only updates for that session will be received.
     pub fn subscribe_session_updates(
         &self,
         session_id: Option<String>,
-    ) -> tokio::sync::mpsc::UnboundedReceiver<SessionUpdate> {
+    ) -> tokio::sync::mpsc::UnboundedReceiver<SessionUpdateEvent> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         self.session_bus.subscribe(move |event| {
@@ -237,7 +237,7 @@ impl MessageService {
                 }
             }
 
-            let _ = tx.send((*event.update).clone());
+            let _ = tx.send(event.clone());
         });
 
         rx

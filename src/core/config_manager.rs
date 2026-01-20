@@ -173,9 +173,9 @@ pub fn get_workspace_config_path() -> PathBuf {
 }
 
 /// Get docks layout file path
-/// Always uses user data directory: <user_data_dir>/docks-agentx.json
+/// Always uses user data directory: <user_data_dir>/docks-layout.json
 pub fn get_docks_layout_path() -> PathBuf {
-    user_data_dir_or_temp().join("docks-agentx.json")
+    user_data_dir_or_temp().join("docks-layout.json")
 }
 
 /// Get sessions directory path

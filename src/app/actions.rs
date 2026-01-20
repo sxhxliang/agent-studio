@@ -50,7 +50,7 @@ pub enum PanelCommand {
 
 /// 统一的面板操作 Action
 #[derive(Action, Clone, PartialEq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct PanelAction(pub PanelCommand);
 
 impl PanelAction {
@@ -111,14 +111,14 @@ impl PanelAction {
 ///
 /// 参数为面板的名称（SharedString），用于显示或隐藏指定面板
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct TogglePanelVisible(pub SharedString);
 
 /// 添加会话面板
 ///
 /// 用于创建并添加一个新的会话面板到工作区
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct AddToolCallDetailPanel {
     /// 会话唯一标识符
     pub session_id: String,
@@ -132,7 +132,7 @@ fn default_dock_placement() -> DockPlacement {
 }
 
 // 切换 Dock 切换按钮的显示状态
-actions!(story, [ToggleDockToggleButton]);
+actions!(agent_studio, [ToggleDockToggleButton]);
 
 // ============================================================================
 // Task List Actions - 任务列表相关操作
@@ -161,28 +161,28 @@ pub struct AddSessionToList {
 ///
 /// 用于切换滚动条的显示策略（Always/Auto/Never）
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct SelectScrollbarShow(pub ScrollbarShow);
 
 /// 选择界面语言
 ///
 /// 用于切换应用界面的显示语言
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct SelectLocale(pub SharedString);
 
 /// 选择字体
 ///
 /// 参数为字体索引，用于切换编辑器和界面字体
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct SelectFont(pub usize);
 
 /// 选择圆角大小
 ///
 /// 参数为圆角索引，用于调整界面组件的圆角样式
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct SelectRadius(pub usize);
 
 // ============================================================================
@@ -193,7 +193,7 @@ pub struct SelectRadius(pub usize);
 ///
 /// 参数为任务和 Agent 参数,用于快速创建新的 Agent 任务
 #[derive(Action, Clone, Debug, PartialEq, Deserialize)]
-#[action(namespace = story, no_json)]
+#[action(namespace = agent_studio, no_json)]
 pub struct CreateTaskFromWelcome {
     /// 任务描述,由用户输入
     pub task_input: String,
@@ -267,7 +267,7 @@ pub struct AddCodeSelection {
 
 // 通用应用级操作 - 包含各种应用级别的命令和操作
 actions!(
-    story,
+    agent_studio,
     [
         About,         // 显示关于对话框
         Open,          // 打开文件或项目
@@ -289,12 +289,12 @@ actions!(
 ///
 /// 参数为菜单项索引，用于处理菜单相关的信息显示
 #[derive(Action, Clone, PartialEq, Deserialize)]
-#[action(namespace = menu_story, no_json)]
+#[action(namespace = menu, no_json)]
 pub struct Info(pub usize);
 
 // 菜单编辑操作 - 包含常见的编辑菜单命令
 actions!(
-    menu_story,
+    menu,
     [
         Copy,        // 复制
         Paste,       // 粘贴

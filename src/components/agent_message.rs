@@ -177,14 +177,7 @@ impl RenderOnce for AgentMessage {
                                     .pr_3(),
                             )
                             .pr_3(),
-                    )
-                    .when(show_thinking, |this| {
-                        this.child(
-                            Icon::new(IconName::LoaderCircle)
-                                .size(px(12.))
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                    }),
+                    ),
             )
     }
 }

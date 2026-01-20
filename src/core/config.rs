@@ -1,105 +1,6 @@
 use agent_client_protocol as acp;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
-// Simplified MCP server format (for compatibility)
-#[derive(Debug, Clone, Deserialize)]
-struct SimplifiedMcpServer {
-    command: String,
-    #[serde(default)]
-    args: Vec<String>,
-    #[serde(default)]
-    env: HashMap<String, String>,
-}
-
-// Custom deserializer for mcp_servers that handles both formats
-fn deserialize_mcp_servers<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, McpServerConfig>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    // Deserialize as a raw JSON value first
-    let value: Option<serde_json::Value> = Option::deserialize(deserializer)?;
-
-    match value {
-        None => Ok(HashMap::new()),
-        Some(v) => {
-            if let serde_json::Value::Object(map) = v {
-                let mut result = HashMap::new();
-
-                for (name, server_value) in map {
-                    // Try to parse as full McpServerConfig first
-                    if let Ok(config) =
-                        serde_json::from_value::<McpServerConfig>(server_value.clone())
-                    {
-                        result.insert(name, config);
-                    }
-                    // Try to parse as simplified format
-                    else if let Ok(simplified) =
-                        serde_json::from_value::<SimplifiedMcpServer>(server_value.clone())
-                    {
-                        log::info!(
-                            "Converting simplified MCP config for '{}': {:?}",
-                            name,
-                            simplified
-                        );
-
-                        // Convert to JSON and then to McpServerStdio via deserialization
-                        let env_vars: Vec<serde_json::Value> = simplified
-                            .env
-                            .into_iter()
-                            .map(|(name, value)| {
-                                serde_json::json!({
-                                    "name": name,
-                                    "value": value
-                                })
-                            })
-                            .collect();
-
-                        // Build the stdio config as JSON
-                        let stdio_json = serde_json::json!({
-                            "name": name.clone(),
-                            "command": simplified.command,
-                            "args": simplified.args,
-                            "env": env_vars
-                        });
-
-                        // Deserialize into McpServerStdio
-                        match serde_json::from_value::<acp::McpServerStdio>(stdio_json) {
-                            Ok(stdio) => {
-                                // Wrap in McpServer enum
-                                let mcp_server = acp::McpServer::Stdio(stdio);
-
-                                // Create full config
-                                let config = McpServerConfig {
-                                    enabled: true,
-                                    description: format!("MCP server: {}", name),
-                                    config: mcp_server,
-                                };
-
-                                result.insert(name, config);
-                            }
-                            Err(e) => {
-                                log::warn!("Failed to create McpServerStdio for '{}': {}", name, e);
-                            }
-                        }
-                    } else {
-                        log::warn!(
-                            "Failed to parse MCP server config for '{}', skipping. Value: {:?}",
-                            name,
-                            server_value
-                        );
-                    }
-                }
-
-                Ok(result)
-            } else {
-                log::warn!("mcp_servers is not an object, using empty map");
-                Ok(HashMap::new())
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -108,11 +9,7 @@ pub struct Config {
     pub upload_dir: PathBuf,
     #[serde(default)]
     pub models: HashMap<String, ModelConfig>,
-    #[serde(
-        default,
-        alias = "mcpServers",
-        deserialize_with = "deserialize_mcp_servers"
-    )]
+    #[serde(default, alias = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerConfig>,
     #[serde(default)]
     pub commands: HashMap<String, CommandConfig>,
@@ -164,9 +61,58 @@ pub struct ModelConfig {
 /// MCP (Model Context Protocol) server configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McpServerConfig {
+    #[serde(default = "default_true")]
     pub enabled: bool,
-    pub description: String,
-    pub config: acp::McpServer,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+impl McpServerConfig {
+    /// Convert to agent_client_protocol::McpServer
+    pub fn to_acp_mcp_server(&self, name: String) -> acp::McpServer {
+        // Try to deserialize into McpServerStdio via JSON
+        let env_vars: Vec<serde_json::Value> = self
+            .env
+            .iter()
+            .map(|(k, v)| {
+                serde_json::json!({
+                    "name": k,
+                    "value": v
+                })
+            })
+            .collect();
+
+        let stdio_json = serde_json::json!({
+            "name": name,
+            "command": self.command,
+            "args": self.args,
+            "env": env_vars
+        });
+
+        match serde_json::from_value::<acp::McpServerStdio>(stdio_json) {
+            Ok(stdio) => acp::McpServer::Stdio(stdio),
+            Err(e) => {
+                log::error!("Failed to create McpServerStdio for '{}': {}", name, e);
+                // Fallback to a minimal valid config
+                acp::McpServer::Stdio(
+                    serde_json::from_value(serde_json::json!({
+                        "name": name,
+                        "command": self.command,
+                        "args": self.args,
+                        "env": []
+                    }))
+                    .unwrap(),
+                )
+            }
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Custom command/shortcut configuration

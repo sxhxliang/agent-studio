@@ -26,6 +26,10 @@ impl DockPanel for SessionManagerPanel {
         "Session Manager"
     }
 
+    fn title_key() -> Option<&'static str> {
+        Some("session_manager.title")
+    }
+
     fn description() -> &'static str {
         "Manage all agent sessions"
     }
@@ -117,7 +121,7 @@ impl SessionManagerPanel {
                     .await
                     .into_iter()
                     .filter(|(_, config)| config.enabled)
-                    .map(|(_, config)| config.config)
+                    .map(|(name, config)| config.to_acp_mcp_server(name))
                     .collect()
             } else {
                 Vec::new()

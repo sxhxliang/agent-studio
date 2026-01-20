@@ -6,7 +6,7 @@
 /sessions
 /docs
 # Application state
-/docks-agentx.json
+/docks-layout.json
 /state.json
 /workspace-config.json
 config.json.backup

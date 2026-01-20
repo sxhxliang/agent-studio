@@ -14,6 +14,7 @@ use gpui_component::{
     v_flex,
 };
 use lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+use rust_i18n::t;
 
 use super::lsp_providers::TextConvertor;
 use super::lsp_store::CodeEditorPanelLspStore;
@@ -42,6 +43,10 @@ pub struct CodeEditorPanel {
 impl crate::panels::dock_panel::DockPanel for CodeEditorPanel {
     fn title() -> &'static str {
         "CodeEditor"
+    }
+
+    fn title_key() -> Option<&'static str> {
+        Some("code_editor.title")
     }
 
     fn description() -> &'static str {
@@ -87,18 +92,19 @@ impl CodeEditorPanel {
                 .placeholder("Enter your code here...");
 
             let lsp_store = Rc::new(lsp_store.clone());
-            editor.lsp.completion_provider = Some(lsp_store.clone());
+            // editor.lsp.completion_provider = Some(lsp_store.clone());
             editor.lsp.code_action_providers = vec![lsp_store.clone(), Rc::new(TextConvertor)];
-            editor.lsp.hover_provider = Some(lsp_store.clone());
-            editor.lsp.definition_provider = Some(lsp_store.clone());
-            editor.lsp.document_color_provider = Some(lsp_store.clone());
+            // editor.lsp.hover_provider = Some(lsp_store.clone());
+            // editor.lsp.definition_provider = Some(lsp_store.clone());
+            // editor.lsp.document_color_provider = Some(lsp_store.clone());
 
             editor
         });
         let go_to_line_state = cx.new(|cx| InputState::new(window, cx));
 
         let tree_state = cx.new(|cx| TreeState::new(cx));
-        let working_dir = working_dir.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
+        let working_dir =
+            working_dir.unwrap_or_else(|| AppState::global(cx).current_working_dir().clone());
         Self::load_files(tree_state.clone(), working_dir.clone(), cx);
 
         let _subscriptions = vec![cx.subscribe(&editor, |this, _, _: &InputEvent, cx| {
@@ -371,6 +377,7 @@ impl CodeEditorPanel {
         Button::new("line-number")
             .ghost()
             .xsmall()
+            .tooltip(t!("code_editor.tooltip.line_number").to_string())
             .child(
                 Icon::new(crate::assets::Icon::Hash)
                     .size(px(16.))
@@ -378,7 +385,7 @@ impl CodeEditorPanel {
                         cx.theme().accent_foreground
                     } else {
                         cx.theme().muted_foreground
-                    })
+                    }),
             )
             .on_click(cx.listener(|this, _, window, cx| {
                 this.line_number = !this.line_number;
@@ -393,6 +400,7 @@ impl CodeEditorPanel {
         Button::new("soft-wrap")
             .ghost()
             .xsmall()
+            .tooltip(t!("code_editor.tooltip.soft_wrap").to_string())
             .child(
                 Icon::new(crate::assets::Icon::TextWrap)
                     .size(px(16.))
@@ -400,7 +408,7 @@ impl CodeEditorPanel {
                         cx.theme().accent_foreground
                     } else {
                         cx.theme().muted_foreground
-                    })
+                    }),
             )
             .on_click(cx.listener(|this, _, window, cx| {
                 this.soft_wrap = !this.soft_wrap;
@@ -419,6 +427,7 @@ impl CodeEditorPanel {
         Button::new("indent-guides")
             .ghost()
             .xsmall()
+            .tooltip(t!("code_editor.tooltip.indent_guides").to_string())
             .child(
                 Icon::new(crate::assets::Icon::ListTree)
                     .size(px(16.))
@@ -426,7 +435,7 @@ impl CodeEditorPanel {
                         cx.theme().accent_foreground
                     } else {
                         cx.theme().muted_foreground
-                    })
+                    }),
             )
             .on_click(cx.listener(|this, _, window, cx| {
                 this.indent_guides = !this.indent_guides;
@@ -448,6 +457,7 @@ impl CodeEditorPanel {
         Button::new("line-column")
             .ghost()
             .xsmall()
+            .tooltip(t!("code_editor.tooltip.go_to_line").to_string())
             .child(
                 h_flex()
                     .gap_1p5()
@@ -458,7 +468,7 @@ impl CodeEditorPanel {
                         position.line + 1,
                         position.character + 1,
                         cursor
-                    ))
+                    )),
             )
             .on_click(cx.listener(Self::go_to_line))
     }
@@ -609,16 +619,16 @@ impl Render for CodeEditorPanel {
         use gpui_component::input::RopeExt;
 
         // Update diagnostics
-        if self.lsp_store.is_dirty() {
-            let diagnostics = self.lsp_store.diagnostics();
-            self.editor.update(cx, |state, cx| {
-                state.diagnostics_mut().map(|set| {
-                    set.clear();
-                    set.extend(diagnostics);
-                });
-                cx.notify();
-            });
-        }
+        // if self.lsp_store.is_dirty() {
+        //     let diagnostics = self.lsp_store.diagnostics();
+        //     self.editor.update(cx, |state, cx| {
+        //         state.diagnostics_mut().map(|set| {
+        //             set.clear();
+        //             set.extend(diagnostics);
+        //         });
+        //         cx.notify();
+        //     });
+        // }
 
         // 提取选择范围信息
         let selection_info = self.editor.update(cx, |state, cx| {

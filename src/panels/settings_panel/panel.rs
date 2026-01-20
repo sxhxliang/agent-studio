@@ -31,6 +31,7 @@ pub struct SettingsPanel {
     // JSON editor state for MCP servers
     pub(super) mcp_json_editor: Entity<InputState>,
     pub(super) mcp_json_error: Option<String>,
+    pub(super) mcp_active_tab: usize,
     // System prompts input states
     pub(super) doc_comment_input: Entity<InputState>,
     pub(super) inline_comment_input: Entity<InputState>,
@@ -41,6 +42,10 @@ pub struct SettingsPanel {
 impl crate::panels::dock_panel::DockPanel for SettingsPanel {
     fn title() -> &'static str {
         "Settings"
+    }
+
+    fn title_key() -> Option<&'static str> {
+        Some("settings.title")
     }
 
     fn description() -> &'static str {
@@ -94,6 +99,7 @@ impl SettingsPanel {
             cached_upload_dir: PathBuf::from("."),
             mcp_json_editor,
             mcp_json_error: None,
+            mcp_active_tab: 0,
             doc_comment_input,
             inline_comment_input,
             explain_input,

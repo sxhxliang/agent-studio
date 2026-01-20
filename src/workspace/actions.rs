@@ -1,7 +1,9 @@
 use agent_client_protocol as acp;
 use gpui::*;
-use gpui_component::dock::{
-    DockItem, DockPlacement, Panel, PanelInfo, PanelState, PanelView, TabPanel,
+use gpui_component::{
+    WindowExt, dock::{
+        DockItem, DockPlacement, Panel, PanelInfo, PanelState, PanelView, TabPanel,
+    }, notification::Notification
 };
 use std::sync::Arc;
 
@@ -75,8 +77,8 @@ impl DockWorkspace {
         }
 
         self.dock_area.update(cx, |dock_area, cx| {
-            let selection = Self::find_focused_tab_panel(dock_area.items(), window, cx)
-                .or_else(|| Self::find_first_tab_panel(dock_area.items(), cx));
+            let selection = Self::find_focused_tab_panel(dock_area.center(), window, cx)
+                .or_else(|| Self::find_first_tab_panel(dock_area.center(), cx));
 
             if let Some((_, active_panel)) = selection {
                 if let Ok(container) = active_panel.view().downcast::<DockPanelContainer>() {
@@ -182,7 +184,7 @@ impl DockWorkspace {
             "Searching existing session panel: session_id={}",
             session_id
         );
-        let items = self.dock_area.read(cx).items().clone();
+        let items = self.dock_area.read(cx).center().clone();
         let found = Self::activate_session_in_item(&items, session_id, window, cx);
         if found {
             log::debug!(
@@ -252,7 +254,7 @@ impl DockWorkspace {
         match &panel_state.info {
             PanelInfo::Panel(value) => {
                 let dock_state = DockPanelState::from_value(value.clone());
-                if dock_state.story_klass.as_ref() == "ConversationPanel"
+                if dock_state.agent_studio_klass.as_ref() == "ConversationPanel"
                     && dock_state.session_id.as_deref() == Some(session_id)
                 {
                     return true;
@@ -279,35 +281,35 @@ impl DockWorkspace {
         };
 
         let container = container.read(cx);
-        let Some(story_klass) = container.story_klass.as_ref() else {
+        let Some(agent_studio_klass) = container.agent_studio_klass.as_ref() else {
             log::debug!(
-                "Panel has no story klass: session_id={} panel_id={:?}",
+                "Panel has no agent_studio klass: session_id={} panel_id={:?}",
                 session_id,
                 panel_id
             );
             return false;
         };
 
-        if story_klass.as_ref() != "ConversationPanel" {
+        if agent_studio_klass.as_ref() != "ConversationPanel" {
             log::debug!(
-                "Panel story klass mismatch: session_id={} panel_id={:?} story_klass={}",
+                "Panel agent_studio klass mismatch: session_id={} panel_id={:?} agent_studio_klass={}",
                 session_id,
                 panel_id,
-                story_klass.as_ref()
+                agent_studio_klass.as_ref()
             );
             return false;
         }
 
-        let Some(story) = container.story.clone() else {
+        let Some(agent_studio) = container.agent_studio.clone() else {
             log::debug!(
-                "Conversation panel missing story: session_id={} panel_id={:?}",
+                "Conversation panel missing agent_studio: session_id={} panel_id={:?}",
                 session_id,
                 panel_id
             );
             return false;
         };
 
-        let Ok(conversation) = story.downcast::<ConversationPanel>() else {
+        let Ok(conversation) = agent_studio.downcast::<ConversationPanel>() else {
             log::debug!(
                 "Conversation panel downcast failed: session_id={} panel_id={:?}",
                 session_id,
@@ -345,7 +347,12 @@ impl DockWorkspace {
                     self.add_terminal_panel_to(working_directory.clone(), *placement, window, cx);
                 }
                 PanelKind::CodeEditor { working_directory } => {
-                    self.add_code_editor_panel_to(working_directory.clone(), *placement, window, cx);
+                    self.add_code_editor_panel_to(
+                        working_directory.clone(),
+                        *placement,
+                        window,
+                        cx,
+                    );
                 }
                 PanelKind::Welcome { workspace_id } => {
                     self.add_welcome_panel_to(workspace_id.clone(), *placement, window, cx);
@@ -447,7 +454,11 @@ impl DockWorkspace {
     ) {
         // Create WelcomePanel with optional workspace_id
         let panel = if let Some(workspace_id) = workspace_id {
-            Arc::new(DockPanelContainer::panel_for_workspace(workspace_id, window, cx))
+            Arc::new(DockPanelContainer::panel_for_workspace(
+                workspace_id,
+                window,
+                cx,
+            ))
         } else {
             Arc::new(DockPanelContainer::panel::<WelcomePanel>(window, cx))
         };
@@ -749,6 +760,16 @@ impl DockWorkspace {
                     Some(ws) => ws,
                     None => {
                         log::error!("Specified workspace not found: {}", ws_id);
+
+                        // Show error notification
+                        _ = window.update(|window, cx| {
+                            struct WorkspaceNotFoundError;
+                            let note = Notification::error(
+                                format!("Workspace not found: {}", ws_id)
+                            ).id::<WorkspaceNotFoundError>();
+                            window.push_notification(note, cx);
+                        });
+
                         return;
                     }
                 }
@@ -758,6 +779,16 @@ impl DockWorkspace {
                     Some(ws) => ws,
                     None => {
                         log::error!("No active workspace available");
+
+                        // Show error notification
+                        _ = window.update(|window, cx| {
+                            struct NoActiveWorkspaceError;
+                            let note = Notification::error(
+                                "No workspace available. Please create or open a workspace first."
+                            ).id::<NoActiveWorkspaceError>();
+                            window.push_notification(note, cx);
+                        });
+
                         return;
                     }
                 }
@@ -791,7 +822,7 @@ impl DockWorkspace {
                         .await
                         .into_iter()
                         .filter(|(_, config)| config.enabled)
-                        .map(|(_, config)| config.config)
+                        .map(|(name, config)| config.to_acp_mcp_server(name))
                         .collect()
                 } else {
                     Vec::new()
@@ -804,7 +835,7 @@ impl DockWorkspace {
                 );
 
                 match agent_service
-                    .create_session_with_mcp_and_cwd(&agent_name, mcp_servers, workspace_cwd)
+                    .create_session_with_mcp_and_cwd(&agent_name, mcp_servers, workspace_cwd.clone())
                     .await
                 {
                     Ok(session_id) => {
@@ -816,7 +847,40 @@ impl DockWorkspace {
                         session_id
                     }
                     Err(e) => {
-                        log::error!("Failed to create session: {}", e);
+                        let (error_message, error_details) = if e.to_string().contains("server shut down unexpectedly") {
+                            let details = format!(
+                                "Agent '{}' process crashed during session creation. \
+                                Possible reasons:\n\
+                                1. npx/@zed-industries/claude-code-acp is not installed (run: npm install -g @zed-industries/claude-code-acp)\n\
+                                2. Working directory '{}' does not exist or is not accessible\n\
+                                3. Node.js is not properly installed or configured\n\
+                                4. The agent binary has bugs or incompatibilities\n\n\
+                                Original error: {}",
+                                agent_name,
+                                workspace_cwd.display(),
+                                e
+                            );
+                            (
+                                format!("Failed to create task: Agent '{}' crashed", agent_name),
+                                details
+                            )
+                        } else {
+                            (
+                                format!("Failed to create task: {}", e),
+                                e.to_string()
+                            )
+                        };
+
+                        log::error!("{}", error_details);
+
+                        // Show error notification to user
+                        _ = window.update(|window, cx| {
+                            struct TaskCreationError;
+                            let note = Notification::error(error_message)
+                                .id::<TaskCreationError>();
+                            window.push_notification(note, cx);
+                        });
+
                         return;
                     }
                 }
@@ -844,6 +908,16 @@ impl DockWorkspace {
                 }
                 Err(e) => {
                     log::error!("Failed to create workspace task: {}", e);
+
+                    // Show error notification
+                    _ = window.update(|window, cx| {
+                        struct WorkspaceTaskCreationError;
+                        let note = Notification::error(
+                            format!("Failed to create task: {}", e)
+                        ).id::<WorkspaceTaskCreationError>();
+                        window.push_notification(note, cx);
+                    });
+
                     return;
                 }
             };
@@ -870,8 +944,19 @@ impl DockWorkspace {
                 let conversation_item =
                     DockItem::tab(conversation_panel, &dock_area.downgrade(), window, cx);
 
+                // Wrap in split_with_sizes to ensure proper StackPanel hierarchy
+                // This is required for zoom functionality and proper layout persistence
+                let conversation_dock = DockItem::split_with_sizes(
+                    Axis::Horizontal,
+                    vec![conversation_item],
+                    vec![None],
+                    &dock_area.downgrade(),
+                    window,
+                    cx,
+                );
+
                 dock_area.update(cx, |dock_area, cx| {
-                    dock_area.set_center(conversation_item, window, cx);
+                    dock_area.set_center(conversation_dock, window, cx);
 
                     // Collapse right and bottom docks
                     if dock_area.is_dock_open(DockPlacement::Right, cx) {
@@ -912,6 +997,15 @@ impl DockWorkspace {
                 }
                 Err(e) => {
                     log::error!("Failed to send message: {}", e);
+
+                    // Show error notification
+                    _ = window.update(|window, cx| {
+                        struct MessageSendError;
+                        let note = Notification::error(
+                            format!("Failed to send message: {}", e)
+                        ).id::<MessageSendError>();
+                        window.push_notification(note, cx);
+                    });
                 }
             }
         })
@@ -927,21 +1021,21 @@ impl DockWorkspace {
 
         let name = ConversationPanel::title();
         let description = ConversationPanel::description();
-        let story = ConversationPanel::view_for_session(session_id, window, cx);
-        let story_klass = ConversationPanel::klass();
+        let agent_studio = ConversationPanel::view_for_session(session_id, window, cx);
+        let agent_studio_klass = ConversationPanel::klass();
 
         let view = cx.new(|cx| {
-            let mut story = DockPanelContainer::new(cx)
-                .story(story.into(), story_klass)
+            let mut agent_studio = DockPanelContainer::new(cx)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(ConversationPanel::on_active_any);
-            story.focus_handle = cx.focus_handle();
-            story.closable = ConversationPanel::closable();
-            story.zoomable = ConversationPanel::zoomable();
-            story.name = name.into();
-            story.description = description.into();
-            story.title_bg = ConversationPanel::title_bg();
-            story.paddings = ConversationPanel::paddings();
-            story
+            agent_studio.focus_handle = cx.focus_handle();
+            agent_studio.closable = ConversationPanel::closable();
+            agent_studio.zoomable = ConversationPanel::zoomable();
+            agent_studio.name = name.into();
+            agent_studio.description = description.into();
+            agent_studio.title_bg = ConversationPanel::title_bg();
+            agent_studio.paddings = ConversationPanel::paddings();
+            agent_studio
         });
 
         view

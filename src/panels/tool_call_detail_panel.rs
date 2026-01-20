@@ -187,6 +187,10 @@ impl DockPanel for ToolCallDetailPanel {
         "Tool Call Details"
     }
 
+    fn title_key() -> Option<&'static str> {
+        Some("tool_call_detail_panel.title")
+    }
+
     fn description() -> &'static str {
         "View detailed tool call content"
     }

@@ -6,6 +6,7 @@ use gpui_component::{
     dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement},
     menu::DropdownMenu,
 };
+use smol::Timer;
 use std::{sync::Arc, time::Duration};
 
 use crate::{
@@ -75,73 +76,80 @@ impl DockWorkspace {
         })
         .detach();
 
-        let title_bar = cx.new(|cx| {
-            AppTitleBar::new("Agent Studio", window, cx).child({
-                move |_, cx| {
-                    Button::new("add-panel")
-                        .icon(IconName::LayoutDashboard)
-                        .small()
-                        .ghost()
-                        .dropdown_menu({
-                            let invisible_panels = AppState::global(cx).invisible_panels.clone();
+        cx.on_release(|this, cx| {
+            this.flush_layout_state(cx);
+            crate::themes::save_state(cx);
+        })
+        .detach();
 
-                            move |menu, _, cx| {
-                                menu.menu(
-                                    "Add Panel to Center",
-                                    Box::new(PanelAction::add_conversation(DockPlacement::Center)),
-                                )
-                                .separator()
-                                .menu(
-                                    "Add Panel to Left",
-                                    Box::new(PanelAction::add_conversation(DockPlacement::Left)),
-                                )
-                                .menu(
-                                    "Add Panel to Right",
-                                    Box::new(PanelAction::add_conversation(DockPlacement::Right)),
-                                )
-                                .menu(
-                                    "Add Panel to Bottom",
-                                    Box::new(PanelAction::add_conversation(DockPlacement::Bottom)),
-                                )
-                                .separator()
-                                .menu(
-                                    "Show / Hide Dock Toggle Button",
-                                    Box::new(ToggleDockToggleButton),
-                                )
-                                .separator()
-                                .menu_with_check(
-                                    "Sidebar",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Sidebar")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Sidebar"))),
-                                )
-                                .menu_with_check(
-                                    "Dialog",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Dialog")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Dialog"))),
-                                )
-                                .menu_with_check(
-                                    "Accordion",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Accordion")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Accordion"))),
-                                )
-                                .menu_with_check(
-                                    "List",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("List")),
-                                    Box::new(TogglePanelVisible(SharedString::from("List"))),
-                                )
-                            }
-                        })
-                        .anchor(Corner::TopRight)
-                }
-            })
+        let title_bar = cx.new(|cx| {
+            AppTitleBar::new("Agent Studio", window, cx)
+            // .child({
+            //     move |_, cx| {
+            //         Button::new("add-panel")
+            //             .icon(IconName::LayoutDashboard)
+            //             .small()
+            //             .ghost()
+            //             .dropdown_menu({
+            //                 let invisible_panels = AppState::global(cx).invisible_panels.clone();
+
+            //                 move |menu, _, cx| {
+            //                     menu.menu(
+            //                         "Add Panel to Center",
+            //                         Box::new(PanelAction::add_conversation(DockPlacement::Center)),
+            //                     )
+            //                     .separator()
+            //                     .menu(
+            //                         "Add Panel to Left",
+            //                         Box::new(PanelAction::add_conversation(DockPlacement::Left)),
+            //                     )
+            //                     .menu(
+            //                         "Add Panel to Right",
+            //                         Box::new(PanelAction::add_conversation(DockPlacement::Right)),
+            //                     )
+            //                     .menu(
+            //                         "Add Panel to Bottom",
+            //                         Box::new(PanelAction::add_conversation(DockPlacement::Bottom)),
+            //                     )
+            //                     .separator()
+            //                     .menu(
+            //                         "Show / Hide Dock Toggle Button",
+            //                         Box::new(ToggleDockToggleButton),
+            //                     )
+            //                     .separator()
+            //                     .menu_with_check(
+            //                         "Sidebar",
+            //                         !invisible_panels
+            //                             .read(cx)
+            //                             .contains(&SharedString::from("Sidebar")),
+            //                         Box::new(TogglePanelVisible(SharedString::from("Sidebar"))),
+            //                     )
+            //                     .menu_with_check(
+            //                         "Dialog",
+            //                         !invisible_panels
+            //                             .read(cx)
+            //                             .contains(&SharedString::from("Dialog")),
+            //                         Box::new(TogglePanelVisible(SharedString::from("Dialog"))),
+            //                     )
+            //                     .menu_with_check(
+            //                         "Accordion",
+            //                         !invisible_panels
+            //                             .read(cx)
+            //                             .contains(&SharedString::from("Accordion")),
+            //                         Box::new(TogglePanelVisible(SharedString::from("Accordion"))),
+            //                     )
+            //                     .menu_with_check(
+            //                         "List",
+            //                         !invisible_panels
+            //                             .read(cx)
+            //                             .contains(&SharedString::from("List")),
+            //                         Box::new(TogglePanelVisible(SharedString::from("List"))),
+            //                     )
+            //                 }
+            //             })
+            //             .anchor(Corner::TopRight)
+            //     }
+            // })
         });
 
         Self {
@@ -160,10 +168,10 @@ impl DockWorkspace {
         cx: &mut Context<Self>,
     ) {
         let dock_area = dock_area.clone();
-        self._save_layout_task = Some(cx.spawn_in(window, async move |story, window| {
+        self._save_layout_task = Some(cx.spawn_in(window, async move |agent_studio, window| {
             Timer::after(Duration::from_secs(10)).await;
 
-            _ = story.update_in(window, move |this, _, cx| {
+            _ = agent_studio.update_in(window, move |this, _, cx| {
                 let dock_area = dock_area.read(cx);
                 let state = dock_area.dump(cx);
 
@@ -180,8 +188,19 @@ impl DockWorkspace {
         }));
     }
 
+    fn flush_layout_state(&mut self, cx: &mut App) {
+        let state = self.dock_area.read(cx).dump(cx);
+        if Some(&state) == self.last_layout_state.as_ref() {
+            return;
+        }
+        if let Err(e) = Self::save_state(&state) {
+            log::warn!("Failed to save layout state: {}", e);
+        }
+        self.last_layout_state = Some(state);
+    }
+
     fn save_state(state: &DockAreaState) -> Result<()> {
-        println!("Save layout...");
+        println!("Save Docks layout...");
         let json = serde_json::to_string_pretty(state)?;
         let state_file = crate::core::config_manager::get_docks_layout_path();
         if let Some(parent) = state_file.parent() {
@@ -196,6 +215,7 @@ impl DockWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
+        println!("Load Docks layout...");
         let state_file = crate::core::config_manager::get_docks_layout_path();
         let json = std::fs::read_to_string(state_file)?;
         let state = serde_json::from_str::<DockAreaState>(&json)?;
@@ -359,8 +379,8 @@ impl DockWorkspace {
             };
 
             let window = cx.open_window(options, |window, cx| {
-                let story_view = cx.new(|cx| DockWorkspace::new(window, cx));
-                cx.new(|cx| Root::new(story_view, window, cx))
+                let agent_studio_view = cx.new(|cx| DockWorkspace::new(window, cx));
+                cx.new(|cx| Root::new(agent_studio_view, window, cx))
             })?;
 
             window
@@ -387,7 +407,7 @@ impl Render for DockWorkspace {
         let notification_layer = Root::render_notification_layer(window, cx);
 
         div()
-            .id("story-workspace")
+            .id("agent_studio-workspace")
             .on_action(cx.listener(Self::on_action_panel_action))
             .on_action(cx.listener(Self::on_action_toggle_panel_visible))
             .on_action(cx.listener(Self::on_action_toggle_dock_toggle_button))

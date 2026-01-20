@@ -150,7 +150,7 @@ pub fn init(cx: &mut App) {
 }
 
 /// Helper function to save current state to file
-fn save_state(cx: &mut App) {
+pub(crate) fn save_state(cx: &mut App) {
     let state = State {
         theme: cx.theme().theme_name().clone(),
         scrollbar_show: Some(cx.theme().scrollbar_show),
@@ -159,6 +159,7 @@ fn save_state(cx: &mut App) {
 
     if let Ok(json) = serde_json::to_string_pretty(&state) {
         let state_file = crate::core::config_manager::get_state_file_path();
+        println!("Save layout...");
         // Ignore write errors - if state file doesn't exist or can't be written, do nothing
         let _ = std::fs::write(state_file, json);
     }

@@ -14,13 +14,13 @@ pub struct CodeEditorPanelLspStore {
 
 impl CodeEditorPanelLspStore {
     pub fn new() -> Self {
-        let completions = serde_json::from_slice::<Vec<CompletionItem>>(include_bytes!(
-            "../../fixtures/completion_items.json"
-        ))
-        .unwrap();
+        // let completions = serde_json::from_slice::<Vec<CompletionItem>>(include_bytes!(
+        //     "../../fixtures/completion_items.json"
+        // ))
+        // .unwrap();
 
         Self {
-            completions: Arc::new(completions),
+            completions: Arc::new(vec![]),
             code_actions: Arc::new(RwLock::new(vec![])),
             diagnostics: Arc::new(RwLock::new(vec![])),
             dirty: Arc::new(RwLock::new(false)),

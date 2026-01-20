@@ -6,7 +6,7 @@ use gpui::{
     Window, actions, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    ActiveTheme as _, IconName, PixelsExt, Sizable as _, Theme, TitleBar, WindowExt as _,
+    ActiveTheme as _, IconName, PixelsExt, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
     badge::Badge,
     button::{Button, ButtonVariants as _},
     menu::AppMenuBar,
@@ -102,26 +102,6 @@ impl Render for AppTitleBar {
                                         window.dispatch_action(Box::new(OpenSettings), cx);
                                     }),
                             )
-                            // .child(
-                            //     Button::new("github")
-                            //         .icon(IconName::GitHub)
-                            //         .small()
-                            //         .ghost()
-                            //         .on_click(|_, _, cx| {
-                            //             cx.open_url("https://github.com/longbridge/gpui-component")
-                            //         }),
-                            // )
-                            .child(
-                                div().relative().child(
-                                    Badge::new().count(notifications_count).max(99).child(
-                                        Button::new("bell")
-                                            .small()
-                                            .ghost()
-                                            .compact()
-                                            .icon(IconName::Bell),
-                                    ),
-                                ),
-                            ),
                     ),
             )
     }
@@ -194,6 +174,7 @@ impl Render for FontSizeSelector {
                     .icon(IconName::Settings2)
                     .dropdown_menu(move |this, _, _| {
                         this.scrollable(true)
+                            .check_side(Side::Right)
                             .max_h(px(480.))
                             .label(t!("title_bar.font_size.label").to_string())
                             .menu_with_check(

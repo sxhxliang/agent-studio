@@ -81,6 +81,7 @@ fn main() {
                     agent_config.nodejs_path = Some(nodejs_path.to_string());
                 }
             }
+            let agent_server_count = agent_servers.len();
 
             // Initialize agent manager (this happens in background after GUI is shown)
             let permission_store = Arc::new(PermissionStore::default());
@@ -95,15 +96,10 @@ fn main() {
             .await
             {
                 Ok(manager) => {
-                    let agent_count = manager.list_agents().await.len();
-                    println!("Loaded {} agents.", agent_count);
-
-                    // Set the first agent as active by default
-                    let active_agent: Option<String> = manager.list_agents().await.first().cloned();
-
-                    if let Some(ref agent) = active_agent {
-                        println!("Active agent set to: {}", agent);
-                    }
+                    println!(
+                        "Initializing {} agents in background...",
+                        agent_server_count
+                    );
 
                     // Store in global AppState
                     let init_result = cx.update(|cx| {
@@ -120,7 +116,7 @@ fn main() {
                     // Initialize persistence subscription in async context
                     if let Some(message_service) = init_result {
                         message_service.init_persistence();
-                        println!("Agent initialization complete - all agents ready");
+                        println!("Agent initialization started - agents will appear as they are ready");
                     } else {
                         eprintln!("MessageService not initialized");
                     }

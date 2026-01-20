@@ -8,7 +8,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
 };
@@ -52,36 +52,33 @@ impl AgentManager {
             return Err(anyhow!("no agents defined in config"));
         }
         let proxy_config = Arc::new(RwLock::new(proxy_config));
-        let mut agents = HashMap::new();
-        for (name, cfg) in configs {
-            match AgentHandle::spawn(
-                name.clone(),
-                cfg,
-                permission_store.clone(),
-                session_bus.clone(),
-                permission_bus.clone(),
-                proxy_config.read().await.clone(),
-            )
-            .await
-            {
-                Ok(handle) => {
-                    agents.insert(name, Arc::new(handle));
-                }
-                Err(e) => {
-                    warn!("Failed to initialize agent '{}': {}", name, e);
-                }
-            }
-        }
-        if agents.is_empty() {
-            warn!("No agents could be initialized, continuing without agents");
-        }
-        Ok(Arc::new(Self {
-            agents: Arc::new(RwLock::new(agents)),
+        let manager = Arc::new(Self {
+            agents: Arc::new(RwLock::new(HashMap::new())),
             permission_store,
             session_bus,
             permission_bus,
             proxy_config,
-        }))
+        });
+        let remaining = Arc::new(AtomicUsize::new(configs.len()));
+
+        // Initialize agents in parallel and insert them as soon as each is ready.
+        for (name, cfg) in configs {
+            let manager = manager.clone();
+            let remaining = remaining.clone();
+            smol::spawn(async move {
+                if let Err(e) = manager.add_agent(name.clone(), cfg).await {
+                    warn!("Failed to initialize agent '{}': {}", name, e);
+                }
+                if remaining.fetch_sub(1, Ordering::SeqCst) == 1
+                    && manager.list_agents().await.is_empty()
+                {
+                    warn!("No agents could be initialized, continuing without agents");
+                }
+            })
+            .detach();
+        }
+
+        Ok(manager)
     }
 
     pub async fn list_agents(&self) -> Vec<String> {
@@ -599,7 +596,7 @@ async fn agent_event_loop(
 
     let io_handle = tokio::task::spawn_local(async move {
         if let Err(err) = io_task.await {
-            warn!("agent I/O task ended: {:?}", err);
+            error!("agent I/O task ended: {:?}", err);
         }
     });
     // Assuming `InitializeRequest` and `Implementation` have `new` methods or implement `Default`
@@ -639,7 +636,33 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             }
             AgentCommand::NewSession { request, respond } => {
-                let result = conn.new_session(request).await.map_err(|err| anyhow!(err));
+                log::info!("Agent {} received new_session command with cwd: {:?}", agent_name, request.cwd);
+
+                // Check if child process is still alive
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        let error_msg = format!("Agent {} process exited with status: {:?}", agent_name, status);
+                        log::error!("{}", error_msg);
+                        let _ = respond.send(Err(anyhow!(error_msg)));
+                        continue;
+                    }
+                    Ok(None) => {
+                        // Process is still running, continue
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to check agent {} process status: {}", agent_name, e);
+                    }
+                }
+
+                let result = conn.new_session(request).await.map_err(|err| {
+                    log::error!("Agent {} new_session failed: {:?}", agent_name, err);
+                    anyhow!(err)
+                });
+
+                if let Err(ref e) = result {
+                    log::error!("Agent {} new_session error details: {}", agent_name, e);
+                }
+
                 let _ = respond.send(result);
             }
             AgentCommand::ResumeSession { request, respond } => {
@@ -691,11 +714,28 @@ async fn agent_event_loop(
         }
     }
 
+    log::info!("Agent {} command loop ended, cleaning up", agent_name);
+
     drop(conn);
     let _ = io_handle.await;
-    if child.id().is_some() {
-        let _ = child.kill().await;
+
+    // Check if child process is still running
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            log::warn!("Agent {} process already exited with status: {:?}", agent_name, status);
+        }
+        Ok(None) => {
+            // Process is still running, kill it
+            log::info!("Agent {} process still running, killing it", agent_name);
+            if let Err(e) = child.kill().await {
+                log::error!("Failed to kill agent {} process: {}", agent_name, e);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to check agent {} process status: {}", agent_name, e);
+        }
     }
+
     Ok(())
 }
 

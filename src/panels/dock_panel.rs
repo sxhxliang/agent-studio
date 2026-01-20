@@ -13,11 +13,11 @@ use gpui_component::{
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
+use crate::AppState;
 use crate::panels::{
     CodeEditorPanel, ConversationPanel, SessionManagerPanel, SettingsPanel, TaskPanel,
     TerminalPanel, ToolCallDetailPanel, WelcomePanel,
 };
-use crate::AppState;
 use crate::{ShowPanelInfo, ToggleSearch};
 
 #[derive(IntoElement)]
@@ -117,8 +117,8 @@ pub struct DockPanelContainer {
     pub description: SharedString,
     pub width: Option<gpui::Pixels>,
     pub height: Option<gpui::Pixels>,
-    pub story: Option<AnyView>,
-    pub story_klass: Option<SharedString>,
+    pub agent_studio: Option<AnyView>,
+    pub agent_studio_klass: Option<SharedString>,
     pub closable: bool,
     pub zoomable: Option<PanelControl>,
     pub paddings: Pixels,
@@ -173,9 +173,9 @@ pub trait DockPanel: Render + Sized {
     where
         Self: 'static,
     {
-        if let Some(story) = view.downcast::<Self>().ok() {
-            cx.update_entity(&story, |story, cx| {
-                story.on_active(active, window, cx);
+        if let Some(agent_studio) = view.downcast::<Self>().ok() {
+            cx.update_entity(&agent_studio, |agent_studio, cx| {
+                agent_studio.on_active(active, window, cx);
             });
         }
     }
@@ -195,8 +195,8 @@ impl DockPanelContainer {
             description: "".into(),
             width: None,
             height: None,
-            story: None,
-            story_klass: None,
+            agent_studio: None,
+            agent_studio_klass: None,
             closable: true,
             zoomable: Some(PanelControl::default()),
             paddings: px(0.0),
@@ -208,22 +208,22 @@ impl DockPanelContainer {
         let name = S::title();
         let title_key = S::title_key();
         let description = S::description();
-        let story = S::new_view(window, cx);
-        let story_klass = S::klass();
+        let agent_studio = S::new_view(window, cx);
+        let agent_studio_klass = S::klass();
         log::debug!("=====>>> Panel: {}, paddings: {}", name, S::paddings());
         let view = cx.new(|cx| {
-            let mut story = Self::new(cx)
-                .story(story.into(), story_klass)
+            let mut agent_studio = Self::new(cx)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(S::on_active_any);
-            story.focus_handle = cx.focus_handle();
-            story.closable = S::closable();
-            story.zoomable = S::zoomable();
-            story.name = name.into();
-            story.title_key = title_key.map(SharedString::from);
-            story.description = description.into();
-            story.title_bg = S::title_bg();
-            story.paddings = S::paddings();
-            story
+            agent_studio.focus_handle = cx.focus_handle();
+            agent_studio.closable = S::closable();
+            agent_studio.zoomable = S::zoomable();
+            agent_studio.name = name.into();
+            agent_studio.title_key = title_key.map(SharedString::from);
+            agent_studio.description = description.into();
+            agent_studio.title_bg = S::title_bg();
+            agent_studio.paddings = S::paddings();
+            agent_studio
         });
 
         view
@@ -237,15 +237,15 @@ impl DockPanelContainer {
         let name = ToolCallDetailPanel::title();
         let title_key = ToolCallDetailPanel::title_key();
         let description = ToolCallDetailPanel::description();
-        let mut story = ToolCallDetailPanel::new(window, cx);
-        let story_klass = ToolCallDetailPanel::klass();
-        story.set_tool_call(tool_call);
+        let mut agent_studio = ToolCallDetailPanel::new(window, cx);
+        let agent_studio_klass = ToolCallDetailPanel::klass();
+        agent_studio.set_tool_call(tool_call);
 
-        let entity = cx.new(|_cx| story);
+        let entity = cx.new(|_cx| agent_studio);
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(entity.into(), story_klass)
+                .agent_studio(entity.into(), agent_studio_klass)
                 .on_active(ToolCallDetailPanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = ToolCallDetailPanel::closable();
@@ -261,7 +261,7 @@ impl DockPanelContainer {
         view
     }
     /// Create a panel for a specific session (currently only supports ConversationPanel)
-    /// This will load the conversation history for that session
+    /// This will load the conversation hiagent_studio for that session
     pub fn panel_for_session(
         session_id: String,
         window: &mut Window,
@@ -270,12 +270,12 @@ impl DockPanelContainer {
         let name = ConversationPanel::title();
         let title_key = ConversationPanel::title_key();
         let description = ConversationPanel::description();
-        let story = ConversationPanel::view_for_session(session_id, window, cx);
-        let story_klass = ConversationPanel::klass();
+        let agent_studio = ConversationPanel::view_for_session(session_id, window, cx);
+        let agent_studio_klass = ConversationPanel::klass();
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(story.into(), story_klass)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(ConversationPanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = ConversationPanel::closable();
@@ -300,14 +300,14 @@ impl DockPanelContainer {
         let name = ConversationPanel::title();
         let title_key = ConversationPanel::title_key();
         let description = ConversationPanel::description();
-        let story = match session_id {
+        let agent_studio = match session_id {
             Some(session_id) => ConversationPanel::view_for_session(session_id, window, cx),
             None => ConversationPanel::view(window, cx),
         };
-        let story_klass = ConversationPanel::klass();
+        let agent_studio_klass = ConversationPanel::klass();
 
-        self.story = Some(story.into());
-        self.story_klass = Some(story_klass.into());
+        self.agent_studio = Some(agent_studio.into());
+        self.agent_studio_klass = Some(agent_studio_klass.into());
         self.on_active = Some(ConversationPanel::on_active_any);
         self.closable = ConversationPanel::closable();
         self.zoomable = ConversationPanel::zoomable();
@@ -329,12 +329,12 @@ impl DockPanelContainer {
         let name = WelcomePanel::title();
         let title_key = WelcomePanel::title_key();
         let description = WelcomePanel::description();
-        let story = WelcomePanel::view_for_workspace(workspace_id, window, cx);
-        let story_klass = WelcomePanel::klass();
+        let agent_studio = WelcomePanel::view_for_workspace(workspace_id, window, cx);
+        let agent_studio_klass = WelcomePanel::klass();
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(story.into(), story_klass)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(WelcomePanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = WelcomePanel::closable();
@@ -359,12 +359,13 @@ impl DockPanelContainer {
         let name = WelcomePanel::title();
         let title_key = WelcomePanel::title_key();
         let description = WelcomePanel::description();
-        let story = WelcomePanel::view_with_workspace_and_dir(workspace_id, working_directory, window, cx);
-        let story_klass = WelcomePanel::klass();
+        let agent_studio =
+            WelcomePanel::view_with_workspace_and_dir(workspace_id, working_directory, window, cx);
+        let agent_studio_klass = WelcomePanel::klass();
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(story.into(), story_klass)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(WelcomePanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = WelcomePanel::closable();
@@ -391,12 +392,12 @@ impl DockPanelContainer {
         let name = TerminalPanel::title();
         let title_key = TerminalPanel::title_key();
         let description = TerminalPanel::description();
-        let story = TerminalPanel::view_with_cwd(working_directory, window, cx);
-        let story_klass = TerminalPanel::klass();
+        let agent_studio = TerminalPanel::view_with_cwd(working_directory, window, cx);
+        let agent_studio_klass = TerminalPanel::klass();
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(story.into(), story_klass)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(TerminalPanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = TerminalPanel::closable();
@@ -413,7 +414,7 @@ impl DockPanelContainer {
     }
 
     pub fn panel_from_state(
-        story_state: &DockPanelState,
+        agent_state: &DockPanelState,
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
@@ -421,13 +422,13 @@ impl DockPanelContainer {
             std::path::PathBuf::from(path).canonicalize().ok()
         }
 
-        match story_state.story_klass.as_ref() {
+        match agent_state.agent_studio_klass.as_ref() {
             "TaskPanel" => Self::panel::<TaskPanel>(window, cx),
             "SessionManagerPanel" => Self::panel::<SessionManagerPanel>(window, cx),
             "SettingsPanel" => Self::panel::<SettingsPanel>(window, cx),
             "ToolCallDetailPanel" => Self::panel::<ToolCallDetailPanel>(window, cx),
             "ConversationPanel" => {
-                if let Some(session_id) = story_state
+                if let Some(session_id) = agent_state
                     .session_id
                     .as_deref()
                     .filter(|id| !id.is_empty())
@@ -438,7 +439,7 @@ impl DockPanelContainer {
                 }
             }
             "CodeEditorPanel" => {
-                if let Some(working_dir) = story_state
+                if let Some(working_dir) = agent_state
                     .working_directory
                     .as_deref()
                     .filter(|path| !path.is_empty())
@@ -450,7 +451,7 @@ impl DockPanelContainer {
                 }
             }
             "TerminalPanel" => {
-                if let Some(working_dir) = story_state
+                if let Some(working_dir) = agent_state
                     .working_directory
                     .as_deref()
                     .filter(|path| !path.is_empty())
@@ -462,22 +463,20 @@ impl DockPanelContainer {
                 }
             }
             "WelcomePanel" => {
-                let working_dir = story_state
+                let working_dir = agent_state
                     .working_directory
                     .as_deref()
                     .filter(|path| !path.is_empty())
                     .and_then(canonicalize_path);
-                let workspace_id = story_state.workspace_id.clone();
+                let workspace_id = agent_state.workspace_id.clone();
 
                 match (workspace_id, working_dir) {
-                    (Some(workspace_id), Some(working_dir)) => {
-                        Self::panel_for_welcome_with_dir(
-                            Some(workspace_id),
-                            working_dir,
-                            window,
-                            cx,
-                        )
-                    }
+                    (Some(workspace_id), Some(working_dir)) => Self::panel_for_welcome_with_dir(
+                        Some(workspace_id),
+                        working_dir,
+                        window,
+                        cx,
+                    ),
                     (Some(workspace_id), None) => {
                         Self::panel_for_workspace(workspace_id, window, cx)
                     }
@@ -488,7 +487,7 @@ impl DockPanelContainer {
                 }
             }
             _ => {
-                unreachable!("Invalid story klass: {}", story_state.story_klass.as_ref());
+                unreachable!("Invalid agent_studio klass: {}", agent_state.agent_studio_klass.as_ref());
             }
         }
     }
@@ -504,12 +503,12 @@ impl DockPanelContainer {
         let name = CodeEditorPanel::title();
         let title_key = CodeEditorPanel::title_key();
         let description = CodeEditorPanel::description();
-        let story = CodeEditorPanel::view_with_working_dir(window, Some(working_directory), cx);
-        let story_klass = CodeEditorPanel::klass();
+        let agent_studio = CodeEditorPanel::view_with_working_dir(window, Some(working_directory), cx);
+        let agent_studio_klass = CodeEditorPanel::klass();
 
         let view = cx.new(|cx| {
             let mut container = Self::new(cx)
-                .story(story.into(), story_klass)
+                .agent_studio(agent_studio.into(), agent_studio_klass)
                 .on_active(CodeEditorPanel::on_active_any);
             container.focus_handle = cx.focus_handle();
             container.closable = CodeEditorPanel::closable();
@@ -535,9 +534,9 @@ impl DockPanelContainer {
         self
     }
 
-    pub fn story(mut self, story: AnyView, story_klass: impl Into<SharedString>) -> Self {
-        self.story = Some(story);
-        self.story_klass = Some(story_klass.into());
+    pub fn agent_studio(mut self, agent_studio: AnyView, agent_studio_klass: impl Into<SharedString>) -> Self {
+        self.agent_studio = Some(agent_studio);
+        self.agent_studio_klass = Some(agent_studio_klass.into());
         self
     }
 
@@ -580,7 +579,7 @@ impl DockPanelContainer {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DockPanelState {
-    pub story_klass: SharedString,
+    pub agent_studio_klass: SharedString,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -594,7 +593,7 @@ pub struct DockPanelState {
 impl DockPanelState {
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::json!({
-            "story_klass": self.story_klass,
+            "agent_studio_klass": self.agent_studio_klass,
             "session_id": self.session_id,
             "workspace_id": self.workspace_id,
             "workspace_name": self.workspace_name,
@@ -668,20 +667,20 @@ impl Panel for DockPanelContainer {
     ) {
         println!("panel: {} active: {}", self.name, active);
         if let Some(on_active) = self.on_active {
-            if let Some(story) = self.story.clone() {
-                on_active(story, active, _window, cx);
+            if let Some(agent_studio) = self.agent_studio.clone() {
+                on_active(agent_studio, active, _window, cx);
             }
         }
     }
 
-    fn dropdown_menu(
-        &mut self,
-        menu: PopupMenu,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<'_, DockPanelContainer>,
-    ) -> PopupMenu {
-        menu.menu("Info", Box::new(ShowPanelInfo))
-    }
+    // fn dropdown_menu(
+    //     &mut self,
+    //     menu: PopupMenu,
+    //     _window: &mut gpui::Window,
+    //     _cx: &mut gpui::Context<'_, DockPanelContainer>,
+    // ) -> PopupMenu {
+    //     menu.menu("Info", Box::new(ShowPanelInfo))
+    // }
 
     fn toolbar_buttons(
         &mut self,
@@ -689,23 +688,23 @@ impl Panel for DockPanelContainer {
         _cx: &mut gpui::Context<'_, DockPanelContainer>,
     ) -> Option<Vec<Button>> {
         Some(vec![
-            Button::new("info")
-                .icon(IconName::Info)
-                .on_click(|_, window, cx| {
-                    window.push_notification("You have clicked info button", cx);
-                }),
-            Button::new("search")
-                .icon(IconName::Search)
-                .on_click(|_, window, cx| {
-                    window.push_notification("You have clicked search button", cx);
-                }),
+            // Button::new("info")
+            //     .icon(IconName::Info)
+            //     .on_click(|_, window, cx| {
+            //         window.push_notification("You have clicked info button", cx);
+            //     }),
+            // Button::new("search")
+            //     .icon(IconName::Search)
+            //     .on_click(|_, window, cx| {
+            //         window.push_notification("You have clicked search button", cx);
+            //     }),
         ])
     }
 
     fn dump(&self, cx: &App) -> PanelState {
         let mut state = PanelState::new(self);
 
-        let story_klass = self.story_klass.clone().unwrap();
+        let agent_studio_klass = self.agent_studio_klass.clone().unwrap();
         let mut session_id = None;
         let mut workspace_id = None;
         let mut workspace_name = None;
@@ -722,10 +721,10 @@ impl Panel for DockPanelContainer {
             }
         }
 
-        if let Some(story) = &self.story {
-            match story_klass.as_ref() {
+        if let Some(agent_studio) = &self.agent_studio {
+            match agent_studio_klass.as_ref() {
                 "ConversationPanel" => {
-                    if let Ok(entity) = story.clone().downcast::<ConversationPanel>() {
+                    if let Ok(entity) = agent_studio.clone().downcast::<ConversationPanel>() {
                         let panel = entity.read(cx);
                         session_id = panel.session_id();
                         workspace_id = panel.workspace_id();
@@ -734,7 +733,7 @@ impl Panel for DockPanelContainer {
                     }
                 }
                 "WelcomePanel" => {
-                    if let Ok(entity) = story.clone().downcast::<WelcomePanel>() {
+                    if let Ok(entity) = agent_studio.clone().downcast::<WelcomePanel>() {
                         let panel = entity.read(cx);
                         workspace_id = panel.workspace_id();
                         workspace_name = panel.workspace_name();
@@ -742,7 +741,7 @@ impl Panel for DockPanelContainer {
                     }
                 }
                 "CodeEditorPanel" => {
-                    if let Ok(entity) = story.clone().downcast::<CodeEditorPanel>() {
+                    if let Ok(entity) = agent_studio.clone().downcast::<CodeEditorPanel>() {
                         let panel = entity.read(cx);
                         workspace_id = panel.workspace_id();
                         workspace_name = panel.workspace_name();
@@ -750,7 +749,7 @@ impl Panel for DockPanelContainer {
                     }
                 }
                 "TerminalPanel" => {
-                    if let Ok(entity) = story.clone().downcast::<TerminalPanel>() {
+                    if let Ok(entity) = agent_studio.clone().downcast::<TerminalPanel>() {
                         let panel = entity.read(cx);
                         workspace_id = panel.workspace_id();
                         workspace_name = panel.workspace_name();
@@ -761,14 +760,14 @@ impl Panel for DockPanelContainer {
             }
         }
 
-        let story_state = DockPanelState {
-            story_klass,
+        let agent_state = DockPanelState {
+            agent_studio_klass,
             session_id,
             workspace_id,
             workspace_name,
             working_directory,
         };
-        state.info = PanelInfo::panel(story_state.to_value());
+        state.info = PanelInfo::panel(agent_state.to_value());
         state
     }
 }
@@ -782,12 +781,12 @@ impl Focusable for DockPanelContainer {
 impl Render for DockPanelContainer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .id("story-container")
+            .id("agent_studio-container")
             .size_full()
             .p(self.paddings)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::on_action_panel_info))
-            .on_action(cx.listener(Self::on_action_toggle_search))
-            .when_some(self.story.clone(), |this, story| this.child(story))
+            // .on_action(cx.listener(Self::on_action_panel_info))
+            // .on_action(cx.listener(Self::on_action_toggle_search))
+            .when_some(self.agent_studio.clone(), |this, agent_studio| this.child(agent_studio))
     }
 }
