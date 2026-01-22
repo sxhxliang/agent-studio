@@ -13,6 +13,8 @@ struct State {
     scrollbar_show: Option<ScrollbarShow>,
     #[serde(default)]
     app_settings: Option<AppSettings>,
+    #[serde(default)]
+    startup_completed: bool,
 }
 
 impl Default for State {
@@ -21,8 +23,37 @@ impl Default for State {
             theme: "Default Light".into(),
             scrollbar_show: None,
             app_settings: None,
+            startup_completed: false,
         }
     }
+}
+
+fn load_state_file() -> State {
+    let state_file = crate::core::config_manager::get_state_file_path();
+    let json = std::fs::read_to_string(&state_file).unwrap_or_default();
+    serde_json::from_str::<State>(&json).unwrap_or_default()
+}
+
+fn write_state_file(state: &State) {
+    if let Ok(json) = serde_json::to_string_pretty(state) {
+        let state_file = crate::core::config_manager::get_state_file_path();
+        println!("Save layout...");
+        // Ignore write errors - if state file doesn't exist or can't be written, do nothing
+        let _ = std::fs::write(state_file, json);
+    }
+}
+
+pub(crate) fn startup_completed() -> bool {
+    load_state_file().startup_completed
+}
+
+pub(crate) fn set_startup_completed(completed: bool) {
+    let mut state = load_state_file();
+    if state.startup_completed == completed {
+        return;
+    }
+    state.startup_completed = completed;
+    write_state_file(&state);
 }
 
 pub fn init(cx: &mut App) {
@@ -30,9 +61,8 @@ pub fn init(cx: &mut App) {
     let state_file = crate::core::config_manager::get_state_file_path();
 
     // Load last theme state and app settings
-    let json = std::fs::read_to_string(&state_file).unwrap_or(String::default());
+    let state = load_state_file();
     tracing::info!("Load themes and app settings from: {:?}", state_file);
-    let state = serde_json::from_str::<State>(&json).unwrap_or_default();
 
     // Initialize AppSettings globally (before it was only initialized in SettingsPanel::new)
     let app_settings = state.app_settings.unwrap_or_else(AppSettings::default);
@@ -151,16 +181,13 @@ pub fn init(cx: &mut App) {
 
 /// Helper function to save current state to file
 pub(crate) fn save_state(cx: &mut App) {
+    let existing_state = load_state_file();
     let state = State {
         theme: cx.theme().theme_name().clone(),
         scrollbar_show: Some(cx.theme().scrollbar_show),
         app_settings: Some(AppSettings::global(cx).clone()),
+        startup_completed: existing_state.startup_completed,
     };
 
-    if let Ok(json) = serde_json::to_string_pretty(&state) {
-        let state_file = crate::core::config_manager::get_state_file_path();
-        println!("Save layout...");
-        // Ignore write errors - if state file doesn't exist or can't be written, do nothing
-        let _ = std::fs::write(state_file, json);
-    }
+    write_state_file(&state);
 }

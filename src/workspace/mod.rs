@@ -28,6 +28,7 @@ pub struct DockWorkspace {
     toggle_button_visible: bool,
     _save_layout_task: Option<Task<()>>,
     startup_state: StartupState,
+    startup_completed: bool,
 }
 
 struct DockAreaTab {
@@ -158,6 +159,7 @@ impl DockWorkspace {
             toggle_button_visible: true,
             _save_layout_task: None,
             startup_state: StartupState::new(),
+            startup_completed: crate::themes::startup_completed(),
         }
     }
 
@@ -404,11 +406,16 @@ impl Render for DockWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_startup_initialized(window, cx);
 
+        if self.startup_state.is_complete() && !self.startup_completed {
+            crate::themes::set_startup_completed(true);
+            self.startup_completed = true;
+        }
+
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
 
-        let content = if self.startup_state.is_complete() {
+        let content = if self.startup_completed || self.startup_state.is_complete() {
             self.dock_area.clone().into_any_element()
         } else {
             self.render_startup(cx)
