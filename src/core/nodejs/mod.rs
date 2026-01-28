@@ -6,6 +6,9 @@ pub use installer_hint::{PackageManager, generate_install_hint};
 
 use anyhow::Result;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 /// Result of Node.js availability check
 #[derive(Debug, Clone)]
@@ -98,6 +101,23 @@ impl NodeJsChecker {
             error_message: Some("Node.js is not installed or could not be found".to_string()),
             install_hint: Some(install_hint),
         })
+    }
+
+    /// Blocking Node.js availability check that works without a Tokio runtime.
+    pub fn check_nodejs_available_blocking(&self) -> Result<NodeJsCheckResult> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return handle.block_on(self.check_nodejs_available());
+        }
+
+        let runtime = RUNTIME.get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("Failed to initialize Node.js checker runtime")
+        });
+
+        runtime.block_on(self.check_nodejs_available())
     }
 
     /// Quick boolean check for Node.js availability

@@ -1,21 +1,21 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, AppContext, Context, Corner, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, SharedString, Styled as _, Subscription,
-    Window, actions, div, prelude::FluentBuilder, px,
+    actions, div, prelude::FluentBuilder, px, AnyElement, App, AppContext, Context, Corner, Entity,
+    FocusHandle, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render,
+    SharedString, Styled as _, Subscription, Window,
 };
 use gpui_component::{
-    ActiveTheme as _, IconName, PixelsExt, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
     badge::Badge,
     button::{Button, ButtonVariants as _},
     menu::AppMenuBar,
     menu::DropdownMenu as _,
     scroll::ScrollbarShow,
+    ActiveTheme as _, IconName, PixelsExt, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
 };
 use rust_i18n::t;
 
-use crate::{AppState, SelectFont, SelectRadius, SelectScrollbarShow, app_menus};
+use crate::{app_menus, AppState, SelectFont, SelectRadius, SelectScrollbarShow};
 
 actions!(title_bar, [OpenSettings]);
 
@@ -101,7 +101,7 @@ impl Render for AppTitleBar {
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(OpenSettings), cx);
                                     }),
-                            )
+                            ),
                     ),
             )
     }
@@ -192,45 +192,45 @@ impl Render for FontSizeSelector {
                                 font_size == 14,
                                 Box::new(SelectFont(14)),
                             )
-                            .separator()
-                            .label(t!("title_bar.border_radius.label").to_string())
-                            .menu_with_check(
-                                t!("title_bar.border_radius.8px").to_string(),
-                                radius == 8,
-                                Box::new(SelectRadius(8)),
-                            )
-                            .menu_with_check(
-                                t!("title_bar.border_radius.6px_default").to_string(),
-                                radius == 6,
-                                Box::new(SelectRadius(6)),
-                            )
-                            .menu_with_check(
-                                t!("title_bar.border_radius.4px").to_string(),
-                                radius == 4,
-                                Box::new(SelectRadius(4)),
-                            )
-                            .menu_with_check(
-                                t!("title_bar.border_radius.0px").to_string(),
-                                radius == 0,
-                                Box::new(SelectRadius(0)),
-                            )
-                            .separator()
-                            .label(t!("title_bar.scrollbar.label").to_string())
-                            .menu_with_check(
-                                t!("title_bar.scrollbar.scrolling").to_string(),
-                                scroll_show == ScrollbarShow::Scrolling,
-                                Box::new(SelectScrollbarShow(ScrollbarShow::Scrolling)),
-                            )
-                            .menu_with_check(
-                                t!("title_bar.scrollbar.hover").to_string(),
-                                scroll_show == ScrollbarShow::Hover,
-                                Box::new(SelectScrollbarShow(ScrollbarShow::Hover)),
-                            )
-                            .menu_with_check(
-                                t!("title_bar.scrollbar.always").to_string(),
-                                scroll_show == ScrollbarShow::Always,
-                                Box::new(SelectScrollbarShow(ScrollbarShow::Always)),
-                            )
+                        // .separator()
+                        // .label(t!("title_bar.border_radius.label").to_string())
+                        // .menu_with_check(
+                        //     t!("title_bar.border_radius.8px").to_string(),
+                        //     radius == 8,
+                        //     Box::new(SelectRadius(8)),
+                        // )
+                        // .menu_with_check(
+                        //     t!("title_bar.border_radius.6px_default").to_string(),
+                        //     radius == 6,
+                        //     Box::new(SelectRadius(6)),
+                        // )
+                        // .menu_with_check(
+                        //     t!("title_bar.border_radius.4px").to_string(),
+                        //     radius == 4,
+                        //     Box::new(SelectRadius(4)),
+                        // )
+                        // .menu_with_check(
+                        //     t!("title_bar.border_radius.0px").to_string(),
+                        //     radius == 0,
+                        //     Box::new(SelectRadius(0)),
+                        // )
+                        // .separator()
+                        // .label(t!("title_bar.scrollbar.label").to_string())
+                        // .menu_with_check(
+                        //     t!("title_bar.scrollbar.scrolling").to_string(),
+                        //     scroll_show == ScrollbarShow::Scrolling,
+                        //     Box::new(SelectScrollbarShow(ScrollbarShow::Scrolling)),
+                        // )
+                        // .menu_with_check(
+                        //     t!("title_bar.scrollbar.hover").to_string(),
+                        //     scroll_show == ScrollbarShow::Hover,
+                        //     Box::new(SelectScrollbarShow(ScrollbarShow::Hover)),
+                        // )
+                        // .menu_with_check(
+                        //     t!("title_bar.scrollbar.always").to_string(),
+                        //     scroll_show == ScrollbarShow::Always,
+                        //     Box::new(SelectScrollbarShow(ScrollbarShow::Always)),
+                        // )
                     })
                     .anchor(Corner::TopRight),
             )

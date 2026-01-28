@@ -1461,19 +1461,21 @@ impl Render for WelcomePanel {
                         v_flex()
                             .w_full()
                             .items_center()
-                            .gap_2()
+                            .gap_3()
                             .px(px(32.))
+                            .pb(px(8.))
                             .child(
                                 gpui::div()
-                                    .text_2xl()
-                                    .font_semibold()
+                                    .text_3xl()
+                                    .font_bold()
                                     .text_color(cx.theme().foreground)
                                     .child(t!("welcome.main_title").to_string()),
                             )
                             .child(
                                 gpui::div()
-                                    .text_base()
+                                    .text_lg()
                                     .text_color(cx.theme().muted_foreground)
+                                    .text_center()
                                     .child(if self.has_workspace {
                                         if let Some(workspace_name) = &self.active_workspace_name {
                                             t!(

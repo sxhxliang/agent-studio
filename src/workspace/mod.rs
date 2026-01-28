@@ -1,22 +1,20 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
-use gpui_component::{
-    IconName, Root, Sizable,
-    button::{Button, ButtonVariants as _},
-    dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement},
-    menu::DropdownMenu,
-};
+use gpui_component::dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement};
+use gpui_component::Root;
 use smol::Timer;
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppState, AppTitleBar, CodeEditorPanel, ConversationPanel, PanelAction, SessionManagerPanel,
-    TaskPanel, TerminalPanel, ToggleDockToggleButton, TogglePanelVisible,
-    panels::dock_panel::DockPanelContainer,
+    AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel, TaskPanel,
+    TerminalPanel, panels::dock_panel::DockPanelContainer,
 };
+
+use self::startup::StartupState;
 
 // Action handlers module
 pub mod actions;
+mod startup;
 
 const MAIN_DOCK_AREA: DockAreaTab = DockAreaTab {
     id: "main-dock",
@@ -29,6 +27,8 @@ pub struct DockWorkspace {
     last_layout_state: Option<DockAreaState>,
     toggle_button_visible: bool,
     _save_layout_task: Option<Task<()>>,
+    startup_state: StartupState,
+    startup_completed: bool,
 }
 
 struct DockAreaTab {
@@ -158,6 +158,8 @@ impl DockWorkspace {
             last_layout_state: None,
             toggle_button_visible: true,
             _save_layout_task: None,
+            startup_state: StartupState::new(),
+            startup_completed: crate::themes::startup_completed(),
         }
     }
 
@@ -402,9 +404,22 @@ impl DockWorkspace {
 
 impl Render for DockWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_startup_initialized(window, cx);
+
+        if self.startup_state.is_complete() && !self.startup_completed {
+            crate::themes::set_startup_completed(true);
+            self.startup_completed = true;
+        }
+
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
+
+        let content = if self.startup_completed || self.startup_state.is_complete() {
+            self.dock_area.clone().into_any_element()
+        } else {
+            self.render_startup(cx)
+        };
 
         div()
             .id("agent_studio-workspace")
@@ -422,7 +437,7 @@ impl Render for DockWorkspace {
             .flex()
             .flex_col()
             .child(self.title_bar.clone())
-            .child(self.dock_area.clone())
+            .child(content)
             .children(sheet_layer)
             .children(dialog_layer)
             .children(notification_layer)
