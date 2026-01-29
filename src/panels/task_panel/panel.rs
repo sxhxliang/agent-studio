@@ -1092,83 +1092,69 @@ impl TaskPanel {
                                     .child(workspace_name),
                             ),
                     )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child({
-                                let workspace_id = workspace_id.clone();
-                                let workspace_path = workspace.path.clone();
-                                let entity = entity.clone();
-                                Button::new(SharedString::from(format!(
-                                    "workspace-menu-{}",
-                                    workspace_id
-                                )))
-                                .icon(IconName::Ellipsis)
-                                .ghost()
-                                .xsmall()
-                                .dropdown_menu(
-                                    move |menu, window, _| {
-                                        let workspace_id = workspace_id.clone();
-                                        let workspace_path = workspace_path.clone();
-                                        let entity = entity.clone();
-                                        menu.item(
-                                            PopupMenuItem::new(
-                                                t!("task_panel.workspace.open_terminal").to_string(),
-                                            )
-                                            .icon(IconName::SquareTerminal)
-                                            .on_click({
-                                                let workspace_path = workspace_path.clone();
-                                                move |_, window, cx| {
-                                                    window.dispatch_action(
-                                                        Box::new(PanelAction::add_terminal(
-                                                            gpui_component::dock::DockPlacement::Bottom,
-                                                            Some(workspace_path.clone()),
-                                                        )),
-                                                        cx,
-                                                    );
-                                                }
-                                            }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(
-                                                t!("task_panel.workspace.open_code_editor").to_string(),
-                                            )
-                                            .icon(IconName::File)
-                                            .on_click({
-                                                let workspace_path = workspace_path.clone();
-                                                move |_, window, cx| {
-                                                    window.dispatch_action(
-                                                        Box::new(PanelAction::add_code_editor(
-                                                            gpui_component::dock::DockPlacement::Right,
-                                                            Some(workspace_path.clone()),
-                                                        )),
-                                                        cx,
-                                                    );
-                                                }
-                                            }),
-                                        )
-                                        .separator()
-                                        .item(
-                                            PopupMenuItem::new(
-                                                t!("task_panel.workspace.remove").to_string(),
-                                            )
-                                            .icon(Icon::new(crate::assets::Icon::Trash2))
-                                            .on_click(
-                                                move |_, _, cx| {
-                                                    entity.update(cx, |this, cx| {
-                                                        this.remove_workspace(
-                                                            workspace_id.clone(),
-                                                            cx,
-                                                        );
-                                                    });
-                                                },
-                                            ),
-                                        )
-                                    },
+                    .child(h_flex().gap_2().items_center().child({
+                        let workspace_id = workspace_id.clone();
+                        let workspace_path = workspace.path.clone();
+                        let entity = entity.clone();
+                        Button::new(SharedString::from(format!(
+                            "workspace-menu-{}",
+                            workspace_id
+                        )))
+                        .icon(IconName::Ellipsis)
+                        .ghost()
+                        .xsmall()
+                        .dropdown_menu(move |menu, window, _| {
+                            let workspace_id = workspace_id.clone();
+                            let workspace_path = workspace_path.clone();
+                            let entity = entity.clone();
+                            menu.item(
+                                PopupMenuItem::new(
+                                    t!("task_panel.workspace.open_terminal").to_string(),
                                 )
-                            }),
-                    ),
+                                .icon(IconName::SquareTerminal)
+                                .on_click({
+                                    let workspace_path = workspace_path.clone();
+                                    move |_, window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(PanelAction::add_terminal(
+                                                gpui_component::dock::DockPlacement::Bottom,
+                                                Some(workspace_path.clone()),
+                                            )),
+                                            cx,
+                                        );
+                                    }
+                                }),
+                            )
+                            .item(
+                                PopupMenuItem::new(
+                                    t!("task_panel.workspace.open_code_editor").to_string(),
+                                )
+                                .icon(IconName::File)
+                                .on_click({
+                                    let workspace_path = workspace_path.clone();
+                                    move |_, window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(PanelAction::add_code_editor(
+                                                gpui_component::dock::DockPlacement::Right,
+                                                Some(workspace_path.clone()),
+                                            )),
+                                            cx,
+                                        );
+                                    }
+                                }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::new(t!("task_panel.workspace.remove").to_string())
+                                    .icon(Icon::new(crate::assets::Icon::Trash2))
+                                    .on_click(move |_, _, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.remove_workspace(workspace_id.clone(), cx);
+                                        });
+                                    }),
+                            )
+                        })
+                    })),
             )
             // Expanded children
             .when(is_expanded, |this| {

@@ -6,7 +6,12 @@ use rust_i18n::t;
 use std::collections::HashSet;
 
 use gpui_component::{
-    ActiveTheme, IndexPath, StyledExt, WindowExt, input::InputState, list::ListState, notification::Notification, select::{SelectEvent, SelectState}, v_flex
+    ActiveTheme, IndexPath, StyledExt, WindowExt,
+    input::InputState,
+    list::ListState,
+    notification::Notification,
+    select::{SelectEvent, SelectState},
+    v_flex,
 };
 
 use agent_client_protocol::{self as acp, AvailableCommand, ImageContent};

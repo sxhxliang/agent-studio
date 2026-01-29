@@ -1,13 +1,13 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
-use gpui_component::dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement};
 use gpui_component::Root;
+use gpui_component::dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement};
 use smol::Timer;
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel, TaskPanel,
-    TerminalPanel, panels::dock_panel::DockPanelContainer,
+    AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel, TaskPanel, TerminalPanel,
+    panels::dock_panel::DockPanelContainer,
 };
 
 use self::startup::StartupState;

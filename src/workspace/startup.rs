@@ -15,8 +15,8 @@ use std::{
 };
 
 use crate::{
-    assets::get_agent_icon,
     AppSettings, AppState,
+    assets::get_agent_icon,
     core::{
         config::{AgentProcessConfig, Config},
         nodejs::NodeJsChecker,

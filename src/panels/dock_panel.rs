@@ -487,7 +487,10 @@ impl DockPanelContainer {
                 }
             }
             _ => {
-                unreachable!("Invalid agent_studio klass: {}", agent_state.agent_studio_klass.as_ref());
+                unreachable!(
+                    "Invalid agent_studio klass: {}",
+                    agent_state.agent_studio_klass.as_ref()
+                );
             }
         }
     }
@@ -503,7 +506,8 @@ impl DockPanelContainer {
         let name = CodeEditorPanel::title();
         let title_key = CodeEditorPanel::title_key();
         let description = CodeEditorPanel::description();
-        let agent_studio = CodeEditorPanel::view_with_working_dir(window, Some(working_directory), cx);
+        let agent_studio =
+            CodeEditorPanel::view_with_working_dir(window, Some(working_directory), cx);
         let agent_studio_klass = CodeEditorPanel::klass();
 
         let view = cx.new(|cx| {
@@ -534,7 +538,11 @@ impl DockPanelContainer {
         self
     }
 
-    pub fn agent_studio(mut self, agent_studio: AnyView, agent_studio_klass: impl Into<SharedString>) -> Self {
+    pub fn agent_studio(
+        mut self,
+        agent_studio: AnyView,
+        agent_studio_klass: impl Into<SharedString>,
+    ) -> Self {
         self.agent_studio = Some(agent_studio);
         self.agent_studio_klass = Some(agent_studio_klass.into());
         self
@@ -787,6 +795,8 @@ impl Render for DockPanelContainer {
             .track_focus(&self.focus_handle)
             // .on_action(cx.listener(Self::on_action_panel_info))
             // .on_action(cx.listener(Self::on_action_toggle_search))
-            .when_some(self.agent_studio.clone(), |this, agent_studio| this.child(agent_studio))
+            .when_some(self.agent_studio.clone(), |this, agent_studio| {
+                this.child(agent_studio)
+            })
     }
 }

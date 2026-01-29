@@ -1,21 +1,21 @@
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::FluentBuilder, px, AnyElement, App, AppContext, Context, Corner, Entity,
-    FocusHandle, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render,
-    SharedString, Styled as _, Subscription, Window,
+    AnyElement, App, AppContext, Context, Corner, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, SharedString, Styled as _, Subscription,
+    Window, actions, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
+    ActiveTheme as _, IconName, PixelsExt, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
     badge::Badge,
     button::{Button, ButtonVariants as _},
     menu::AppMenuBar,
     menu::DropdownMenu as _,
     scroll::ScrollbarShow,
-    ActiveTheme as _, IconName, PixelsExt, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
 };
 use rust_i18n::t;
 
-use crate::{app_menus, AppState, SelectFont, SelectRadius, SelectScrollbarShow};
+use crate::{AppState, SelectFont, SelectRadius, SelectScrollbarShow, app_menus};
 
 actions!(title_bar, [OpenSettings]);
 

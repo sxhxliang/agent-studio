@@ -128,16 +128,12 @@ impl Render for UIMenu {
                                 )
                                 .separator()
                                 .item(
-                                    PopupMenuItem::new(
-                                        t!("menu.item.handle_click").to_string(),
-                                    )
-                                    .on_click(
-                                        window.listener_for(&view, |this, _, _, cx| {
+                                    PopupMenuItem::new(t!("menu.item.handle_click").to_string())
+                                        .on_click(window.listener_for(&view, |this, _, _, cx| {
                                             this.message =
                                                 t!("menu.message.handle_click").to_string();
                                             cx.notify();
-                                        }),
-                                    ),
+                                        })),
                                 )
                                 .separator()
                                 .menu(t!("menu.menu.copy").to_string(), Box::new(Copy))
@@ -164,9 +160,7 @@ impl Render for UIMenu {
                                                 div()
                                                     .text_xs()
                                                     .text_color(cx.theme().muted_foreground)
-                                                    .child(
-                                                        t!("menu.item.sub_title").to_string(),
-                                                    ),
+                                                    .child(t!("menu.item.sub_title").to_string()),
                                             )
                                     })
                                     .on_click(
@@ -199,9 +193,7 @@ impl Render for UIMenu {
                                                 div()
                                                     .text_sm()
                                                     .text_color(cx.theme().muted_foreground)
-                                                    .child(
-                                                        t!("menu.item.element").to_string(),
-                                                    ),
+                                                    .child(t!("menu.item.element").to_string()),
                                             )
                                     },
                                 )
@@ -223,14 +215,8 @@ impl Render for UIMenu {
                                             "https://github.com/sxhxliang/agent-studio",
                                         )
                                         .separator()
-                                        .link(
-                                            t!("menu.link.gpui").to_string(),
-                                            "https://gpui.rs",
-                                        )
-                                        .link(
-                                            t!("menu.link.zed").to_string(),
-                                            "https://zed.dev",
-                                        )
+                                        .link(t!("menu.link.gpui").to_string(), "https://gpui.rs")
+                                        .link(t!("menu.link.zed").to_string(), "https://zed.dev")
                                     },
                                 )
                                 .separator()
@@ -278,14 +264,8 @@ impl Render for UIMenu {
                                         )
                                         .separator()
                                         .menu(t!("menu.menu.cut").to_string(), Box::new(Cut))
-                                        .menu(
-                                            t!("menu.menu.copy").to_string(),
-                                            Box::new(Copy),
-                                        )
-                                        .menu(
-                                            t!("menu.menu.paste").to_string(),
-                                            Box::new(Paste),
-                                        )
+                                        .menu(t!("menu.menu.copy").to_string(), Box::new(Copy))
+                                        .menu(t!("menu.menu.paste").to_string(), Box::new(Paste))
                                         .separator()
                                         .label(t!("menu.context.label").to_string())
                                         .menu_with_check(
@@ -350,10 +330,7 @@ impl Render for UIMenu {
                                         "https://github.com/sxhxliang/agent-studio",
                                     )
                                     .separator()
-                                    .menu(
-                                        t!("menu.context.item_1").to_string(),
-                                        Box::new(Info(1)),
-                                    )
+                                    .menu(t!("menu.context.item_1").to_string(), Box::new(Info(1)))
                                 }
                             }),
                     ),
@@ -366,8 +343,7 @@ impl Render for UIMenu {
                             .label(t!("menu.scrollable.button_100").to_string())
                             .dropdown_menu_with_anchor(Corner::TopRight, move |this, _, _| {
                                 let mut this = this.scrollable(true).max_h(px(300.)).label(
-                                    t!("menu.scrollable.total_items", count = 100)
-                                        .to_string(),
+                                    t!("menu.scrollable.total_items", count = 100).to_string(),
                                 );
                                 for i in 0..100 {
                                     this = this.menu(
@@ -386,8 +362,7 @@ impl Render for UIMenu {
                             .label(t!("menu.scrollable.button_5").to_string())
                             .dropdown_menu_with_anchor(Corner::TopRight, move |this, _, _| {
                                 let mut this = this.scrollable(true).max_h(px(300.)).label(
-                                    t!("menu.scrollable.total_items", count = 100)
-                                        .to_string(),
+                                    t!("menu.scrollable.total_items", count = 100).to_string(),
                                 );
                                 for i in 0..5 {
                                     this = this.menu(

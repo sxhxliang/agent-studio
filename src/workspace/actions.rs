@@ -1,9 +1,9 @@
 use agent_client_protocol as acp;
 use gpui::*;
 use gpui_component::{
-    WindowExt, dock::{
-        DockItem, DockPlacement, Panel, PanelInfo, PanelState, PanelView, TabPanel,
-    }, notification::Notification
+    WindowExt,
+    dock::{DockItem, DockPlacement, Panel, PanelInfo, PanelState, PanelView, TabPanel},
+    notification::Notification,
 };
 use std::sync::Arc;
 

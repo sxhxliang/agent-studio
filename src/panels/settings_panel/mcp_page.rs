@@ -20,48 +20,52 @@ impl SettingsPanel {
     pub fn mcp_page(&self, view: &Entity<Self>) -> SettingPage {
         SettingPage::new(t!("settings.mcp.title").to_string())
             .resettable(false)
-            .groups(vec![
-                SettingGroup::new().item(SettingItem::render({
-                    let view = view.clone();
-                    move |_options, window, cx| {
-                        let active_tab = view.read(cx).mcp_active_tab;
+            .groups(vec![SettingGroup::new().item(SettingItem::render({
+                let view = view.clone();
+                move |_options, window, cx| {
+                    let active_tab = view.read(cx).mcp_active_tab;
 
-                        v_flex()
-                            .w_full()
-                            .gap_4()
-                            .child(
-                                TabBar::new("mcp-tabs")
-                                    .w_full()
-                                    .segmented()
-                                    .selected_index(active_tab)
-                                    .on_click({
-                                        let view = view.clone();
-                                        move |ix: &usize, _window, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.mcp_active_tab = *ix;
-                                                cx.notify();
-                                            });
-                                        }
-                                    })
-                                    .child(Tab::new().flex_1().label(t!("settings.mcp.tab.interactive").to_string()))
-                                    .child(Tab::new().flex_1().label(t!("settings.mcp.tab.json_editor").to_string())),
-                            )
-                            .child(
-                                if active_tab == 0 {
-                                    Self::render_interactive_editor(&view, window, cx)
-                                } else {
-                                    Self::render_json_editor(&view, window, cx)
-                                }
-                            )
-                    }
-                })),
-            ])
+                    v_flex()
+                        .w_full()
+                        .gap_4()
+                        .child(
+                            TabBar::new("mcp-tabs")
+                                .w_full()
+                                .segmented()
+                                .selected_index(active_tab)
+                                .on_click({
+                                    let view = view.clone();
+                                    move |ix: &usize, _window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.mcp_active_tab = *ix;
+                                            cx.notify();
+                                        });
+                                    }
+                                })
+                                .child(
+                                    Tab::new()
+                                        .flex_1()
+                                        .label(t!("settings.mcp.tab.interactive").to_string()),
+                                )
+                                .child(
+                                    Tab::new()
+                                        .flex_1()
+                                        .label(t!("settings.mcp.tab.json_editor").to_string()),
+                                ),
+                        )
+                        .child(if active_tab == 0 {
+                            Self::render_interactive_editor(&view, window, cx)
+                        } else {
+                            Self::render_json_editor(&view, window, cx)
+                        })
+                }
+            }))])
     }
 
     fn render_interactive_editor(
         view: &Entity<Self>,
         _window: &mut Window,
-        cx: &mut gpui::App
+        cx: &mut gpui::App,
     ) -> gpui::AnyElement {
         let mcp_configs = view.read(cx).cached_mcp_servers.clone();
 
@@ -118,21 +122,16 @@ impl SettingsPanel {
                                 .items_center()
                                 .child(
                                     Label::new(if config.enabled {
-                                        t!("settings.mcp.status.enabled")
-                                            .to_string()
+                                        t!("settings.mcp.status.enabled").to_string()
                                     } else {
-                                        t!("settings.mcp.status.disabled")
-                                            .to_string()
+                                        t!("settings.mcp.status.disabled").to_string()
                                     })
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground),
                                 )
                                 .child(
                                     Button::new(("delete-mcp-btn", idx))
-                                        .label(
-                                            t!("settings.mcp.button.delete")
-                                                .to_string(),
-                                        )
+                                        .label(t!("settings.mcp.button.delete").to_string())
                                         .icon(IconName::Delete)
                                         .outline()
                                         .small()
@@ -143,7 +142,7 @@ impl SettingsPanel {
                                                     this.show_delete_mcp_dialog(
                                                         window,
                                                         cx,
-                                                        name_for_delete.clone()
+                                                        name_for_delete.clone(),
                                                     );
                                                 });
                                             }
@@ -160,7 +159,7 @@ impl SettingsPanel {
     fn render_json_editor(
         view: &Entity<Self>,
         _window: &mut Window,
-        cx: &mut gpui::App
+        cx: &mut gpui::App,
     ) -> gpui::AnyElement {
         let json_editor = view.read(cx).mcp_json_editor.clone();
         let json_error = view.read(cx).mcp_json_error.clone();
@@ -179,28 +178,21 @@ impl SettingsPanel {
                     .gap_2()
                     .child(
                         Button::new("load-mcp-json-btn")
-                            .label(
-                                t!("settings.mcp.json.button.load").to_string(),
-                            )
+                            .label(t!("settings.mcp.json.button.load").to_string())
                             .icon(IconName::ArrowDown)
                             .small()
                             .on_click({
                                 let view = view.clone();
                                 move |_, window, cx| {
                                     view.update(cx, |this, cx| {
-                                        this.load_mcp_servers_to_json(
-                                            window, cx,
-                                        );
+                                        this.load_mcp_servers_to_json(window, cx);
                                     });
                                 }
                             }),
                     )
                     .child(
                         Button::new("validate-mcp-json-btn")
-                            .label(
-                                t!("settings.mcp.json.button.validate")
-                                    .to_string(),
-                            )
+                            .label(t!("settings.mcp.json.button.validate").to_string())
                             .icon(IconName::Check)
                             .small()
                             .on_click({
@@ -214,9 +206,7 @@ impl SettingsPanel {
                     )
                     .child(
                         Button::new("save-mcp-json-btn")
-                            .label(
-                                t!("settings.mcp.json.button.save").to_string(),
-                            )
+                            .label(t!("settings.mcp.json.button.save").to_string())
                             .icon(IconName::ArrowUp)
                             .small()
                             .on_click({
@@ -231,13 +221,13 @@ impl SettingsPanel {
             )
             .child(Input::new(&json_editor).h(px(300.)).w_full())
             .children(json_error.map(|error| {
-                Label::new(error.clone()).text_sm().text_color(
-                    if error.starts_with("✓") {
+                Label::new(error.clone())
+                    .text_sm()
+                    .text_color(if error.starts_with("✓") {
                         gpui::green()
                     } else {
                         gpui::red()
-                    },
-                )
+                    })
             }))
             .child(
                 v_flex()
