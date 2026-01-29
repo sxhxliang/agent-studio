@@ -18,6 +18,9 @@ pub struct SystemTray {
 
 impl SystemTray {
     /// 创建系统托盘
+    ///
+    /// 注意：在 Linux 上调用此函数前，必须先调用 `gtk::init()` 初始化 GTK。
+    /// 这是因为 tray-icon 底层依赖 GTK，且 GTK 必须在 GPUI 之前初始化。
     pub fn new() -> Result<Self> {
         // 创建托盘菜单
         let tray_menu = Menu::new();

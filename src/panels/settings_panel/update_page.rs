@@ -128,7 +128,7 @@ impl SettingsPanel {
                                                         .to_string(),
                                                 )
                                                 .text_xs()
-                                                .text_color(cx.theme().colors.danger_foreground),
+                                                .text_color(cx.theme().colors.danger_active),
                                             ),
                                     })
                             }

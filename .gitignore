@@ -25,5 +25,5 @@ Thumbs.db
 debug.log
 *.log
 
-# Git worktrees
+# Worktrees
 .worktrees/

@@ -6,35 +6,51 @@ use gpui::Application;
 use std::sync::Arc;
 
 fn main() {
-    // Parse config path from command line arguments
+    // 解析命令行参数中的配置文件路径
     let config_path = parse_config_path();
+
+    // Linux 上需要在 GPUI 之前初始化 GTK，避免显示服务器冲突
+    #[cfg(target_os = "linux")]
+    let tray_available = match gtk::init() {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("GTK initialization failed, system tray disabled: {}", e);
+            false
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
+    let tray_available = true;
 
     let app = Application::new().with_assets(Assets);
     app.run(move |cx| {
         agentx::init(cx);
 
-        // Initialize system tray
-        match agentx::system_tray::SystemTray::new() {
-            Ok(tray) => {
-                agentx::system_tray::setup_tray_event_handler(tray, cx);
-                log::info!("System tray initialized successfully");
-            }
-            Err(e) => {
-                log::error!("Failed to initialize system tray: {}", e);
-            }
-        }
-
-        // Get session_bus and permission_bus from global AppState
+        // 从全局 AppState 获取 session_bus 和 permission_bus
         let session_bus = agentx::AppState::global(cx).session_bus.clone();
         let permission_bus = agentx::AppState::global(cx).permission_bus.clone();
 
-        // Open GUI window immediately (non-blocking)
+        // 立即打开 GUI 窗口（非阻塞）
+        // 窗口必须在系统托盘之前创建，避免 dbus 注册阻塞
         open_new(cx, |_, _, _| {
-            // GUI window is now open
+            // GUI 窗口已打开
         })
         .detach();
 
-        // Initialize agents in the background (async, non-blocking)
+        // 窗口创建后初始化系统托盘
+        // Linux 上 GTK 必须在 GPUI 之前初始化，但托盘创建必须在窗口之后
+        if tray_available {
+            match agentx::system_tray::SystemTray::new() {
+                Ok(tray) => {
+                    agentx::system_tray::setup_tray_event_handler(tray, cx);
+                    log::info!("System tray initialized successfully");
+                }
+                Err(e) => {
+                    log::error!("Failed to initialize system tray: {}", e);
+                }
+            }
+        }
+
+        // 后台异步初始化 agents（非阻塞）
         cx.spawn(async move |cx| {
             let config: Config = match std::fs::read_to_string(&config_path)
                 .with_context(|| format!("failed to read {}", config_path.display()))
