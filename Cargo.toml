@@ -11,12 +11,15 @@ readme = "README.md"
 [package.metadata.bundle]
 name = "AgentX"
 identifier = "plus.agentx.app"
-icon = ["assets/logo1024x1024@2x.png"]
+icon = ["assets/logo1024x1024@2x.png", "assets/logo.ico"]
 version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
 category = "Developer Tool"
 short_description = "AI Agent Studio"
 long_description = "A full-featured desktop AI agent studio built with GPUI Component, featuring real-time agent communication, code editing, and multi-session management."
+
+[package.metadata.bundle.windows]
+icon = ["assets/logo.ico"]
 
 [package.metadata.i18n]
 available-locales = ["en", "zh-CN"]
@@ -93,6 +96,11 @@ dirs = "6.0"
 
 # System tray
 tray-icon = "0.19"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Pin macOS font stack to avoid core-graphics version skew with gpui/zed-font-kit.
+core-text = "=21.0.0"
+core-graphics = "=0.24.0"
 
 [lints.rust]
 # Allow warnings for code under development
