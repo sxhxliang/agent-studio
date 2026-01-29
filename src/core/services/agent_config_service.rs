@@ -665,6 +665,14 @@ impl AgentConfigService {
 fn validate_command(command: &str) -> Result<()> {
     let command_path = Path::new(command);
 
+    #[cfg(not(target_os = "windows"))]
+    fn is_executable(path: &Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+
     if command_path.is_absolute() {
         if !command_path.exists() {
             return Err(anyhow!(
@@ -676,6 +684,14 @@ fn validate_command(command: &str) -> Result<()> {
         if !command_path.is_file() {
             return Err(anyhow!(
                 "Command path is not a file: {}",
+                command_path.display()
+            ));
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        if !is_executable(command_path) {
+            return Err(anyhow!(
+                "Command path is not executable: {}",
                 command_path.display()
             ));
         }
@@ -692,11 +708,11 @@ fn validate_command(command: &str) -> Result<()> {
 
             #[cfg(not(target_os = "windows"))]
             {
-                if resolved.exists() && resolved.is_file() {
+                if resolved.exists() && resolved.is_file() && is_executable(&resolved) {
                     Ok(())
                 } else {
                     Err(anyhow!(
-                        "Resolved command path does not exist or is not a file: {}",
+                        "Resolved command path does not exist, is not a file, or is not executable: {}",
                         resolved.display()
                     ))
                 }
