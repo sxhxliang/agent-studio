@@ -133,6 +133,9 @@ rustybuzz = { opt-level = 3 }
 taffy = { opt-level = 3 }
 ttf-parser = { opt-level = 3 }
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 opt-level = "z"          # 优化目标为大小 (size optimization)
 lto = "fat"              # 完整的链接时优化 (full LTO)

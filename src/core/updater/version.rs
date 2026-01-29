@@ -86,6 +86,21 @@ mod tests {
     }
 
     #[test]
+    fn test_version_parse_invalid_format() {
+        assert!(Version::parse("1.2").is_err());
+        assert!(Version::parse("1").is_err());
+        assert!(Version::parse("").is_err());
+        assert!(Version::parse("1.2.3.4").is_err());
+    }
+
+    #[test]
+    fn test_version_parse_invalid_number() {
+        assert!(Version::parse("a.b.c").is_err());
+        assert!(Version::parse("1.x.3").is_err());
+        assert!(Version::parse("1.2.three").is_err());
+    }
+
+    #[test]
     fn test_version_comparison() {
         let v1 = Version::new(1, 0, 0);
         let v2 = Version::new(1, 0, 1);
@@ -96,6 +111,54 @@ mod tests {
         assert!(v3.is_newer_than(&v2));
         assert!(v4.is_newer_than(&v3));
         assert!(!v1.is_newer_than(&v2));
+    }
+
+    #[test]
+    fn test_version_equality() {
+        let v1 = Version::new(1, 2, 3);
+        let v2 = Version::new(1, 2, 3);
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_version_is_newer_than_same() {
+        let v1 = Version::new(1, 2, 3);
+        let v2 = Version::new(1, 2, 3);
+        assert!(!v1.is_newer_than(&v2));
+    }
+
+    #[test]
+    fn test_version_current() {
+        // Should successfully parse the current version from Cargo.toml
+        let current = Version::current();
+        // Just verify it doesn't panic and has valid values
+        assert!(current.major < 100);
+        assert!(current.minor < 100);
+        assert!(current.patch < 100);
+    }
+
+    #[test]
+    fn test_version_ord() {
+        // Test full ordering: major > minor > patch
+        let versions = vec![
+            Version::new(0, 0, 1),
+            Version::new(0, 0, 2),
+            Version::new(0, 1, 0),
+            Version::new(0, 1, 1),
+            Version::new(1, 0, 0),
+            Version::new(1, 0, 1),
+            Version::new(1, 1, 0),
+            Version::new(2, 0, 0),
+        ];
+
+        for i in 0..versions.len() - 1 {
+            assert!(
+                versions[i] < versions[i + 1],
+                "{} should be < {}",
+                versions[i],
+                versions[i + 1]
+            );
+        }
     }
 
     #[test]

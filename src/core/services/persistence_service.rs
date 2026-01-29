@@ -662,3 +662,433 @@ impl PersistenceService {
         .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============== PersistedMessage tests ==============
+
+    #[test]
+    fn test_persisted_message_new() {
+        let content = ContentBlock::Text(TextContent::new("test".to_string()));
+        let chunk = ContentChunk::new(content);
+        let update = SessionUpdate::UserMessageChunk(chunk);
+
+        let msg = PersistedMessage::new(update);
+
+        // Should have a valid RFC3339 timestamp
+        assert!(!msg.timestamp.is_empty());
+        assert!(chrono::DateTime::parse_from_rfc3339(&msg.timestamp).is_ok());
+    }
+
+    #[test]
+    fn test_persisted_message_with_timestamp() {
+        let content = ContentBlock::Text(TextContent::new("test".to_string()));
+        let chunk = ContentChunk::new(content);
+        let update = SessionUpdate::AgentMessageChunk(chunk);
+
+        let timestamp = "2025-01-01T00:00:00+00:00".to_string();
+        let msg = PersistedMessage::with_timestamp(timestamp.clone(), update);
+
+        assert_eq!(msg.timestamp, timestamp);
+    }
+
+    #[test]
+    fn test_persisted_message_serialization_roundtrip() {
+        let content = ContentBlock::Text(TextContent::new("Hello world".to_string()));
+        let chunk = ContentChunk::new(content);
+        let update = SessionUpdate::UserMessageChunk(chunk);
+        let msg = PersistedMessage::new(update);
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let restored: PersistedMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(msg.timestamp, restored.timestamp);
+        // Verify the update type matches
+        assert!(matches!(
+            restored.update,
+            SessionUpdate::UserMessageChunk(_)
+        ));
+    }
+
+    // ============== merge_text_chunks tests ==============
+
+    #[test]
+    fn test_merge_text_chunks_empty() {
+        let chunks: Vec<ContentChunk> = vec![];
+        let merged = merge_text_chunks(&chunks);
+
+        if let ContentBlock::Text(text) = &merged.content {
+            assert!(text.text.is_empty());
+        } else {
+            panic!("Expected Text content block");
+        }
+    }
+
+    #[test]
+    fn test_merge_text_chunks_single() {
+        let content = ContentBlock::Text(TextContent::new("single chunk".to_string()));
+        let chunk = ContentChunk::new(content);
+        let chunks = vec![chunk.clone()];
+
+        let merged = merge_text_chunks(&chunks);
+
+        if let ContentBlock::Text(text) = &merged.content {
+            assert_eq!(text.text, "single chunk");
+        } else {
+            panic!("Expected Text content block");
+        }
+    }
+
+    #[test]
+    fn test_merge_text_chunks_multiple() {
+        let chunks = vec![
+            ContentChunk::new(ContentBlock::Text(TextContent::new("Hello ".to_string()))),
+            ContentChunk::new(ContentBlock::Text(TextContent::new("World".to_string()))),
+            ContentChunk::new(ContentBlock::Text(TextContent::new("!".to_string()))),
+        ];
+
+        let merged = merge_text_chunks(&chunks);
+
+        if let ContentBlock::Text(text) = &merged.content {
+            assert_eq!(text.text, "Hello World!");
+        } else {
+            panic!("Expected Text content block");
+        }
+    }
+
+    #[test]
+    fn test_merge_text_chunks_preserves_meta() {
+        let mut first_chunk =
+            ContentChunk::new(ContentBlock::Text(TextContent::new("first".to_string())));
+        // Set meta as a Map
+        let mut meta_map = serde_json::Map::new();
+        meta_map.insert("key".to_string(), serde_json::json!("value"));
+        first_chunk.meta = Some(meta_map);
+
+        let second_chunk =
+            ContentChunk::new(ContentBlock::Text(TextContent::new(" second".to_string())));
+
+        let chunks = vec![first_chunk, second_chunk];
+        let merged = merge_text_chunks(&chunks);
+
+        // Meta from first chunk should be preserved
+        assert!(merged.meta.is_some());
+        assert_eq!(merged.meta.unwrap()["key"], "value");
+    }
+
+    // ============== extract_text_from_content_chunk tests ==============
+
+    #[test]
+    fn test_extract_text_from_text_chunk() {
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(
+            "extracted text".to_string(),
+        )));
+        let text = extract_text_from_content_chunk(&chunk);
+        assert_eq!(text, "extracted text");
+    }
+
+    #[test]
+    fn test_extract_text_from_image_chunk() {
+        use agent_client_protocol::ImageContent;
+
+        // ImageContent::new(data, mime_type)
+        let image_content = ImageContent::new("base64data".to_string(), "image/png".to_string());
+        let chunk = ContentChunk::new(ContentBlock::Image(image_content));
+        let text = extract_text_from_content_chunk(&chunk);
+
+        assert!(text.contains("Image"));
+        assert!(text.contains("image/png"));
+    }
+
+    // ============== ChunkAccumulator tests ==============
+
+    #[test]
+    fn test_chunk_accumulator_agent_message_same_type() {
+        let mut acc = ChunkAccumulator::new();
+
+        let chunk1 = ContentChunk::new(ContentBlock::Text(TextContent::new("chunk1".to_string())));
+        let chunk2 = ContentChunk::new(ContentBlock::Text(TextContent::new("chunk2".to_string())));
+
+        // First chunk should not trigger flush
+        let result1 = acc.try_append_agent_message_chunk(chunk1);
+        assert!(result1.is_none());
+
+        // Second chunk of same type should not trigger flush
+        let result2 = acc.try_append_agent_message_chunk(chunk2);
+        assert!(result2.is_none());
+
+        assert_eq!(acc.agent_message_chunks.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_accumulator_type_change_triggers_flush() {
+        let mut acc = ChunkAccumulator::new();
+
+        let agent_chunk =
+            ContentChunk::new(ContentBlock::Text(TextContent::new("agent".to_string())));
+        let thought_chunk =
+            ContentChunk::new(ContentBlock::Text(TextContent::new("thinking".to_string())));
+
+        // First chunk
+        acc.try_append_agent_message_chunk(agent_chunk);
+        assert!(matches!(acc.chunk_type, AccumulatedChunkType::AgentMessage));
+
+        // Type change should trigger flush
+        let result = acc.try_append_agent_thought_chunk(thought_chunk);
+        assert!(result.is_some());
+
+        // Now should be AgentThought
+        assert!(matches!(acc.chunk_type, AccumulatedChunkType::AgentThought));
+    }
+
+    #[test]
+    fn test_chunk_accumulator_thought_text_concatenation() {
+        let mut acc = ChunkAccumulator::new();
+
+        let chunk1 = ContentChunk::new(ContentBlock::Text(TextContent::new("First ".to_string())));
+        let chunk2 = ContentChunk::new(ContentBlock::Text(TextContent::new("thought".to_string())));
+
+        acc.try_append_agent_thought_chunk(chunk1);
+        acc.try_append_agent_thought_chunk(chunk2);
+
+        assert_eq!(acc.agent_thought_text, "First thought");
+    }
+
+    #[test]
+    fn test_chunk_accumulator_user_message_chunks() {
+        let mut acc = ChunkAccumulator::new();
+
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("user msg".to_string())));
+        let result = acc.try_append_user_message_chunk(chunk);
+
+        assert!(result.is_none());
+        assert!(matches!(acc.chunk_type, AccumulatedChunkType::UserMessage));
+        assert_eq!(acc.user_message_chunks.len(), 1);
+    }
+
+    #[test]
+    fn test_chunk_accumulator_flush_empty() {
+        let mut acc = ChunkAccumulator::new();
+        let result = acc.flush();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_chunk_accumulator_flush_resets_state() {
+        let mut acc = ChunkAccumulator::new();
+
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("to flush".to_string())));
+        acc.try_append_agent_message_chunk(chunk);
+
+        // Flush
+        let result = acc.flush();
+        assert!(result.is_some());
+
+        // State should be reset
+        assert!(matches!(acc.chunk_type, AccumulatedChunkType::Empty));
+        assert!(acc.agent_message_chunks.is_empty());
+        assert!(acc.first_timestamp.is_empty());
+    }
+
+    // Note: Tool call accumulator tests are skipped because ToolCallUpdate
+    // uses #[non_exhaustive] and cannot be constructed directly in tests.
+    // The tool call accumulator logic is implicitly tested through integration tests.
+
+    // ============== PersistenceService file I/O tests ==============
+
+    #[tokio::test]
+    async fn test_save_and_load_roundtrip() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        let session_id = "test-session-1";
+
+        // Save a user message chunk
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(
+            "Hello from test".to_string(),
+        )));
+        let update = SessionUpdate::UserMessageChunk(chunk);
+        service.save_update(session_id, update).await.unwrap();
+
+        // Flush to ensure it's written
+        service.flush_session(session_id).await.unwrap();
+
+        // Load back
+        let messages = service.load_messages(session_id).await.unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].update,
+            SessionUpdate::UserMessageChunk(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_load_nonexistent_session() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        let messages = service.load_messages("nonexistent-session").await.unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_malformed_jsonl_skips_bad_lines() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("bad-session.jsonl");
+
+        // Write a file with one valid and one invalid line
+        let valid_msg = PersistedMessage::new(SessionUpdate::UserMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new("valid".to_string())),
+        )));
+        let valid_json = serde_json::to_string(&valid_msg).unwrap();
+
+        std::fs::write(&file_path, format!("{}\n{{invalid json\n", valid_json)).unwrap();
+
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+        let messages = service.load_messages("bad-session").await.unwrap();
+
+        // Should have parsed the valid line
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_session() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        let session_id = "to-delete";
+
+        // Create a session file
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("data".to_string())));
+        service
+            .save_update(session_id, SessionUpdate::UserMessageChunk(chunk))
+            .await
+            .unwrap();
+        service.flush_session(session_id).await.unwrap();
+
+        // Verify file exists
+        let file_path = temp_dir.path().join(format!("{}.jsonl", session_id));
+        assert!(file_path.exists());
+
+        // Delete
+        service.delete_session(session_id).await.unwrap();
+
+        // File should be gone
+        assert!(!file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        // Create some session files
+        for session_id in ["session-a", "session-b", "session-c"] {
+            let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("x".to_string())));
+            service
+                .save_update(session_id, SessionUpdate::UserMessageChunk(chunk))
+                .await
+                .unwrap();
+            service.flush_session(session_id).await.unwrap();
+        }
+
+        let sessions = service.list_sessions().await.unwrap();
+
+        assert_eq!(sessions.len(), 3);
+        assert!(sessions.contains(&"session-a".to_string()));
+        assert!(sessions.contains(&"session-b".to_string()));
+        assert!(sessions.contains(&"session-c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_empty_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        let sessions = service.list_sessions().await.unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_flush_session_writes_remaining() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        let session_id = "flush-test";
+
+        // Save multiple chunks (they get accumulated)
+        for text in ["chunk1", "chunk2", "chunk3"] {
+            let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text.to_string())));
+            service
+                .save_update(session_id, SessionUpdate::AgentMessageChunk(chunk))
+                .await
+                .unwrap();
+        }
+
+        // Flush
+        service.flush_session(session_id).await.unwrap();
+
+        // Should have 1 merged message
+        let messages = service.load_messages(session_id).await.unwrap();
+        assert_eq!(messages.len(), 1);
+
+        // Check merged content
+        if let SessionUpdate::AgentMessageChunk(chunk) = &messages[0].update {
+            if let ContentBlock::Text(text) = &chunk.content {
+                assert_eq!(text.text, "chunk1chunk2chunk3");
+            } else {
+                panic!("Expected text content");
+            }
+        } else {
+            panic!("Expected AgentMessageChunk");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_save_multiple_sessions_isolation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = PersistenceService::new(temp_dir.path().to_path_buf());
+
+        // Save to different sessions
+        let chunk1 = ContentChunk::new(ContentBlock::Text(TextContent::new(
+            "session1 data".to_string(),
+        )));
+        service
+            .save_update("session-1", SessionUpdate::UserMessageChunk(chunk1))
+            .await
+            .unwrap();
+        service.flush_session("session-1").await.unwrap();
+
+        let chunk2 = ContentChunk::new(ContentBlock::Text(TextContent::new(
+            "session2 data".to_string(),
+        )));
+        service
+            .save_update("session-2", SessionUpdate::UserMessageChunk(chunk2))
+            .await
+            .unwrap();
+        service.flush_session("session-2").await.unwrap();
+
+        // Verify separate files
+        let msg1 = service.load_messages("session-1").await.unwrap();
+        let msg2 = service.load_messages("session-2").await.unwrap();
+
+        assert_eq!(msg1.len(), 1);
+        assert_eq!(msg2.len(), 1);
+
+        // Verify content isolation
+        if let SessionUpdate::UserMessageChunk(chunk) = &msg1[0].update {
+            if let ContentBlock::Text(text) = &chunk.content {
+                assert!(text.text.contains("session1"));
+            }
+        }
+
+        if let SessionUpdate::UserMessageChunk(chunk) = &msg2[0].update {
+            if let ContentBlock::Text(text) = &chunk.content {
+                assert!(text.text.contains("session2"));
+            }
+        }
+    }
+}

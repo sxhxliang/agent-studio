@@ -636,12 +636,19 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             }
             AgentCommand::NewSession { request, respond } => {
-                log::info!("Agent {} received new_session command with cwd: {:?}", agent_name, request.cwd);
+                log::info!(
+                    "Agent {} received new_session command with cwd: {:?}",
+                    agent_name,
+                    request.cwd
+                );
 
                 // Check if child process is still alive
                 match child.try_wait() {
                     Ok(Some(status)) => {
-                        let error_msg = format!("Agent {} process exited with status: {:?}", agent_name, status);
+                        let error_msg = format!(
+                            "Agent {} process exited with status: {:?}",
+                            agent_name, status
+                        );
                         log::error!("{}", error_msg);
                         let _ = respond.send(Err(anyhow!(error_msg)));
                         continue;
@@ -722,7 +729,11 @@ async fn agent_event_loop(
     // Check if child process is still running
     match child.try_wait() {
         Ok(Some(status)) => {
-            log::warn!("Agent {} process already exited with status: {:?}", agent_name, status);
+            log::warn!(
+                "Agent {} process already exited with status: {:?}",
+                agent_name,
+                status
+            );
         }
         Ok(None) => {
             // Process is still running, kill it
@@ -928,5 +939,110 @@ impl PermissionStore {
 
     async fn remove(&self, id: &str) -> Option<PendingPermission> {
         self.pending.write().await.remove(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============== PermissionStore tests ==============
+
+    #[tokio::test]
+    async fn test_permission_store_add() {
+        let store = PermissionStore::default();
+        let (tx, _rx) = oneshot::channel();
+
+        let id = store
+            .add("agent".to_string(), "session".to_string(), tx)
+            .await;
+
+        // Should return a valid ID
+        assert!(!id.is_empty());
+        // ID should be parseable as number
+        assert!(id.parse::<u64>().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_permission_store_add_increments_id() {
+        let store = PermissionStore::default();
+
+        let (tx1, _rx1) = oneshot::channel();
+        let (tx2, _rx2) = oneshot::channel();
+
+        let id1 = store
+            .add("agent1".to_string(), "session1".to_string(), tx1)
+            .await;
+        let id2 = store
+            .add("agent2".to_string(), "session2".to_string(), tx2)
+            .await;
+
+        // IDs should be different and incrementing
+        let n1: u64 = id1.parse().unwrap();
+        let n2: u64 = id2.parse().unwrap();
+        assert_eq!(n2, n1 + 1);
+    }
+
+    #[tokio::test]
+    async fn test_permission_store_respond_success() {
+        let store = PermissionStore::default();
+        let (tx, rx) = oneshot::channel();
+
+        let id = store
+            .add("agent".to_string(), "session".to_string(), tx)
+            .await;
+
+        // Create a permission response using the Selected variant
+        let response =
+            acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(
+                acp::SelectedPermissionOutcome::new("option-1".to_string()),
+            ));
+
+        // Respond should succeed
+        let result = store.respond(&id, response).await;
+        assert!(result.is_ok());
+
+        // Receiver should get the response
+        let _received = rx.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_permission_store_respond_nonexistent() {
+        let store = PermissionStore::default();
+
+        let response =
+            acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(
+                acp::SelectedPermissionOutcome::new("option-1".to_string()),
+            ));
+
+        let result = store.respond("nonexistent-id", response).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_permission_store_respond_removes_entry() {
+        let store = PermissionStore::default();
+        let (tx, _rx) = oneshot::channel();
+
+        let id = store
+            .add("agent".to_string(), "session".to_string(), tx)
+            .await;
+
+        let response1 =
+            acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(
+                acp::SelectedPermissionOutcome::new("option-1".to_string()),
+            ));
+
+        // First respond succeeds
+        store.respond(&id, response1).await.unwrap();
+
+        // Second respond fails (entry removed)
+        let response2 =
+            acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Selected(
+                acp::SelectedPermissionOutcome::new("option-2".to_string()),
+            ));
+        let result = store.respond(&id, response2).await;
+        assert!(result.is_err());
     }
 }
