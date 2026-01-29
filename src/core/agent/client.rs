@@ -1002,8 +1002,14 @@ mod tests {
         let result = store.respond(&id, response).await;
         assert!(result.is_ok());
 
-        // Receiver should get the response
-        let _received = rx.await.unwrap();
+        // Receiver should get the response and verify its content
+        let received = rx.await.unwrap();
+        match received.outcome {
+            acp::RequestPermissionOutcome::Selected(selected) => {
+                assert_eq!(selected.option_id.to_string(), "option-1");
+            }
+            _ => panic!("Expected Selected outcome"),
+        }
     }
 
     #[tokio::test]

@@ -135,60 +135,7 @@ impl AgentConfigService {
     /// On Windows, commands are executed via `cmd /C`, so we allow any command
     /// that can be found in PATH. On Unix-like systems, we check if the file exists.
     pub fn validate_command(&self, command: &str) -> Result<()> {
-        // Check if command is an absolute path
-        let command_path = Path::new(command);
-
-        if command_path.is_absolute() {
-            // Absolute path - check if file exists
-            if !command_path.exists() {
-                return Err(anyhow!(
-                    "Command path does not exist: {}",
-                    command_path.display()
-                ));
-            }
-
-            if !command_path.is_file() {
-                return Err(anyhow!(
-                    "Command path is not a file: {}",
-                    command_path.display()
-                ));
-            }
-
-            Ok(())
-        } else {
-            // Relative path or command name - try to find in PATH
-            // On Windows, commands are executed via `cmd /C`, so we trust the shell
-            // to find the command. We just verify it's findable via `which`.
-            // On Unix-like systems, we also verify via `which`.
-            if let Ok(resolved) = which::which(command) {
-                log::info!("Resolved command '{}' to: {:?}", command, resolved);
-
-                // On Windows, cmd.exe will handle .cmd, .bat, .exe files
-                // so we don't need additional validation
-                #[cfg(target_os = "windows")]
-                {
-                    Ok(())
-                }
-
-                // On Unix-like systems, verify the resolved path exists and is executable
-                #[cfg(not(target_os = "windows"))]
-                {
-                    if resolved.exists() && resolved.is_file() {
-                        Ok(())
-                    } else {
-                        Err(anyhow!(
-                            "Resolved command path does not exist or is not a file: {}",
-                            resolved.display()
-                        ))
-                    }
-                }
-            } else {
-                Err(anyhow!(
-                    "Command '{}' not found in PATH. Please provide an absolute path or ensure the command is in your system PATH.",
-                    command
-                ))
-            }
-        }
+        validate_command(command)
     }
 
     // ========== CRUD Operations ==========
@@ -714,44 +661,110 @@ impl AgentConfigService {
     }
 }
 
+/// Validate that a command exists and is executable (standalone function for testability)
+fn validate_command(command: &str) -> Result<()> {
+    let command_path = Path::new(command);
+
+    if command_path.is_absolute() {
+        if !command_path.exists() {
+            return Err(anyhow!(
+                "Command path does not exist: {}",
+                command_path.display()
+            ));
+        }
+
+        if !command_path.is_file() {
+            return Err(anyhow!(
+                "Command path is not a file: {}",
+                command_path.display()
+            ));
+        }
+
+        Ok(())
+    } else {
+        if let Ok(resolved) = which::which(command) {
+            log::info!("Resolved command '{}' to: {:?}", command, resolved);
+
+            #[cfg(target_os = "windows")]
+            {
+                Ok(())
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                if resolved.exists() && resolved.is_file() {
+                    Ok(())
+                } else {
+                    Err(anyhow!(
+                        "Resolved command path does not exist or is not a file: {}",
+                        resolved.display()
+                    ))
+                }
+            }
+        } else {
+            Err(anyhow!(
+                "Command '{}' not found in PATH. Please provide an absolute path or ensure the command is in your system PATH.",
+                command
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    // ============== validate_command logic tests ==============
-    // These tests verify the command validation logic directly using which crate
+    // ============== validate_command tests ==============
+    // These tests call the actual validate_command function
 
     #[test]
     fn test_validate_command_absolute_path_nonexistent() {
-        // Test with non-existent absolute path
-        let command_path = Path::new("/nonexistent/command/12345");
-        assert!(!command_path.exists());
+        let result = validate_command("/nonexistent/command/12345");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_validate_command_absolute_path_is_directory() {
+        // /tmp exists but is a directory, not a file
+        let result = validate_command("/tmp");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not a file"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_validate_command_absolute_path_existing_file() {
+        // /bin/sh should exist on Linux/macOS
+        let result = validate_command("/bin/sh");
+        assert!(result.is_ok(), "Expected /bin/sh to be a valid command");
     }
 
     #[test]
     fn test_validate_command_in_path() {
-        // Test with common system command using which crate directly
         #[cfg(target_os = "windows")]
         let cmd = "cmd";
 
         #[cfg(not(target_os = "windows"))]
         let cmd = "ls";
 
-        let result = which::which(cmd);
-        assert!(
-            result.is_ok(),
-            "System command '{}' should be found in PATH",
-            cmd
-        );
+        let result = validate_command(cmd);
+        if let Err(e) = result {
+            panic!("System command '{}' should be found in PATH: {:?}", cmd, e);
+        }
     }
 
     #[test]
     fn test_validate_command_not_in_path() {
-        let result = which::which("definitely_nonexistent_command_12345");
+        let result = validate_command("definitely_nonexistent_command_12345");
+        assert!(result.is_err());
         assert!(
-            result.is_err(),
-            "Nonexistent command should not be found in PATH"
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not found in PATH")
         );
     }
 

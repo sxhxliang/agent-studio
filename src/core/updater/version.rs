@@ -131,10 +131,9 @@ mod tests {
     fn test_version_current() {
         // Should successfully parse the current version from Cargo.toml
         let current = Version::current();
-        // Just verify it doesn't panic and has valid values
-        assert!(current.major < 100);
-        assert!(current.minor < 100);
-        assert!(current.patch < 100);
+        let parsed =
+            Version::parse(env!("CARGO_PKG_VERSION")).expect("Failed to parse package version");
+        assert_eq!(current, parsed);
     }
 
     #[test]

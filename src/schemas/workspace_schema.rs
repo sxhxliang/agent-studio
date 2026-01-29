@@ -208,7 +208,7 @@ mod tests {
         let mut workspace = Workspace::new(path);
 
         let original_last_accessed = workspace.last_accessed;
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(50));
         workspace.touch();
 
         assert!(workspace.last_accessed > original_last_accessed);

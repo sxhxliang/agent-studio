@@ -1,7 +1,6 @@
 # Build artifacts
 /target
 *.pdb
-.github
 # Session data
 /sessions
 /docs
