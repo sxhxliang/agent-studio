@@ -6,8 +6,8 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#-installation)
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/sxhxliang/gpui-component/releases)
-[![Downloads](https://img.shields.io/github/downloads/sxhxliang/gpui-component/total.svg)](https://github.com/sxhxliang/gpui-component/releases)
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/sxhxliang/agent-studio/releases)
+[![Downloads](https://img.shields.io/github/downloads/sxhxliang/agent-studio/total.svg)](https://github.com/sxhxliang/agent-studio/releases)
 
 [🎯 Features](#-features) • [📦 Installation](#-installation) • [🎬 Demo](#-demo) • [🛠️ Development](#%EF%B8%8F-development) • [📖 Documentation](#-documentation)
 
@@ -51,7 +51,7 @@ AgentX is a **GPU-accelerated**, **cross-platform** desktop application that bri
 
 ## 📦 Installation
 
-### 📥 [Download Latest Release](https://github.com/sxhxliang/gpui-component/releases)
+### 📥 [Download Latest Release](https://github.com/sxhxliang/agent-studio/releases)
 
 <details>
 <summary><b>View detailed installation instructions for each platform</b></summary>
@@ -107,7 +107,7 @@ Download: `agentx-v{version}-aarch64-macos.dmg` (Apple Silicon) or `agentx-v{ver
 
 ## 🚀 Quick Start
 
-1. **Download** AgentX for your platform from the [releases page](https://github.com/sxhxliang/gpui-component/releases)
+1. **Download** AgentX for your platform from the [releases page](https://github.com/sxhxliang/agent-studio/releases)
 2. **Install** following your OS-specific instructions above
 3. **Launch** AgentX
 4. **Configure** your AI agent in Settings → MCP Config
@@ -132,8 +132,8 @@ Download: `agentx-v{version}-aarch64-macos.dmg` (Apple Silicon) or `agentx-v{ver
 
 ```bash
 # Clone the repository
-git clone https://github.com/sxhxliang/gpui-component.git
-cd gpui-component/agent-studio
+git clone https://github.com/sxhxliang/agent-studio.git
+cd agent-studio
 
 # Build and run
 cargo run
@@ -165,7 +165,7 @@ cargo fmt
 ## 🏗️ Built With
 
 - **[GPUI](https://www.gpui.rs/)** - GPU-accelerated UI framework from Zed Industries
-- **[gpui-component](https://github.com/sxhxliang/gpui-component)** - Rich UI component library
+- **[gpui-component](https://github.com/longbridge/gpui-component)** - Rich UI component library
 - **[Agent Client Protocol](https://crates.io/crates/agent-client-protocol)** - Standard protocol for agent communication
 - **[Tokio](https://tokio.rs/)** - Async runtime
 - **[Tree-sitter](https://tree-sitter.github.io/)** - Syntax highlighting
@@ -216,7 +216,7 @@ This project is licensed under the **Apache-2.0 License**. See [LICENSE](LICENSE
 Special thanks to:
 
 - **[Zed Industries](https://zed.dev/)** for the amazing GPUI framework
-- **[GPUI Component](https://github.com/sxhxliang/gpui-component)** contributors
+- **[GPUI Component](https://github.com/longbridge/gpui-component)** contributors
 - All our **contributors** and **supporters**
 
 ---

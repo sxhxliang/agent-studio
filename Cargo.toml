@@ -10,7 +10,7 @@ readme = "README.md"
 
 [package.metadata.bundle]
 name = "AgentX"
-identifier = "com.agentx.app"
+identifier = "plus.agentx.app"
 icon = ["assets/logo1024x1024@2x.png"]
 version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
