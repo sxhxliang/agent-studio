@@ -373,7 +373,7 @@ impl DockWorkspace {
                     height: px(480.0),
                 }),
                 #[cfg(target_os = "linux")]
-                window_background: gpui::WindowBackgroundAppearance::Transparent,
+                window_background: gpui::WindowBackgroundAppearance::Opaque,
                 #[cfg(target_os = "linux")]
                 window_decorations: Some(gpui::WindowDecorations::Client),
                 kind: WindowKind::Normal,

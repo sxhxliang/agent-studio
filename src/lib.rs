@@ -115,7 +115,7 @@ pub fn create_new_window_with_size<F, E>(
             }),
             kind: WindowKind::Normal,
             #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
+            window_background: gpui::WindowBackgroundAppearance::Opaque,
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
             ..Default::default()

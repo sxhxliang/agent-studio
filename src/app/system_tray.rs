@@ -1,13 +1,31 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tray_icon::{
-    MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent, TrayIconId,
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 
 // 定义菜单项ID常量
 const MENU_SHOW_ID: &str = "show_window";
 const MENU_QUIT_ID: &str = "quit_app";
+
+// 定义唯一的托盘图标 ID，避免与其他应用冲突
+const TRAY_ICON_ID: &str = "plus.agentx.app.tray";
+
+/// 在 Linux 平台上初始化 GTK
+/// 必须在创建托盘图标之前调用
+#[cfg(target_os = "linux")]
+pub fn init_platform() -> Result<()> {
+    gtk::init().context("Failed to initialize GTK")?;
+    log::info!("GTK initialized for Linux tray icon support");
+    Ok(())
+}
+
+/// 非 Linux 平台不需要额外初始化
+#[cfg(not(target_os = "linux"))]
+pub fn init_platform() -> Result<()> {
+    Ok(())
+}
 
 /// 系统托盘管理器
 pub struct SystemTray {
@@ -46,7 +64,9 @@ impl SystemTray {
 
         // 创建托盘图标
         // 注意：菜单只在右键点击时显示，左键点击不显示菜单
+        // 使用唯一的 ID 避免与其他应用冲突 (Fix #15)
         let tray_icon = TrayIconBuilder::new()
+            .with_id(TrayIconId::new(TRAY_ICON_ID))
             .with_menu(Box::new(tray_menu))
             .with_menu_on_left_click(false) // 禁用左键显示菜单
             .with_tooltip("AgentX Studio")

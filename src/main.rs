@@ -13,6 +13,11 @@ fn main() {
     app.run(move |cx| {
         agentx::init(cx);
 
+        // Initialize platform-specific requirements for system tray (GTK on Linux)
+        if let Err(e) = agentx::system_tray::init_platform() {
+            log::error!("Failed to initialize platform for system tray: {}", e);
+        }
+
         // Initialize system tray
         match agentx::system_tray::SystemTray::new() {
             Ok(tray) => {
