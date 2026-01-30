@@ -1029,7 +1029,7 @@ mod tests {
     #[tokio::test]
     async fn test_permission_store_respond_removes_entry() {
         let store = PermissionStore::default();
-        let (tx, _rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
 
         let id = store
             .add("agent".to_string(), "session".to_string(), tx)
@@ -1042,6 +1042,9 @@ mod tests {
 
         // First respond succeeds
         store.respond(&id, response1).await.unwrap();
+
+        // Consume the response to complete the channel
+        let _ = rx.await;
 
         // Second respond fails (entry removed)
         let response2 =
