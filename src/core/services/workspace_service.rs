@@ -330,3 +330,472 @@ impl WorkspaceService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to create a test workspace service with temporary directory
+    fn create_test_service(temp_dir: &std::path::Path) -> WorkspaceService {
+        let config_path = temp_dir.join("workspace-config.json");
+        WorkspaceService::new(config_path)
+    }
+
+    // ============== Constructor tests ==============
+
+    #[tokio::test]
+    async fn test_new_with_nonexistent_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("nonexistent-config.json");
+
+        let service = WorkspaceService::new(config_path);
+
+        // Should create with default empty config
+        let config = service.get_config().await;
+        assert!(config.workspaces.is_empty());
+        assert!(config.tasks.is_empty());
+        assert!(config.active_workspace_id.is_none());
+    }
+
+    // ============== Workspace CRUD tests ==============
+
+    #[tokio::test]
+    async fn test_add_workspace() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        // Create a project directory to add
+        let project_dir = temp_dir.path().join("my-project");
+        std::fs::create_dir(&project_dir).unwrap();
+
+        let workspace = service.add_workspace(project_dir.clone()).await.unwrap();
+
+        assert_eq!(workspace.name, "my-project");
+        assert_eq!(workspace.path, project_dir);
+        assert!(!workspace.id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_add_workspace_sets_first_as_active() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("first-project");
+        std::fs::create_dir(&project_dir).unwrap();
+
+        let workspace = service.add_workspace(project_dir).await.unwrap();
+        let active = service.get_active_workspace().await;
+
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, workspace.id);
+    }
+
+    #[tokio::test]
+    async fn test_add_workspace_nonexistent_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let result = service
+            .add_workspace(PathBuf::from("/nonexistent/path/12345"))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_add_workspace_duplicate() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("duplicate-test");
+        std::fs::create_dir(&project_dir).unwrap();
+
+        // Add first time
+        service.add_workspace(project_dir.clone()).await.unwrap();
+
+        // Try to add again
+        let result = service.add_workspace(project_dir).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_remove_workspace() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("to-remove");
+        std::fs::create_dir(&project_dir).unwrap();
+
+        let workspace = service.add_workspace(project_dir).await.unwrap();
+        let workspace_id = workspace.id.clone();
+
+        // Remove it
+        service.remove_workspace(&workspace_id).await.unwrap();
+
+        // Should no longer be found
+        let result = service.get_workspace(&workspace_id).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_active_workspace_resets_active() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        // Add two workspaces
+        let project1 = temp_dir.path().join("project1");
+        let project2 = temp_dir.path().join("project2");
+        std::fs::create_dir(&project1).unwrap();
+        std::fs::create_dir(&project2).unwrap();
+
+        let ws1 = service.add_workspace(project1).await.unwrap();
+        let ws2 = service.add_workspace(project2).await.unwrap();
+
+        // ws1 is active (first added)
+        assert_eq!(
+            service.get_active_workspace().await.unwrap().id,
+            ws1.id.clone()
+        );
+
+        // Remove active workspace
+        service.remove_workspace(&ws1.id).await.unwrap();
+
+        // Should switch to ws2
+        let active = service.get_active_workspace().await;
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, ws2.id);
+    }
+
+    #[tokio::test]
+    async fn test_list_workspaces() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        // Add multiple workspaces
+        for name in ["proj-a", "proj-b", "proj-c"] {
+            let dir = temp_dir.path().join(name);
+            std::fs::create_dir(&dir).unwrap();
+            service.add_workspace(dir).await.unwrap();
+        }
+
+        let workspaces = service.list_workspaces().await;
+        assert_eq!(workspaces.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_get_active_workspace() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        // No workspaces yet
+        assert!(service.get_active_workspace().await.is_none());
+
+        // Add a workspace
+        let project_dir = temp_dir.path().join("active-test");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        // Should be active
+        let active = service.get_active_workspace().await.unwrap();
+        assert_eq!(active.id, ws.id);
+    }
+
+    #[tokio::test]
+    async fn test_set_active_workspace() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        // Add two workspaces
+        let project1 = temp_dir.path().join("set-active-1");
+        let project2 = temp_dir.path().join("set-active-2");
+        std::fs::create_dir(&project1).unwrap();
+        std::fs::create_dir(&project2).unwrap();
+
+        let ws1 = service.add_workspace(project1).await.unwrap();
+        let ws2 = service.add_workspace(project2).await.unwrap();
+
+        // ws1 is active by default
+        assert_eq!(
+            service.get_active_workspace().await.unwrap().id,
+            ws1.id.clone()
+        );
+
+        // Switch to ws2
+        service.set_active_workspace(&ws2.id).await.unwrap();
+        assert_eq!(
+            service.get_active_workspace().await.unwrap().id,
+            ws2.id.clone()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_active_workspace_nonexistent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let result = service.set_active_workspace("nonexistent-id").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    // ============== Task tests ==============
+
+    #[tokio::test]
+    async fn test_create_task() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("task-test");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "Fix bug".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(task.name, "Fix bug");
+        assert_eq!(task.agent_name, "claude");
+        assert_eq!(task.workspace_id, ws.id);
+        assert!(matches!(task.status, SessionStatus::Pending));
+    }
+
+    #[tokio::test]
+    async fn test_create_task_nonexistent_workspace() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let result = service
+            .create_task(
+                "nonexistent-ws",
+                "Task".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_set_task_session() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("session-test");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "Task".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Set session
+        service
+            .set_task_session(&task.id, "session-123".to_string())
+            .await
+            .unwrap();
+
+        // Verify
+        let updated_task = service.get_task(&task.id).await.unwrap();
+        assert_eq!(updated_task.session_id, Some("session-123".to_string()));
+        assert!(matches!(updated_task.status, SessionStatus::InProgress));
+    }
+
+    #[tokio::test]
+    async fn test_get_workspace_tasks() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("tasks-list");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        // Create multiple tasks
+        service
+            .create_task(
+                &ws.id,
+                "Task 1".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+        service
+            .create_task(
+                &ws.id,
+                "Task 2".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let tasks = service.get_workspace_tasks(&ws.id).await;
+        assert_eq!(tasks.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_task_by_session() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("by-session");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "Task".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+        service
+            .set_task_session(&task.id, "find-me-session".to_string())
+            .await
+            .unwrap();
+
+        // Find by session
+        let found = service.get_task_by_session("find-me-session").await;
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id, task.id);
+
+        // Not found
+        let not_found = service.get_task_by_session("nonexistent").await;
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_task() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("remove-task");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "To Remove".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Remove
+        service.remove_task(&task.id).await.unwrap();
+
+        // Should be gone
+        assert!(service.get_task(&task.id).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_workspace_cascades_tasks() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("cascade-test");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "Task".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Remove workspace
+        service.remove_workspace(&ws.id).await.unwrap();
+
+        // Task should be gone too
+        assert!(service.get_task(&task.id).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_task_status() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let service = create_test_service(temp_dir.path());
+
+        let project_dir = temp_dir.path().join("status-test");
+        std::fs::create_dir(&project_dir).unwrap();
+        let ws = service.add_workspace(project_dir).await.unwrap();
+
+        let task = service
+            .create_task(
+                &ws.id,
+                "Task".to_string(),
+                "claude".to_string(),
+                "Auto".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Update status
+        service
+            .update_task_status(&task.id, SessionStatus::Completed)
+            .await
+            .unwrap();
+
+        let updated = service.get_task(&task.id).await.unwrap();
+        assert!(matches!(updated.status, SessionStatus::Completed));
+    }
+
+    #[tokio::test]
+    async fn test_config_persistence_roundtrip() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("persist-test.json");
+
+        // Create service and add data
+        {
+            let service = WorkspaceService::new(config_path.clone());
+
+            let project_dir = temp_dir.path().join("persist-project");
+            std::fs::create_dir(&project_dir).unwrap();
+            let ws = service.add_workspace(project_dir).await.unwrap();
+
+            service
+                .create_task(
+                    &ws.id,
+                    "Persist Task".to_string(),
+                    "claude".to_string(),
+                    "Auto".to_string(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Create new service instance with same config path
+        let service2 = WorkspaceService::new(config_path);
+        let workspaces = service2.list_workspaces().await;
+        let tasks = service2.get_all_tasks().await;
+
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name, "persist-project");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].name, "Persist Task");
+    }
+}

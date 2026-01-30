@@ -175,3 +175,204 @@ impl WorkspaceConfig {
         self.workspaces.iter_mut().find(|w| w.id == workspace_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============== Workspace tests ==============
+
+    #[test]
+    fn test_workspace_new() {
+        let path = PathBuf::from("/home/user/my-project");
+        let workspace = Workspace::new(path.clone());
+
+        assert_eq!(workspace.name, "my-project");
+        assert_eq!(workspace.path, path);
+        assert!(!workspace.id.is_empty());
+        assert!(workspace.tasks.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_new_unnamed() {
+        // Root path should use "Unnamed Project"
+        let path = PathBuf::from("/");
+        let workspace = Workspace::new(path);
+
+        assert_eq!(workspace.name, "Unnamed Project");
+    }
+
+    #[test]
+    fn test_workspace_touch() {
+        let path = PathBuf::from("/home/user/project");
+        let mut workspace = Workspace::new(path);
+
+        let original_last_accessed = workspace.last_accessed;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        workspace.touch();
+
+        assert!(workspace.last_accessed > original_last_accessed);
+    }
+
+    // ============== WorkspaceTask tests ==============
+
+    #[test]
+    fn test_workspace_task_new() {
+        let task = WorkspaceTask::new(
+            "workspace-1".to_string(),
+            "Fix bug".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        );
+
+        assert_eq!(task.workspace_id, "workspace-1");
+        assert_eq!(task.name, "Fix bug");
+        assert_eq!(task.agent_name, "claude");
+        assert_eq!(task.mode, "Auto");
+        assert!(task.session_id.is_none());
+        assert!(matches!(task.status, SessionStatus::Pending));
+    }
+
+    #[test]
+    fn test_workspace_task_set_session() {
+        let mut task = WorkspaceTask::new(
+            "workspace-1".to_string(),
+            "Task".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        );
+
+        task.set_session("session-123".to_string());
+
+        assert_eq!(task.session_id, Some("session-123".to_string()));
+        assert!(matches!(task.status, SessionStatus::InProgress));
+    }
+
+    // ============== WorkspaceConfig tests ==============
+
+    #[test]
+    fn test_workspace_config_add_remove() {
+        let mut config = WorkspaceConfig::default();
+
+        let workspace = Workspace::new(PathBuf::from("/test/project"));
+        let workspace_id = workspace.id.clone();
+
+        config.add_workspace(workspace);
+        assert_eq!(config.workspaces.len(), 1);
+
+        config.remove_workspace(&workspace_id);
+        assert!(config.workspaces.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_config_remove_cascades_tasks() {
+        let mut config = WorkspaceConfig::default();
+
+        let workspace = Workspace::new(PathBuf::from("/test/project"));
+        let workspace_id = workspace.id.clone();
+        config.add_workspace(workspace);
+
+        let task = WorkspaceTask::new(
+            workspace_id.clone(),
+            "Task 1".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        );
+        config.add_task(task);
+
+        assert_eq!(config.tasks.len(), 1);
+
+        config.remove_workspace(&workspace_id);
+
+        assert!(config.workspaces.is_empty());
+        assert!(config.tasks.is_empty()); // cascaded delete
+    }
+
+    #[test]
+    fn test_workspace_config_tasks_for_workspace() {
+        let mut config = WorkspaceConfig::default();
+
+        let workspace1 = Workspace::new(PathBuf::from("/project1"));
+        let workspace2 = Workspace::new(PathBuf::from("/project2"));
+        let ws1_id = workspace1.id.clone();
+        let ws2_id = workspace2.id.clone();
+
+        config.add_workspace(workspace1);
+        config.add_workspace(workspace2);
+
+        config.add_task(WorkspaceTask::new(
+            ws1_id.clone(),
+            "Task A".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        ));
+        config.add_task(WorkspaceTask::new(
+            ws1_id.clone(),
+            "Task B".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        ));
+        config.add_task(WorkspaceTask::new(
+            ws2_id.clone(),
+            "Task C".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        ));
+
+        let ws1_tasks = config.tasks_for_workspace(&ws1_id);
+        let ws2_tasks = config.tasks_for_workspace(&ws2_id);
+
+        assert_eq!(ws1_tasks.len(), 2);
+        assert_eq!(ws2_tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_workspace_config_find_task_by_session() {
+        let mut config = WorkspaceConfig::default();
+
+        let workspace = Workspace::new(PathBuf::from("/project"));
+        let ws_id = workspace.id.clone();
+        config.add_workspace(workspace);
+
+        let mut task = WorkspaceTask::new(
+            ws_id,
+            "Task".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        );
+        task.set_session("session-xyz".to_string());
+        config.add_task(task);
+
+        let found = config.find_task_by_session("session-xyz");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().session_id, Some("session-xyz".to_string()));
+
+        let not_found = config.find_task_by_session("nonexistent");
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_workspace_config_serialization_roundtrip() {
+        let mut config = WorkspaceConfig::default();
+
+        let workspace = Workspace::new(PathBuf::from("/test/project"));
+        let ws_id = workspace.id.clone();
+        config.add_workspace(workspace);
+        config.active_workspace_id = Some(ws_id.clone());
+
+        let task = WorkspaceTask::new(
+            ws_id,
+            "Test task".to_string(),
+            "claude".to_string(),
+            "Auto".to_string(),
+        );
+        config.add_task(task);
+
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: WorkspaceConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.workspaces.len(), 1);
+        assert_eq!(restored.tasks.len(), 1);
+        assert!(restored.active_workspace_id.is_some());
+    }
+}

@@ -726,3 +726,174 @@ fn validate_command(command: &str) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // ============== validate_command tests ==============
+    // These tests call the actual validate_command function
+
+    #[test]
+    fn test_validate_command_absolute_path_nonexistent() {
+        let result = validate_command("/nonexistent/command/12345");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_validate_command_absolute_path_is_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let result = validate_command(temp_dir.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not a file"));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_validate_command_absolute_path_existing_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let exe_path = temp_dir.path().join("test_exe");
+        std::fs::write(&exe_path, "#!/bin/sh\n").unwrap();
+        // Set executable permission
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&exe_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&exe_path, perms).unwrap();
+        }
+        let result = validate_command(exe_path.to_str().unwrap());
+        assert!(
+            result.is_ok(),
+            "Expected temp executable to be valid: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_validate_command_in_path() {
+        #[cfg(target_os = "windows")]
+        let cmd = "cmd";
+
+        #[cfg(not(target_os = "windows"))]
+        let cmd = "ls";
+
+        let result = validate_command(cmd);
+        if let Err(e) = result {
+            panic!("System command '{}' should be found in PATH: {:?}", cmd, e);
+        }
+    }
+
+    #[test]
+    fn test_validate_command_not_in_path() {
+        let result = validate_command("definitely_nonexistent_command_12345");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not found in PATH")
+        );
+    }
+
+    // ============== Config type tests ==============
+
+    #[test]
+    fn test_config_default_structure() {
+        let config = Config {
+            agent_servers: HashMap::new(),
+            upload_dir: PathBuf::from("."),
+            models: HashMap::new(),
+            mcp_servers: HashMap::new(),
+            commands: HashMap::new(),
+            system_prompts: HashMap::new(),
+            tool_call_preview_max_lines: 10,
+            proxy: crate::core::config::ProxyConfig::default(),
+        };
+
+        assert!(config.agent_servers.is_empty());
+        assert!(config.models.is_empty());
+        assert_eq!(config.tool_call_preview_max_lines, 10);
+    }
+
+    #[test]
+    fn test_agent_process_config_structure() {
+        let config = AgentProcessConfig {
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "@anthropic/claude".to_string()],
+            env: {
+                let mut env = HashMap::new();
+                env.insert("API_KEY".to_string(), "test".to_string());
+                env
+            },
+            nodejs_path: None,
+        };
+
+        assert_eq!(config.command, "npx");
+        assert_eq!(config.args.len(), 2);
+        assert!(config.env.contains_key("API_KEY"));
+    }
+
+    // ============== AgentConfigEvent tests ==============
+
+    #[test]
+    fn test_agent_config_event_agent_added() {
+        let config = AgentProcessConfig {
+            command: "test".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+            nodejs_path: None,
+        };
+
+        let event = AgentConfigEvent::AgentAdded {
+            name: "test-agent".to_string(),
+            config: config.clone(),
+        };
+
+        if let AgentConfigEvent::AgentAdded { name, config: cfg } = event {
+            assert_eq!(name, "test-agent");
+            assert_eq!(cfg.command, config.command);
+        } else {
+            panic!("Expected AgentAdded event");
+        }
+    }
+
+    #[test]
+    fn test_agent_config_event_agent_removed() {
+        let event = AgentConfigEvent::AgentRemoved {
+            name: "removed-agent".to_string(),
+        };
+
+        if let AgentConfigEvent::AgentRemoved { name } = event {
+            assert_eq!(name, "removed-agent");
+        } else {
+            panic!("Expected AgentRemoved event");
+        }
+    }
+
+    #[test]
+    fn test_agent_config_event_config_reloaded() {
+        let config = Config {
+            agent_servers: HashMap::new(),
+            upload_dir: PathBuf::from("."),
+            models: HashMap::new(),
+            mcp_servers: HashMap::new(),
+            commands: HashMap::new(),
+            system_prompts: HashMap::new(),
+            tool_call_preview_max_lines: 15,
+            proxy: crate::core::config::ProxyConfig::default(),
+        };
+
+        let event = AgentConfigEvent::ConfigReloaded {
+            config: Box::new(config.clone()),
+        };
+
+        if let AgentConfigEvent::ConfigReloaded { config: cfg } = event {
+            assert_eq!(cfg.tool_call_preview_max_lines, 15);
+        } else {
+            panic!("Expected ConfigReloaded event");
+        }
+    }
+}
