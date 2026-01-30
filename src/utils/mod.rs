@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod external_editor;
 pub mod file;
 pub mod time;
 pub mod tool_call;

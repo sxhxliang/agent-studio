@@ -1,23 +1,26 @@
 [package]
 name = "agentx"
-version = "0.1.10"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.85"
 description = "An Agent Studio - A full-featured desktop AI agent studio built with GPUI"
 license = "Apache-2.0"
 publish = false
-authors = []
+authors = ["AgentX Team <hi@agentx.plus>"]
 readme = "README.md"
 
 [package.metadata.bundle]
 name = "AgentX"
-identifier = "com.agentx.app"
-icon = ["assets/logo1024x1024@2x.png"]
-version = "0.1.10"
+identifier = "plus.agentx.app"
+icon = ["assets/logo1024x1024@2x.png", "assets/logo.ico"]
+version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
 category = "Developer Tool"
 short_description = "AI Agent Studio"
 long_description = "A full-featured desktop AI agent studio built with GPUI Component, featuring real-time agent communication, code editing, and multi-session management."
+
+[package.metadata.bundle.windows]
+icon = ["assets/logo.ico"]
 
 [package.metadata.i18n]
 available-locales = ["en", "zh-CN"]
@@ -97,6 +100,11 @@ tray-icon = "0.19"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Pin macOS font stack to avoid core-graphics version skew with gpui/zed-font-kit.
+core-text = "=21.0.0"
+core-graphics = "=0.24.0"
 
 [lints.rust]
 # Allow warnings for code under development

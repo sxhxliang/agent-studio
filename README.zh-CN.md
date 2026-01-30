@@ -6,8 +6,8 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#-安装)
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/sxhxliang/gpui-component/releases)
-[![Downloads](https://img.shields.io/github/downloads/sxhxliang/gpui-component/total.svg)](https://github.com/sxhxliang/gpui-component/releases)
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/sxhxliang/agent-studio/releases)
+[![Downloads](https://img.shields.io/github/downloads/sxhxliang/agent-studio/total.svg)](https://github.com/sxhxliang/agent-studio/releases)
 
 [🎯 特性](#-特性) • [📦 安装](#-安装) • [🎬 演示](#-演示) • [🛠️ 开发](#%EF%B8%8F-开发) • [📖 文档](#-文档)
 
@@ -51,7 +51,7 @@ AgentX 是一个 **GPU 加速**、**跨平台**的桌面应用程序，将 AI �
 
 ## 📦 安装
 
-### 📥 [下载最新版本](https://github.com/sxhxliang/gpui-component/releases)
+### 📥 [下载最新版本](https://github.com/sxhxliang/agent-studio/releases)
 
 <details>
 <summary><b>查看各平台详细安装说明</b></summary>
@@ -107,7 +107,7 @@ chmod +x agentx-v0.5.0-x86_64.AppImage
 
 ## 🚀 快速开始
 
-1. **下载** 适用于您平台的 AgentX，从 [发布页面](https://github.com/sxhxliang/gpui-component/releases)
+1. **下载** 适用于您平台的 AgentX，从 [发布页面](https://github.com/sxhxliang/agent-studio/releases)
 2. **安装** 遵循上述针对您操作系统的说明
 3. **启动** AgentX
 4. **配置** 您的 AI 代理，在设置 → MCP 配置
@@ -132,8 +132,8 @@ chmod +x agentx-v0.5.0-x86_64.AppImage
 
 ```bash
 # 克隆仓库
-git clone https://github.com/sxhxliang/gpui-component.git
-cd gpui-component/agent-studio
+git clone https://github.com/sxhxliang/agent-studio.git
+cd agent-studio
 
 # 构建并运行
 cargo run
@@ -165,7 +165,7 @@ cargo fmt
 ## 🏗️ 构建技术
 
 - **[GPUI](https://www.gpui.rs/)** - 来自 Zed Industries 的 GPU 加速 UI 框架
-- **[gpui-component](https://github.com/sxhxliang/gpui-component)** - 丰富的 UI 组件库
+- **[gpui-component](https://github.com/longbridge/gpui-component)** - 丰富的 UI 组件库
 - **[代理客户端协议](https://crates.io/crates/agent-client-protocol)** - 代理通信的标准协议
 - **[Tokio](https://tokio.rs/)** - 异步运行时
 - **[Tree-sitter](https://tree-sitter.github.io/)** - 语法高亮
@@ -216,7 +216,7 @@ cargo fmt
 特别感谢：
 
 - **[Zed Industries](https://zed.dev/)** 提供的出色 GPUI 框架
-- **[GPUI Component](https://github.com/sxhxliang/gpui-component)** 贡献者
+- **[GPUI Component](https://github.com/longbridge/gpui-component)** 贡献者
 - 所有我们的**贡献者**和**支持者**
 
 ---

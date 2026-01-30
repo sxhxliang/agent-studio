@@ -29,8 +29,6 @@ AgentX is a GPUI desktop application (Rust) demonstrating a dock-based "AI agent
 | `cargo fmt` | Format code (required before PRs) |
 | `cargo clippy` | Lint; fix warnings or add justifications to `Cargo.toml` |
 
-For workspace development: `cd ../.. && cargo run --example agentx`.
-
 ## Code Style Guidelines
 
 ### General Conventions
