@@ -1,9 +1,11 @@
 # Build artifacts
 /target
 *.pdb
+
 # Session data
 /sessions
 /docs
+
 # Application state
 /docks-layout.json
 /state.json
@@ -25,5 +27,5 @@ Thumbs.db
 debug.log
 *.log
 
-# Worktrees
+# Git worktrees
 .worktrees/

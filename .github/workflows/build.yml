@@ -1,0 +1,183 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      upload-artifact:
+        description: 'Upload build artifacts'
+        required: false
+        default: true
+        type: boolean
+      artifact-retention-days:
+        description: 'Artifact retention days'
+        required: false
+        default: 7
+        type: number
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            fakeroot dpkg-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libvulkan-dev libssl-dev \
+            libglib2.0-dev libgtk-3-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libxdo-dev pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-bundle
+        id: cache-cargo-bundle-linux
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-bundle
+          key: cargo-bundle-${{ runner.os }}-v1
+
+      - name: Install cargo-bundle
+        if: steps.cache-cargo-bundle-linux.outputs.cache-hit != 'true'
+        run: cargo install cargo-bundle
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Create DEB package
+        run: |
+          cargo bundle --release
+          package=$(ls target/release/bundle/deb/*.deb | head -n 1)
+          cp "$package" agentx-linux.deb
+
+      - name: Create tarball
+        run: |
+          mkdir -p agentx-linux
+          cp target/release/agentx agentx-linux/
+          chmod +x agentx-linux/agentx
+          tar -czvf agentx-linux.tar.gz agentx-linux
+
+      - name: Upload Linux artifact
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentx-linux
+          path: |
+            agentx-linux.deb
+            agentx-linux.tar.gz
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-bundle
+        id: cache-cargo-bundle-macos
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-bundle
+          key: cargo-bundle-${{ runner.os }}-v1
+
+      - name: Install cargo-bundle
+        if: steps.cache-cargo-bundle-macos.outputs.cache-hit != 'true'
+        run: cargo install cargo-bundle
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Create app bundle
+        run: cargo bundle --release
+
+      - name: Sign application (ad-hoc)
+        run: |
+          codesign --force --deep -s - target/release/bundle/osx/AgentX.app
+          codesign --verify --verbose target/release/bundle/osx/AgentX.app
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "AgentX" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "AgentX.app" 150 190 \
+            --app-drop-link 450 185 \
+            "agentx-macos.dmg" \
+            "target/release/bundle/osx/AgentX.app"
+
+      - name: Upload macOS artifact
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentx-macos
+          path: agentx-macos.dmg
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress
+
+      - name: Cache cargo-bundle
+        id: cache-cargo-bundle-windows
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-bundle.exe
+          key: cargo-bundle-${{ runner.os }}-v1
+
+      - name: Install cargo-bundle
+        if: steps.cache-cargo-bundle-windows.outputs.cache-hit != 'true'
+        run: cargo install cargo-bundle
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Create MSI installer
+        shell: bash
+        run: |
+          cargo bundle --release
+          installer=$(ls target/release/bundle/msi/*.msi | head -n 1)
+          cp "$installer" agentx-windows.msi
+
+      - name: Create portable executable
+        shell: bash
+        run: cp target/release/agentx.exe agentx-windows.exe
+
+      - name: Upload Windows artifact
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentx-windows
+          path: |
+            agentx-windows.msi
+            agentx-windows.exe
+          retention-days: ${{ inputs.artifact-retention-days }}

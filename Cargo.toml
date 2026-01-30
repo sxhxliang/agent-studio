@@ -13,7 +13,6 @@ readme = "README.md"
 name = "AgentX"
 identifier = "plus.agentx.app"
 icon = ["assets/logo1024x1024@2x.png", "assets/logo.ico"]
-version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
 category = "Developer Tool"
 short_description = "AI Agent Studio"

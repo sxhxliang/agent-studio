@@ -11,183 +11,51 @@ on:
         required: true
         type: string
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
-
 jobs:
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.GPUI_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
-
-      - name: Build release
-        # working-directory: agent-studio
-        run: cargo build --release
-
-      - name: Create app bundle
-        # working-directory: agent-studio
-        run: cargo bundle --release
-
-      - name: Sign application (ad-hoc)
-        # working-directory: agent-studio
-        run: |
-          codesign --force --deep -s - target/release/bundle/osx/AgentX.app
-          codesign --verify --verbose target/release/bundle/osx/AgentX.app
-
-      - name: Install create-dmg
-        run: brew install create-dmg
-
-      - name: Create DMG
-        # working-directory: agent-studio
-        run: |
-          create-dmg \
-            --volname "AgentX" \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "AgentX.app" 150 190 \
-            --app-drop-link 450 185 \
-            "agentx-macos.dmg" \
-            "target/release/bundle/osx/AgentX.app"
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agentx-macos
-          path: agentx-macos.dmg
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.GPUI_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install WiX Toolset
-        run: choco install wixtoolset --no-progress
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
-
-      - name: Build release
-        # working-directory: agent-studio
-        run: cargo build --release
-
-      - name: Create MSI installer
-        shell: bash
-        run: |
-          cargo bundle --release
-          installer=$(ls target/release/bundle/msi/*.msi | head -n 1)
-          cp "$installer" agentx-windows.msi
-
-      - name: Create portable executable
-        shell: bash
-        run: cp target/release/agentx.exe agentx-windows.exe
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agentx-windows
-          path: |
-            agentx-windows.exe
-            agentx-windows.msi
-
-  build-linux:
+  version-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.GPUI_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - name: Check version consistency
+        run: bash scripts/check-version.sh
 
-      - name: Install dependencies
+      - name: Verify tag matches Cargo.toml version
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            fakeroot \
-            dpkg-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libvulkan-dev \
-            libssl-dev \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libxdo-dev \
-            pkg-config
+          CARGO_VERSION=$(sed -n '/^\[package\]/,/^\[/{ s/^version = "\([^"]*\)"/\1/p }' Cargo.toml | head -1)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_VERSION="${{ inputs.version }}"
+          else
+            TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          # 去掉 v 前缀进行比较
+          TAG_VERSION_CLEAN="${TAG_VERSION#v}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION_CLEAN" ]; then
+            echo "版本不匹配!"
+            echo "  Cargo.toml: $CARGO_VERSION"
+            echo "  Tag:        $TAG_VERSION (${TAG_VERSION_CLEAN})"
+            exit 1
+          fi
+          echo "版本匹配: $CARGO_VERSION = $TAG_VERSION"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
-
-      - name: Build release
-        # working-directory: agent-studio
-        run: cargo build --release
-
-      - name: Create DEB package
-        run: |
-          cargo bundle --release
-          package=$(ls target/release/bundle/deb/*.deb | head -n 1)
-          cp "$package" agentx-linux.deb
-
-      - name: Create tarball
-        run: |
-          mkdir -p agentx-linux
-          cp target/release/agentx agentx-linux/agentx
-          chmod +x agentx-linux/agentx
-          tar -czvf agentx-linux.tar.gz agentx-linux
-
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agentx-linux
-          path: |
-            agentx-linux.tar.gz
-            agentx-linux.deb
+  build:
+    needs: version-check
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      artifact-retention-days: 90
 
   release:
-    needs: [build-macos, build-windows, build-linux]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     steps:
-      - name: Download macOS artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
-        with:
-          name: agentx-macos
-
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: agentx-windows
-
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: agentx-linux
 
       - name: Get version
         id: version
@@ -206,58 +74,16 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            agentx-macos.dmg
-            agentx-windows.msi
-            agentx-windows.exe
-            agentx-linux.deb
-            agentx-linux.tar.gz
+            agentx-macos/agentx-macos.dmg
+            agentx-windows/agentx-windows.msi
+            agentx-windows/agentx-windows.exe
+            agentx-linux/agentx-linux.deb
+            agentx-linux/agentx-linux.tar.gz
           body: |
             ## AgentX - AI Agent Studio
 
-            A full-featured desktop AI agent studio built with GPUI Component.
+            ### Installation
 
-            ### Features
-            - Dock-based layout system with persistent state
-            - Real-time agent communication via Agent Client Protocol (ACP)
-            - Multi-session management with JSONL persistence
-            - Code editor with LSP integration and syntax highlighting
-            - Auto-update system with version checking
-            - Light/dark theme support
-
-            ## Installation
-
-            ### macOS
-            1. Download `agentx-macos.dmg`
-            2. Open the DMG and drag AgentX to Applications
-            3. On first launch: right-click the app > Open > Open (to bypass Gatekeeper)
-
-            ### Windows
-            1. Download `agentx-windows.msi`
-            2. Run the installer
-            3. You may need to allow the app through Windows Defender SmartScreen
-            4. (Optional) `agentx-windows.exe` is a portable build
-
-            ### Linux
-            1. Download `agentx-linux.deb`
-            2. Install: `sudo dpkg -i agentx-linux.deb`
-            3. Fix deps if needed: `sudo apt-get -f install`
-            4. (Optional) `agentx-linux.tar.gz` is a portable build
-            5. Ensure required dependencies are installed (Vulkan, GTK3, etc.)
-
-            ## Configuration
-
-            Create a `config.json` in the same directory as the executable:
-
-            ```json
-            {
-              "agent_servers": [
-                {
-                  "name": "my-agent",
-                  "command": "/path/to/agent/executable",
-                  "args": ["--arg1", "value1"]
-                }
-              ]
-            }
-            ```
-
-            For more details, see the [README](https://github.com/your-org/gpui-component/tree/main/agent-studio).
+            **macOS**: Download `agentx-macos.dmg`, drag to Applications
+            **Windows**: Download `agentx-windows.msi` or portable `agentx-windows.exe`
+            **Linux**: Download `agentx-linux.deb` and run `sudo dpkg -i agentx-linux.deb`

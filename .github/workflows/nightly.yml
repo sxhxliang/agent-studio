@@ -1,0 +1,18 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 0:00
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      artifact-retention-days: 7
