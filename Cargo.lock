@@ -91,6 +91,7 @@ dependencies = [
  "serde_json",
  "similar",
  "smol",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",

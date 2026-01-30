@@ -2,6 +2,7 @@
 name = "agentx"
 version = "0.1.10"
 edition = "2024"
+rust-version = "1.85"
 description = "An Agent Studio - A full-featured desktop AI agent studio built with GPUI"
 license = "Apache-2.0"
 publish = false
@@ -137,7 +138,7 @@ taffy = { opt-level = 3 }
 ttf-parser = { opt-level = 3 }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.15"
 
 [profile.release]
 opt-level = "z"          # 优化目标为大小 (size optimization)

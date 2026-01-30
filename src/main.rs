@@ -31,24 +31,21 @@ fn main() {
 
         // 立即打开 GUI 窗口（非阻塞）
         // 窗口必须在系统托盘之前创建，避免 dbus 注册阻塞
-        open_new(cx, |_, _, _| {
-            // GUI 窗口已打开
-        })
-        .detach();
-
-        // 窗口创建后初始化系统托盘
-        // Linux 上 GTK 必须在 GPUI 之前初始化，但托盘创建必须在窗口之后
-        if tray_available {
-            match agentx::system_tray::SystemTray::new() {
-                Ok(tray) => {
-                    agentx::system_tray::setup_tray_event_handler(tray, cx);
-                    log::info!("System tray initialized successfully");
-                }
-                Err(e) => {
-                    log::error!("Failed to initialize system tray: {}", e);
+        open_new(cx, move |_, _, cx| {
+            // 窗口创建完成后初始化系统托盘
+            if tray_available {
+                match agentx::system_tray::SystemTray::new() {
+                    Ok(tray) => {
+                        agentx::system_tray::setup_tray_event_handler(tray, cx);
+                        log::info!("System tray initialized successfully");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to initialize system tray: {}", e);
+                    }
                 }
             }
-        }
+        })
+        .detach();
 
         // 后台异步初始化 agents（非阻塞）
         cx.spawn(async move |cx| {
