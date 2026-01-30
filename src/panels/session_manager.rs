@@ -23,6 +23,7 @@ struct AgentSessionListState {
     error: Option<String>,
     is_loading: bool,
     has_loaded: bool,
+    is_importing: bool,
 }
 
 /// Session Manager Panel - Displays and manages all agent sessions
@@ -127,7 +128,9 @@ impl SessionManagerPanel {
         let weak_self = cx.entity().downgrade();
         cx.spawn(async move |_entity, cx| {
             let request = acp::ListSessionsRequest::new();
-            let result = agent_service.list_agent_sessions(&agent_name, request).await;
+            let result = agent_service
+                .list_agent_sessions(&agent_name, request)
+                .await;
 
             _ = cx.update(|cx| {
                 if let Some(this) = weak_self.upgrade() {
@@ -156,11 +159,113 @@ impl SessionManagerPanel {
         .detach();
     }
 
+    fn import_agent_sessions(&mut self, agent_name: String, cx: &mut Context<Self>) {
+        let agent_service = match AppState::global(cx).agent_service() {
+            Some(service) => service.clone(),
+            None => {
+                log::error!("[SessionManagerPanel] AgentService not initialized");
+                return;
+            }
+        };
+
+        let state = self
+            .agent_sessions_by_agent
+            .entry(agent_name.clone())
+            .or_default();
+        if state.is_importing {
+            return;
+        }
+        state.is_importing = true;
+        state.error = None;
+        cx.notify();
+
+        let existing_session_ids: HashSet<String> = self
+            .sessions_by_agent
+            .iter()
+            .find(|(name, _)| name == &agent_name)
+            .map(|(_, sessions)| {
+                sessions
+                    .iter()
+                    .map(|session| session.session_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let weak_self = cx.entity().downgrade();
+        cx.spawn(async move |_entity, cx| {
+            let request = acp::ListSessionsRequest::new();
+            let list_result = agent_service.list_agent_sessions(&agent_name, request).await;
+            let mut sessions = Vec::new();
+            let mut failed_imports = 0usize;
+            let mut error = None;
+            let mut list_ok = false;
+
+            match list_result {
+                Ok(response) => {
+                    sessions = response.sessions;
+                    list_ok = true;
+                    for session in sessions.iter() {
+                        let session_id = session.session_id.to_string();
+                        if existing_session_ids.contains(&session_id) {
+                            continue;
+                        }
+                        if let Err(err) = agent_service
+                            .resume_session(&agent_name, &session_id)
+                            .await
+                        {
+                            failed_imports += 1;
+                            log::error!(
+                                "[SessionManagerPanel] Failed to import session {} for agent {}: {}",
+                                session_id,
+                                agent_name,
+                                err
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    error = Some(err.to_string());
+                }
+            }
+
+            _ = cx.update(|cx| {
+                if let Some(this) = weak_self.upgrade() {
+                    this.update(cx, |this, cx| {
+                        let state = this
+                            .agent_sessions_by_agent
+                            .entry(agent_name.clone())
+                            .or_default();
+                        state.is_importing = false;
+                        if error.is_some() {
+                            state.error = error;
+                        } else if failed_imports > 0 {
+                            state.error =
+                                Some(format!("Imported with {} errors", failed_imports));
+                        } else {
+                            state.error = None;
+                        }
+                        if list_ok {
+                            state.sessions = sessions;
+                            state.has_loaded = true;
+                        }
+                        this.refresh_sessions(cx);
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
     fn has_workspace_session(&self, agent_name: &str, session_id: &str) -> bool {
         self.sessions_by_agent
             .iter()
             .find(|(name, _)| name == agent_name)
-            .map(|(_, sessions)| sessions.iter().any(|session| session.session_id == session_id))
+            .map(|(_, sessions)| {
+                sessions
+                    .iter()
+                    .any(|session| session.session_id == session_id)
+            })
             .unwrap_or(false)
     }
 
@@ -186,25 +291,41 @@ impl SessionManagerPanel {
 
         let weak_self = cx.entity().downgrade();
         cx.spawn_in(window, async move |_this, window| {
-            match agent_service.resume_session(&agent_name, &session_id).await {
-                Ok(resumed_session_id) => {
+            let load_result = agent_service.load_session(&agent_name, &session_id).await;
+            let session_result = match load_result {
+                Ok(loaded_session_id) => {
                     log::info!(
-                        "[SessionManagerPanel] Resumed session {} for agent {}",
-                        resumed_session_id,
+                        "[SessionManagerPanel] Loaded session {} for agent {}",
+                        loaded_session_id,
                         agent_name
                     );
+                    Ok(loaded_session_id)
+                }
+                Err(err) => {
+                    log::warn!(
+                        "[SessionManagerPanel] Failed to load session {} for agent {}: {}",
+                        session_id,
+                        agent_name,
+                        err
+                    );
+                    agent_service.resume_session(&agent_name, &session_id).await
+                }
+            };
+
+            match session_result {
+                Ok(session_id) => {
                     _ = window.update(|window, cx| {
                         if let Some(entity) = weak_self.upgrade() {
                             entity.update(cx, |this, cx| {
                                 this.refresh_sessions(cx);
-                                this.open_session(resumed_session_id.clone(), window, cx);
+                                this.open_session(session_id.clone(), window, cx);
                             });
                         }
                     });
                 }
                 Err(e) => {
                     log::error!(
-                        "[SessionManagerPanel] Failed to resume session {} for agent {}: {}",
+                        "[SessionManagerPanel] Failed to open session {} for agent {}: {}",
                         session_id,
                         agent_name,
                         e
@@ -398,6 +519,11 @@ impl Render for SessionManagerPanel {
                             .children(self.sessions_by_agent.iter().enumerate().map(|(agent_idx, (agent_name, sessions))| {
                                 let agent_name_clone = agent_name.clone();
                                 let agent_list_state = self.agent_sessions_by_agent.get(agent_name).cloned();
+                                let agent_is_importing = self
+                                    .agent_sessions_by_agent
+                                    .get(agent_name)
+                                    .map(|state| state.is_importing)
+                                    .unwrap_or(false);
                                 let workspace_session_ids: HashSet<String> = sessions
                                     .iter()
                                     .map(|session| session.session_id.clone())
@@ -450,6 +576,19 @@ impl Render for SessionManagerPanel {
                                                                 let agent_name = agent_name_clone.clone();
                                                                 cx.listener(move |this, _, _window, cx| {
                                                                     this.list_agent_sessions(agent_name.clone(), cx);
+                                                                })
+                                                            }),
+                                                    )
+                                                    .child(
+                                                        Button::new(("import-agent-sessions", agent_idx))
+                                                            .label(if agent_is_importing { "Importing..." } else { "Import All" })
+                                                            .icon(Icon::new(IconName::ArrowDown))
+                                                            .ghost()
+                                                            .small()
+                                                            .on_click({
+                                                                let agent_name = agent_name_clone.clone();
+                                                                cx.listener(move |this, _, _window, cx| {
+                                                                    this.import_agent_sessions(agent_name.clone(), cx);
                                                                 })
                                                             }),
                                                     ),

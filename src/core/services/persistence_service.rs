@@ -363,6 +363,11 @@ impl PersistenceService {
         self.base_dir.join(format!("{}.jsonl", session_id))
     }
 
+    /// Check if a session file already exists on disk
+    pub fn session_file_exists(&self, session_id: &str) -> bool {
+        self.session_file_path(session_id).exists()
+    }
+
     /// Ensure the base directory exists
     fn ensure_base_dir_sync(&self) -> Result<()> {
         if !self.base_dir.exists() {

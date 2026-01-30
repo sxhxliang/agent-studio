@@ -307,6 +307,24 @@ impl AgentHandle {
         result
     }
 
+    pub async fn load_session(
+        &self,
+        request: acp::LoadSessionRequest,
+    ) -> Result<acp::LoadSessionResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(AgentCommand::LoadSession {
+                request,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| anyhow!("agent {} is not running", self.name))?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("agent {} stopped", self.name))?;
+        result
+    }
+
     pub async fn list_sessions(
         &self,
         request: acp::ListSessionsRequest,
