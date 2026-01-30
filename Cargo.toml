@@ -2,6 +2,7 @@
 name = "agentx"
 version = "0.5.0"
 edition = "2024"
+rust-version = "1.88"
 description = "An Agent Studio - A full-featured desktop AI agent studio built with GPUI"
 license = "Apache-2.0"
 publish = false
@@ -12,7 +13,6 @@ readme = "README.md"
 name = "AgentX"
 identifier = "plus.agentx.app"
 icon = ["assets/logo1024x1024@2x.png", "assets/logo.ico"]
-version = "0.5.0"
 copyright = "Copyright (c) 2025 AgentX. All rights reserved."
 category = "Developer Tool"
 short_description = "AI Agent Studio"
@@ -97,6 +97,9 @@ dirs = "6.0"
 # System tray
 tray-icon = "0.19"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Pin macOS font stack to avoid core-graphics version skew with gpui/zed-font-kit.
 core-text = "=21.0.0"
@@ -140,6 +143,9 @@ resvg = { opt-level = 3 }
 rustybuzz = { opt-level = 3 }
 taffy = { opt-level = 3 }
 ttf-parser = { opt-level = 3 }
+
+[dev-dependencies]
+tempfile = "3.15"
 
 [profile.release]
 opt-level = "z"          # 优化目标为大小 (size optimization)
