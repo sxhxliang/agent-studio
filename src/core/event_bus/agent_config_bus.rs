@@ -59,7 +59,7 @@ pub enum AgentConfigEvent {
 
     // ========== Full Reload ==========
     /// The entire configuration was reloaded from file
-    ConfigReloaded { config: Config },
+    ConfigReloaded { config: Box<Config> },
 }
 
 /// Specialized container for agent config events

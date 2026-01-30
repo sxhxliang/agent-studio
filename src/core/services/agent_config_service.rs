@@ -600,7 +600,7 @@ impl AgentConfigService {
         // Publish config reload event
         let config = self.config.read().await;
         self.event_bus.publish(AgentConfigEvent::ConfigReloaded {
-            config: config.clone(),
+            config: Box::new(config.clone()),
         });
 
         log::info!("Successfully updated system prompts");
@@ -653,8 +653,9 @@ impl AgentConfigService {
         }
 
         // Publish reload event with full config
-        self.event_bus
-            .publish(AgentConfigEvent::ConfigReloaded { config: new_config });
+        self.event_bus.publish(AgentConfigEvent::ConfigReloaded {
+            config: Box::new(new_config),
+        });
 
         log::info!("Configuration reloaded from: {:?}", self.config_path);
         Ok(())
@@ -873,7 +874,7 @@ mod tests {
         };
 
         let event = AgentConfigEvent::ConfigReloaded {
-            config: config.clone(),
+            config: Box::new(config.clone()),
         };
 
         if let AgentConfigEvent::ConfigReloaded { config: cfg } = event {
