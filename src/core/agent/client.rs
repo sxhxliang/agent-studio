@@ -307,6 +307,42 @@ impl AgentHandle {
         result
     }
 
+    pub async fn load_session(
+        &self,
+        request: acp::LoadSessionRequest,
+    ) -> Result<acp::LoadSessionResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(AgentCommand::LoadSession {
+                request,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| anyhow!("agent {} is not running", self.name))?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("agent {} stopped", self.name))?;
+        result
+    }
+
+    pub async fn list_sessions(
+        &self,
+        request: acp::ListSessionsRequest,
+    ) -> Result<acp::ListSessionsResponse> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(AgentCommand::ListSession {
+                request,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| anyhow!("agent {} is not running", self.name))?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("agent {} stopped", self.name))?;
+        result
+    }
+
     pub async fn prompt(&self, request: acp::PromptRequest) -> Result<acp::PromptResponse> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -413,6 +449,10 @@ enum AgentCommand {
     LoadSession {
         request: acp::LoadSessionRequest,
         respond: oneshot::Sender<Result<acp::LoadSessionResponse>>,
+    },
+    ListSession {
+        request: acp::ListSessionsRequest,
+        respond: oneshot::Sender<Result<acp::ListSessionsResponse>>,
     },
     #[cfg(feature = "unstable")]
     SetSessionModel {
@@ -636,12 +676,19 @@ async fn agent_event_loop(
                 let _ = respond.send(result);
             }
             AgentCommand::NewSession { request, respond } => {
-                log::info!("Agent {} received new_session command with cwd: {:?}", agent_name, request.cwd);
+                log::info!(
+                    "Agent {} received new_session command with cwd: {:?}",
+                    agent_name,
+                    request.cwd
+                );
 
                 // Check if child process is still alive
                 match child.try_wait() {
                     Ok(Some(status)) => {
-                        let error_msg = format!("Agent {} process exited with status: {:?}", agent_name, status);
+                        let error_msg = format!(
+                            "Agent {} process exited with status: {:?}",
+                            agent_name, status
+                        );
                         log::error!("{}", error_msg);
                         let _ = respond.send(Err(anyhow!(error_msg)));
                         continue;
@@ -690,6 +737,10 @@ async fn agent_event_loop(
                 let result = conn.load_session(request).await.map_err(|err| anyhow!(err));
                 let _ = respond.send(result);
             }
+            AgentCommand::ListSession { request, respond } => {
+                let result = conn.list_sessions(request).await.map_err(|err| anyhow!(err));
+                let _ = respond.send(result);
+            }
             AgentCommand::SetSessionMode { request, respond } => {
                 log::info!("Agent {} received set session mode command", agent_name);
                 let result = conn
@@ -722,7 +773,11 @@ async fn agent_event_loop(
     // Check if child process is still running
     match child.try_wait() {
         Ok(Some(status)) => {
-            log::warn!("Agent {} process already exited with status: {:?}", agent_name, status);
+            log::warn!(
+                "Agent {} process already exited with status: {:?}",
+                agent_name,
+                status
+            );
         }
         Ok(None) => {
             // Process is still running, kill it

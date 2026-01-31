@@ -6,7 +6,12 @@ use rust_i18n::t;
 use std::collections::HashSet;
 
 use gpui_component::{
-    ActiveTheme, IndexPath, StyledExt, WindowExt, input::InputState, list::ListState, notification::Notification, select::{SelectEvent, SelectState}, v_flex
+    ActiveTheme, IndexPath, StyledExt, WindowExt,
+    input::InputState,
+    list::ListState,
+    notification::Notification,
+    select::{SelectEvent, SelectState},
+    v_flex,
 };
 
 use agent_client_protocol::{self as acp, AvailableCommand, ImageContent};
@@ -684,7 +689,7 @@ impl WelcomePanel {
         };
 
         // Get all sessions for this agent
-        let mut sessions = agent_service.list_sessions_for_agent(&agent_name);
+        let mut sessions = agent_service.list_workspace_sessions_for_agent(&agent_name);
         sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
         // Get the selected session
@@ -1115,7 +1120,7 @@ impl WelcomePanel {
             None => return,
         };
 
-        let mut sessions = agent_service.list_sessions_for_agent(agent_name);
+        let mut sessions = agent_service.list_workspace_sessions_for_agent(agent_name);
         sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
         if sessions.is_empty() {

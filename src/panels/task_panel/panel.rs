@@ -30,7 +30,7 @@ use crate::core::services::WorkspaceService;
 use crate::core::{event_bus::WorkspaceUpdateEvent, services::SessionStatus};
 use crate::panels::dock_panel::DockPanel;
 use crate::schemas::workspace_schema::WorkspaceTask;
-use crate::{AppState, PanelAction, StatusIndicator, utils};
+use crate::{AppState, OpenSessionManager, PanelAction, StatusIndicator, utils};
 
 // ============================================================================
 // Constants - Layout spacing
@@ -987,7 +987,10 @@ impl TaskPanel {
                         Button::new("settings")
                             .ghost()
                             .small()
-                            .icon(IconName::Settings),
+                            .icon(IconName::Settings)
+                            .on_click(cx.listener(|_this, _, window, cx| {
+                                window.dispatch_action(Box::new(OpenSessionManager), cx);
+                            })),
                     ),
             )
     }

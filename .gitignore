@@ -12,6 +12,7 @@
 config.json.backup
 
 # IDE
+.claude
 .vscode/
 .idea/
 *.swp

@@ -5,7 +5,7 @@
 //! and Session is a child entity.
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -23,6 +23,8 @@ pub struct AgentService {
     agent_manager: Arc<AgentManager>,
     /// Stores agent -> (session_id -> session_info) mapping (multiple sessions per agent)
     sessions: Arc<RwLock<HashMap<String, HashMap<String, AgentSessionInfo>>>>,
+    /// Tracks sessions currently loading history via session/load
+    loading_sessions: Arc<RwLock<HashSet<String>>>,
     /// Workspace event bus for publishing status updates
     workspace_bus: Option<WorkspaceUpdateBusContainer>,
 }
@@ -58,6 +60,7 @@ impl AgentService {
         Self {
             agent_manager,
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            loading_sessions: Arc::new(RwLock::new(HashSet::new())),
             workspace_bus: None,
         }
     }
@@ -97,6 +100,20 @@ impl AgentService {
     }
 
     // ========== Session Operations ==========
+    /// Mark a session as loading (used for session/load persistence behavior)
+    pub fn set_session_loading(&self, session_id: &str, is_loading: bool) {
+        let mut loading_sessions = self.loading_sessions.write().unwrap();
+        if is_loading {
+            loading_sessions.insert(session_id.to_string());
+        } else {
+            loading_sessions.remove(session_id);
+        }
+    }
+
+    /// Check if a session is currently loading
+    pub fn is_session_loading(&self, session_id: &str) -> bool {
+        self.loading_sessions.read().unwrap().contains(session_id)
+    }
 
     /// Create a new session for the agent
     pub async fn create_session(&self, agent_name: &str) -> Result<String> {
@@ -265,6 +282,109 @@ impl AgentService {
         Ok(session_id.to_string())
     }
 
+    /// Load an existing session with specified session_id (includes history if supported)
+    pub async fn load_session(&self, agent_name: &str, session_id: &str) -> Result<String> {
+        self.load_session_with_mcp(agent_name, session_id, Vec::new())
+            .await
+    }
+
+    /// Load an existing session with MCP servers configured
+    pub async fn load_session_with_mcp(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        mcp_servers: Vec<acp::McpServer>,
+    ) -> Result<String> {
+        self.load_session_with_mcp_and_cwd(
+            agent_name,
+            session_id,
+            mcp_servers,
+            std::env::current_dir().unwrap_or_default(),
+        )
+        .await
+    }
+
+    /// Load an existing session with MCP servers and custom working directory
+    pub async fn load_session_with_mcp_and_cwd(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        mcp_servers: Vec<acp::McpServer>,
+        cwd: std::path::PathBuf,
+    ) -> Result<String> {
+        let init_response = self
+            .get_agent_init_response(agent_name)
+            .await
+            .ok_or_else(|| anyhow!("Agent not initialized: {}", agent_name))?;
+
+        if !init_response.agent_capabilities.load_session {
+            return Err(anyhow!(
+                "Agent '{}' does not support session/load",
+                agent_name
+            ));
+        }
+
+        let agent_handle = self.get_agent_handle(agent_name).await?;
+
+        let mut request = acp::LoadSessionRequest::new(
+            acp::SessionId::from(session_id.to_string()),
+            cwd.clone(),
+        );
+        request.cwd = cwd;
+        request.mcp_servers = mcp_servers;
+        request.meta = None;
+
+        self.set_session_loading(session_id, true);
+        let load_session_response = agent_handle.load_session(request).await;
+        self.set_session_loading(session_id, false);
+
+        let load_session_response: acp::LoadSessionResponse = load_session_response
+            .map_err(|e| anyhow!("Failed to load session: {}", e))?;
+
+        // Convert LoadSessionResponse to NewSessionResponse for consistency
+        let new_session_response = acp::NewSessionResponse::new(session_id.to_string())
+            .config_options(load_session_response.config_options)
+            .models(load_session_response.models)
+            .modes(load_session_response.modes)
+            .meta(load_session_response.meta);
+
+        let now = Utc::now();
+
+        // Insert into nested HashMap structure
+        let mut sessions = self.sessions.write().unwrap();
+        let agent_sessions = sessions
+            .entry(agent_name.to_string())
+            .or_insert_with(HashMap::new);
+
+        match agent_sessions.entry(session_id.to_string()) {
+            Entry::Occupied(mut entry) => {
+                let info = entry.get_mut();
+                info.agent_name = agent_name.to_string();
+                info.last_active = now;
+                info.status = SessionStatus::Active;
+                info.new_session_response = Some(new_session_response);
+                log::info!("Loaded session {} for agent {}", session_id, agent_name);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(AgentSessionInfo {
+                    session_id: session_id.to_string(),
+                    agent_name: agent_name.to_string(),
+                    created_at: now,
+                    last_active: now,
+                    status: SessionStatus::Active,
+                    new_session_response: Some(new_session_response),
+                    available_commands: Vec::new(),
+                });
+                log::info!(
+                    "Loaded session {} for agent {} (created new entry)",
+                    session_id,
+                    agent_name
+                );
+            }
+        }
+        Ok(session_id.to_string())
+    }
+
     /// Get session information
     pub fn get_session_info(&self, agent_name: &str, session_id: &str) -> Option<AgentSessionInfo> {
         self.sessions
@@ -349,8 +469,38 @@ impl AgentService {
         self.cancel_session(&agent_name, session_id).await
     }
 
+    /// List sessions reported by the agent (if supported).
+    pub async fn list_agent_sessions(
+        &self,
+        agent_name: &str,
+        request: acp::ListSessionsRequest,
+    ) -> Result<acp::ListSessionsResponse> {
+        let init_response = self
+            .get_agent_init_response(agent_name)
+            .await
+            .ok_or_else(|| anyhow!("Agent not initialized: {}", agent_name))?;
+
+        if init_response
+            .agent_capabilities
+            .session_capabilities
+            .list
+            .is_none()
+        {
+            return Err(anyhow!(
+                "Agent '{}' does not support session/list",
+                agent_name
+            ));
+        }
+
+        let agent_handle = self.get_agent_handle(agent_name).await?;
+        agent_handle
+            .list_sessions(request)
+            .await
+            .map_err(|e| anyhow!("Failed to list agent sessions: {}", e))
+    }
+
     /// List all sessions
-    pub fn list_sessions(&self) -> Vec<AgentSessionInfo> {
+    pub fn list_workspace_sessions(&self) -> Vec<AgentSessionInfo> {
         self.sessions
             .read()
             .unwrap()
@@ -503,7 +653,7 @@ impl AgentService {
     // ========== Multi-Session Query Methods ==========
 
     /// List all sessions for a specific agent
-    pub fn list_sessions_for_agent(&self, agent_name: &str) -> Vec<AgentSessionInfo> {
+    pub fn list_workspace_sessions_for_agent(&self, agent_name: &str) -> Vec<AgentSessionInfo> {
         self.sessions
             .read()
             .unwrap()

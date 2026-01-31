@@ -427,6 +427,7 @@ impl Render for DockWorkspace {
             .on_action(cx.listener(Self::on_action_toggle_panel_visible))
             .on_action(cx.listener(Self::on_action_toggle_dock_toggle_button))
             .on_action(cx.listener(Self::on_action_open_setting_panel))
+            .on_action(cx.listener(Self::on_action_open_session_manager))
             .on_action(cx.listener(Self::on_action_new_session_conversation_panel))
             .on_action(cx.listener(Self::on_action_create_task_from_welcome))
             .on_action(cx.listener(Self::on_action_send_message_to_session))

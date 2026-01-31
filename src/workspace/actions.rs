@@ -8,8 +8,9 @@ use gpui_component::{
 use std::sync::Arc;
 
 use crate::{
-    AppState, ConversationPanel, CreateTaskFromWelcome, NewSessionConversationPanel, PanelAction,
-    SendMessageToSession, SettingsPanel, ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
+    AppState, ConversationPanel, CreateTaskFromWelcome, NewSessionConversationPanel,
+    OpenSessionManager, PanelAction, SendMessageToSession, SessionManagerPanel, SettingsPanel,
+    ToggleDockToggleButton, TogglePanelVisible, WelcomePanel,
     app::actions::{
         AddAgent, CancelSession, ChangeConfigPath, PanelCommand, PanelKind, ReloadAgentConfig,
         RemoveAgent, RestartAgent, SetUploadDir, Submit, UpdateAgent,
@@ -331,6 +332,93 @@ impl DockWorkspace {
         );
         false
     }
+
+    fn activate_existing_session_manager_panel(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(bottom_dock) = self.dock_area.read(cx).bottom_dock().cloned() else {
+            return false;
+        };
+        let panel = bottom_dock.read(cx).panel().clone();
+        Self::activate_panel_by_klass(&panel, SessionManagerPanel::klass(), window, cx)
+    }
+
+    fn activate_panel_by_klass(
+        item: &DockItem,
+        klass: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        match item {
+            DockItem::Tabs { view, .. } => {
+                let tab_state = view.read(cx).dump(cx);
+                let active_ix = tab_state.info.active_index().unwrap_or(0);
+
+                for (ix, child_state) in tab_state.children.iter().enumerate() {
+                    if !Self::panel_state_matches_klass(child_state, klass) {
+                        continue;
+                    }
+
+                    if ix != active_ix {
+                        let _ = item.clone().active_index(ix, cx);
+                    }
+
+                    if let Some(active_panel) = view.read(cx).active_panel(cx) {
+                        active_panel.focus_handle(cx).focus(window, cx);
+                    }
+                    let _ = view.update(cx, |_, cx| {
+                        cx.notify();
+                    });
+                    return true;
+                }
+
+                false
+            }
+            DockItem::Split { items, .. } => items
+                .iter()
+                .any(|item| Self::activate_panel_by_klass(item, klass, window, cx)),
+            DockItem::Panel { view, .. } => {
+                if Self::panel_matches_klass(view, klass, cx) {
+                    view.set_active(true, window, cx);
+                    view.focus_handle(cx).focus(window, cx);
+                    return true;
+                }
+                false
+            }
+            DockItem::Tiles { .. } => false,
+        }
+    }
+
+    fn panel_state_matches_klass(panel_state: &PanelState, klass: &str) -> bool {
+        match &panel_state.info {
+            PanelInfo::Panel(value) => {
+                let dock_state = DockPanelState::from_value(value.clone());
+                if dock_state.agent_studio_klass.as_ref() == klass {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+
+        panel_state
+            .children
+            .iter()
+            .any(|child| Self::panel_state_matches_klass(child, klass))
+    }
+
+    fn panel_matches_klass(panel: &Arc<dyn PanelView>, klass: &str, cx: &App) -> bool {
+        let Ok(container) = panel.view().downcast::<DockPanelContainer>() else {
+            return false;
+        };
+
+        let container = container.read(cx);
+        container
+            .agent_studio_klass
+            .as_ref()
+            .is_some_and(|panel_klass| panel_klass.as_ref() == klass)
+    }
     /// Handle PanelAction - add/show panels with unified parameters
     pub(super) fn on_action_panel_action(
         &mut self,
@@ -613,6 +701,30 @@ impl DockWorkspace {
 
         self.dock_area.update(cx, |dock_area, cx| {
             dock_area.add_panel(panel, DockPlacement::Center, None, window, cx);
+        });
+    }
+
+    pub(super) fn on_action_open_session_manager(
+        &mut self,
+        _: &OpenSessionManager,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.activate_existing_session_manager_panel(window, cx) {
+            self.dock_area.update(cx, |dock_area, cx| {
+                if !dock_area.is_dock_open(DockPlacement::Bottom, cx) {
+                    dock_area.toggle_dock(DockPlacement::Bottom, window, cx);
+                }
+            });
+            return;
+        }
+
+        let panel = Arc::new(DockPanelContainer::panel::<SessionManagerPanel>(window, cx));
+        self.dock_area.update(cx, |dock_area, cx| {
+            dock_area.add_panel(panel, DockPlacement::Bottom, None, window, cx);
+            if !dock_area.is_dock_open(DockPlacement::Bottom, cx) {
+                dock_area.toggle_dock(DockPlacement::Bottom, window, cx);
+            }
         });
     }
     fn show_welcome_panel(

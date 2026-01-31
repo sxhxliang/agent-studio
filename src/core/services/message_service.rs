@@ -3,7 +3,10 @@
 //! This service provides a high-level API for sending messages and subscribing
 //! to session updates. It orchestrates between AgentService and SessionBus.
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use agent_client_protocol::{
     AvailableCommand, ContentBlock, ContentChunk, ImageContent, PromptResponse, SessionUpdate,
@@ -49,6 +52,8 @@ impl MessageService {
         let persistence_service = self.persistence_service.clone();
         let session_bus = self.session_bus.clone();
         let agent_service = self.agent_service.clone();
+        let load_persist_policy: Arc<Mutex<HashMap<String, bool>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         // Subscribe to session bus for all session updates
         session_bus.subscribe(move |event| {
@@ -57,6 +62,8 @@ impl MessageService {
             let agent_name = event.agent_name.clone();
             let service = persistence_service.clone();
             let agent_svc = agent_service.clone();
+            let load_policy = load_persist_policy.clone();
+            let is_agent_event = agent_name.is_some();
 
             // Handle AvailableCommandsUpdate to store in AgentService
             if let SessionUpdate::AvailableCommandsUpdate(ref commands_update) = update {
@@ -67,10 +74,10 @@ impl MessageService {
                 );
 
                 // Get agent name for this session (prefer event metadata if available)
-                let agent_name =
-                    agent_name.or_else(|| agent_svc.get_agent_for_session(&session_id));
+                let agent_name_for_update =
+                    agent_name.clone().or_else(|| agent_svc.get_agent_for_session(&session_id));
 
-                if let Some(agent_name) = agent_name {
+                if let Some(agent_name) = agent_name_for_update {
                     agent_svc.update_session_commands(
                         &agent_name,
                         &session_id,
@@ -84,17 +91,39 @@ impl MessageService {
                 }
             }
 
-            // Spawn async task using smol to save message
-            smol::spawn(async move {
-                if let Err(e) = service.save_update(&session_id, update).await {
-                    log::error!(
-                        "Failed to persist message for session {}: {}",
-                        session_id,
-                        e
-                    );
+            let is_loading = is_agent_event && agent_svc.is_session_loading(&session_id);
+            let should_persist = if is_loading {
+                let mut policy_map = load_policy.lock().unwrap();
+                let entry = policy_map.entry(session_id.clone()).or_insert_with(|| {
+                    !service.session_file_exists(&session_id)
+                });
+                *entry
+            } else {
+                if is_agent_event {
+                    let mut policy_map = load_policy.lock().unwrap();
+                    policy_map.remove(&session_id);
                 }
-            })
-            .detach();
+                true
+            };
+
+            // Spawn async task using smol to save message
+            if should_persist {
+                smol::spawn(async move {
+                    if let Err(e) = service.save_update(&session_id, update).await {
+                        log::error!(
+                            "Failed to persist message for session {}: {}",
+                            session_id,
+                            e
+                        );
+                    }
+                })
+                .detach();
+            } else {
+                log::debug!(
+                    "Skipping persistence for session {} (history already loaded)",
+                    session_id
+                );
+            }
         });
 
         // Subscribe to workspace bus for session status changes
@@ -256,8 +285,8 @@ impl MessageService {
     }
 
     /// List all available sessions with history
-    pub async fn list_sessions_with_history(&self) -> Result<Vec<String>> {
-        self.persistence_service.list_sessions().await
+    pub async fn list_workspace_sessions_with_history(&self) -> Result<Vec<String>> {
+        self.persistence_service.list_workspace_sessions().await
     }
 
     /// Get available commands for a session

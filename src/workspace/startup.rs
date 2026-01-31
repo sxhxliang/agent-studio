@@ -5,6 +5,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
+    scroll::ScrollableElement as _,
     stepper::{Stepper, StepperItem},
     switch::Switch,
     v_flex,
@@ -15,8 +16,8 @@ use std::{
 };
 
 use crate::{
-    assets::get_agent_icon,
     AppSettings, AppState,
+    assets::get_agent_icon,
     core::{
         config::{AgentProcessConfig, Config},
         nodejs::NodeJsChecker,
@@ -875,6 +876,13 @@ impl DockWorkspace {
                         ),
                 );
             }
+
+            let list = div()
+                .w_full()
+                .h(px(280.))
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .child(list);
 
             content = content.child(list);
         }

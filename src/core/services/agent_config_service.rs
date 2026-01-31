@@ -85,7 +85,7 @@ impl AgentConfigService {
     /// Check if an agent has active sessions
     pub async fn has_active_sessions(&self, agent_name: &str) -> bool {
         if let Some(agent_service) = &self.agent_service {
-            let sessions = agent_service.list_sessions_for_agent(agent_name);
+            let sessions = agent_service.list_workspace_sessions_for_agent(agent_name);
             !sessions.is_empty()
         } else {
             false
