@@ -13,6 +13,66 @@ use super::panel::SettingsPanel;
 use super::types::{AppSettings, UpdateStatus};
 use crate::core::updater::{UpdateCheckResult, Version};
 
+fn os_display_name() -> String {
+    match std::env::consts::OS {
+        "macos" => "macOS".into(),
+        "windows" => "Windows".into(),
+        "linux" => "Linux".into(),
+        other => other.into(),
+    }
+}
+
+fn arch_display_name() -> String {
+    match std::env::consts::ARCH {
+        "x86_64" => "x64".into(),
+        "aarch64" => "ARM64".into(),
+        other => other.into(),
+    }
+}
+
+fn os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "Unknown".into())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "ver"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| {
+                s.find('[')
+                    .and_then(|start| s.find(']').map(|end| (start, end)))
+                    .map(|(s_i, e_i)| s[s_i + 1..e_i].replace("Version ", "").trim().to_string())
+                    .unwrap_or_else(|| s.trim().to_string())
+            })
+            .unwrap_or_else(|| "Unknown".into())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/etc/os-release")
+            .ok()
+            .and_then(|c| {
+                c.lines()
+                    .find(|l| l.starts_with("VERSION_ID="))
+                    .map(|l| l.trim_start_matches("VERSION_ID=").trim_matches('"').to_string())
+            })
+            .unwrap_or_else(|| "Unknown".into())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        "Unknown".into()
+    }
+}
+
 impl SettingsPanel {
     pub fn update_page(&self, view: &Entity<Self>, resettable: bool) -> SettingPage {
         let default_settings = AppSettings::default();
@@ -48,7 +108,7 @@ impl SettingsPanel {
                                             ),
                                     )
                                     .child(match &update_status {
-                                        UpdateStatus::Idle => h_flex()
+                                        UpdateStatus::Idle | UpdateStatus::NoUpdate => h_flex()
                                             .gap_2()
                                             .items_center()
                                             .child(Icon::new(IconName::Check).size_4())
@@ -72,30 +132,16 @@ impl SettingsPanel {
                                                 .text_xs()
                                                 .text_color(cx.theme().muted_foreground),
                                             ),
-                                        UpdateStatus::NoUpdate => h_flex()
-                                            .gap_2()
-                                            .items_center()
-                                            .child(Icon::new(IconName::Check).size_4())
-                                            .child(
-                                                Label::new(
-                                                    t!("settings.update.status.up_to_date")
-                                                        .to_string(),
-                                                )
-                                                .text_xs()
-                                                .text_color(cx.theme().success_foreground),
-                                            ),
                                         UpdateStatus::Available { version, notes } => {
-                                            let has_notes = !notes.is_empty();
-                                            let notes_elem = if has_notes {
+                                            let notes_elem = if notes.is_empty() {
+                                                None
+                                            } else {
                                                 Some(
                                                     Label::new(notes)
                                                         .text_xs()
                                                         .text_color(cx.theme().muted_foreground),
                                                 )
-                                            } else {
-                                                None
                                             };
-
                                             v_flex()
                                             .gap_2()
                                             .w_full()
@@ -156,6 +202,53 @@ impl SettingsPanel {
                         )
                         .description(t!("settings.update.check.description").to_string()),
                     ]),
+                // System Information
+                SettingGroup::new()
+                    .title(t!("settings.update.group.system").to_string())
+                    .items(vec![SettingItem::render({
+                        let os = format!("{} {}", os_display_name(), os_version());
+                        let arch = arch_display_name();
+                        move |_options, _window, cx| {
+                            v_flex()
+                                .gap_2()
+                                .w_full()
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(Icon::new(IconName::Settings).size_4())
+                                        .child(
+                                            Label::new(
+                                                t!("settings.update.system.os").to_string(),
+                                            )
+                                            .text_sm(),
+                                        )
+                                        .child(
+                                            Label::new(&os)
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground),
+                                        ),
+                                )
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(Icon::new(IconName::Folder).size_4())
+                                        .child(
+                                            Label::new(
+                                                t!("settings.update.system.arch").to_string(),
+                                            )
+                                            .text_sm(),
+                                        )
+                                        .child(
+                                            Label::new(&arch)
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground),
+                                        ),
+                                )
+                        }
+                    })]),
+                // Update Settings
                 SettingGroup::new()
                     .title(t!("settings.update.group.settings").to_string())
                     .items(vec![

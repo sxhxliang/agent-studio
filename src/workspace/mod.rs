@@ -1,13 +1,15 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
-use gpui_component::dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement};
 use gpui_component::Root;
+use gpui_component::dock::{DockArea, DockAreaState, DockEvent, DockItem, DockPlacement};
 use smol::Timer;
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel, TaskPanel,
-    TerminalPanel, panels::dock_panel::DockPanelContainer,
+    AppSettings, AppTitleBar, CodeEditorPanel, ConversationPanel, SessionManagerPanel, TaskPanel,
+    TerminalPanel,
+    core::updater::{UpdateCheckResult, UpdateManager},
+    panels::dock_panel::DockPanelContainer,
 };
 
 use self::startup::StartupState;
@@ -29,6 +31,7 @@ pub struct DockWorkspace {
     _save_layout_task: Option<Task<()>>,
     startup_state: StartupState,
     startup_completed: bool,
+    update_checked_on_startup: bool,
 }
 
 struct DockAreaTab {
@@ -160,7 +163,38 @@ impl DockWorkspace {
             _save_layout_task: None,
             startup_state: StartupState::new(),
             startup_completed: crate::themes::startup_completed(),
+            update_checked_on_startup: false,
         }
+    }
+
+    /// Check for updates on startup if auto-check is enabled
+    fn maybe_check_updates_on_startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.update_checked_on_startup {
+            return;
+        }
+        self.update_checked_on_startup = true;
+
+        if !AppSettings::global(cx).auto_check_on_startup {
+            return;
+        }
+
+        log::info!("Auto-checking for updates on startup...");
+        let update_manager = UpdateManager::default();
+
+        cx.spawn_in(window, async move |_this, _window| {
+            match update_manager.check_for_updates().await {
+                UpdateCheckResult::UpdateAvailable(info) => {
+                    log::info!("Update available: {}", info.version);
+                }
+                UpdateCheckResult::NoUpdate => {
+                    log::info!("No updates available");
+                }
+                UpdateCheckResult::Error(err) => {
+                    log::warn!("Failed to check for updates: {}", err);
+                }
+            }
+        })
+        .detach();
     }
 
     fn save_layout(
@@ -409,6 +443,11 @@ impl Render for DockWorkspace {
         if self.startup_state.is_complete() && !self.startup_completed {
             crate::themes::set_startup_completed(true);
             self.startup_completed = true;
+        }
+
+        // Check for updates on startup (after startup wizard is complete)
+        if self.startup_completed {
+            self.maybe_check_updates_on_startup(window, cx);
         }
 
         let sheet_layer = Root::render_sheet_layer(window, cx);
