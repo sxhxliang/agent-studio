@@ -1,5 +1,5 @@
 use gpui::{App, AppContext, Entity, Global, SharedString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::{
@@ -86,7 +86,7 @@ impl AppState {
             agent_config_service: None,
             ai_service: None,
             config_path: None,
-            current_working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            current_working_dir: Self::resolve_initial_working_dir(),
             tool_call_preview_max_lines: DEFAULT_TOOL_CALL_PREVIEW_MAX_LINES,
             selected_tool_call: cx.new(|_| None),
             app_title: SharedString::from(""),
@@ -100,6 +100,42 @@ impl AppState {
 
     pub fn global_mut(cx: &mut App) -> &mut Self {
         cx.global_mut::<Self>()
+    }
+
+    fn resolve_initial_working_dir() -> PathBuf {
+        if let Ok(cwd) = std::env::current_dir() {
+            if Self::is_safe_working_dir(&cwd) {
+                return cwd;
+            }
+        }
+
+        if let Some(home) = dirs::home_dir() {
+            if Self::is_safe_working_dir(&home) {
+                return home;
+            }
+        }
+
+        crate::core::config_manager::user_data_dir_or_temp()
+    }
+
+    fn is_safe_working_dir(path: &Path) -> bool {
+        if !path.is_dir() {
+            return false;
+        }
+
+        if path.parent().is_none() {
+            return false;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let path_str = path.to_string_lossy();
+            if path_str.contains(".app/Contents") {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Set the AgentManager after async initialization
