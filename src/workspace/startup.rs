@@ -1,7 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable, Size as UiSize, StyledExt as _,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, Size as UiSize, StyledExt as _, ThemeMode,
+    ThemeRegistry,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
@@ -11,6 +12,7 @@ use gpui_component::{
     switch::Switch,
     v_flex,
 };
+use rust_i18n::t;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -18,6 +20,7 @@ use std::{
 
 use crate::{
     AppSettings, AppState,
+    app::actions::{SelectLocale, SwitchTheme, SwitchThemeMode},
     assets::get_agent_icon,
     core::{
         config::{AgentProcessConfig, Config},
@@ -52,6 +55,7 @@ enum NodeJsStatus {
 pub(super) struct StartupState {
     initialized: bool,
     step: usize,
+    intro_completed: bool,
     nodejs_status: NodeJsStatus,
     nodejs_skipped: bool,
     nodejs_custom_path_input: Option<Entity<InputState>>,
@@ -92,6 +96,7 @@ impl StartupState {
         Self {
             initialized: false,
             step: 0,
+            intro_completed: false,
             nodejs_status: NodeJsStatus::Idle,
             nodejs_skipped: false,
             nodejs_custom_path_input: None,
@@ -141,21 +146,28 @@ impl StartupState {
     }
 
     pub(super) fn is_complete(&self) -> bool {
-        self.nodejs_ready() && self.agents_ready() && self.proxy_ready() && self.workspace_ready()
+        self.intro_completed
+            && self.nodejs_ready()
+            && self.agents_ready()
+            && self.proxy_ready()
+            && self.workspace_ready()
     }
 
     fn advance_step_if_needed(&mut self) {
-        if self.step == 0 && self.nodejs_ready() {
+        if self.step == 0 && self.intro_completed {
             self.step = 1;
         }
-        if self.step == 1 && self.agents_ready() {
+        if self.step == 1 && self.nodejs_ready() {
             self.step = 2;
         }
-        if self.step == 2 && self.proxy_ready() {
+        if self.step == 2 && self.agents_ready() {
             self.step = 3;
         }
-        if self.step > 3 {
-            self.step = 3;
+        if self.step == 3 && self.proxy_ready() {
+            self.step = 4;
+        }
+        if self.step > 4 {
+            self.step = 4;
         }
     }
 
@@ -213,13 +225,18 @@ impl DockWorkspace {
     ) {
         if !self.startup_state.initialized {
             self.startup_state.initialized = true;
-            self.ensure_proxy_inputs_initialized(window, cx);
-            self.ensure_nodejs_input_initialized(window, cx);
-            self.start_nodejs_check(window, cx, NodeJsDetectionMode::Fast);
         }
 
-        self.maybe_sync_agents(window, cx);
-        self.maybe_check_workspace(window, cx);
+        if self.startup_state.intro_completed {
+            self.ensure_proxy_inputs_initialized(window, cx);
+            self.ensure_nodejs_input_initialized(window, cx);
+            if matches!(self.startup_state.nodejs_status, NodeJsStatus::Idle) {
+                self.start_nodejs_check(window, cx, NodeJsDetectionMode::Fast);
+            }
+
+            self.maybe_sync_agents(window, cx);
+            self.maybe_check_workspace(window, cx);
+        }
     }
 
     fn ensure_nodejs_input_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -230,9 +247,9 @@ impl DockWorkspace {
         // Pre-fill with saved nodejs_path from settings
         let saved_path = AppSettings::global(cx).nodejs_path.clone();
         let placeholder = if cfg!(target_os = "windows") {
-            "C:\\Program Files\\nodejs\\node.exe".to_string()
+            t!("startup.nodejs.placeholder.windows").to_string()
         } else {
-            "~/.asdf/shims/node 或 /usr/local/bin/node".to_string()
+            t!("startup.nodejs.placeholder.unix").to_string()
         };
 
         let input = cx.new(|cx| {
@@ -304,7 +321,10 @@ impl DockWorkspace {
                                 let path_str = path.display().to_string();
                                 AppSettings::global_mut(cx).nodejs_path = path_str.into();
                                 crate::themes::save_state(cx);
-                                log::info!("Saved detected Node.js path to settings: {}", path.display());
+                                log::info!(
+                                    "Saved detected Node.js path to settings: {}",
+                                    path.display()
+                                );
                             }
 
                             this.startup_state.nodejs_status = NodeJsStatus::Available {
@@ -313,9 +333,9 @@ impl DockWorkspace {
                             };
                         } else {
                             this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                                message: result
-                                    .error_message
-                                    .unwrap_or_else(|| "Node.js not found".to_string()),
+                                message: result.error_message.unwrap_or_else(|| {
+                                    t!("startup.nodejs.error.not_found").to_string()
+                                }),
                                 hint: result.install_hint,
                             };
                         }
@@ -350,7 +370,7 @@ impl DockWorkspace {
         let input_value = input_value.trim().to_string();
         if input_value.is_empty() {
             self.startup_state.nodejs_custom_path_error =
-                Some("请输入 Node.js 路径".to_string());
+                Some(t!("startup.nodejs.error.empty_path").to_string());
             cx.notify();
             return;
         }
@@ -390,10 +410,7 @@ impl DockWorkspace {
                             let path_str = path.display().to_string();
                             AppSettings::global_mut(cx).nodejs_path = path_str.into();
                             crate::themes::save_state(cx);
-                            log::info!(
-                                "Saved custom Node.js path to settings: {}",
-                                path.display()
-                            );
+                            log::info!("Saved custom Node.js path to settings: {}", path.display());
                         }
 
                         this.startup_state.nodejs_status = NodeJsStatus::Available {
@@ -404,25 +421,28 @@ impl DockWorkspace {
                     }
                     Ok(result) => {
                         this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                            message: result
-                                .error_message
-                                .clone()
-                                .unwrap_or_else(|| "Node.js not found".to_string()),
+                            message: result.error_message.clone().unwrap_or_else(|| {
+                                t!("startup.nodejs.error.not_found").to_string()
+                            }),
                             hint: result.install_hint.clone(),
                         };
-                        this.startup_state.nodejs_custom_path_error = Some(
-                            result
-                                .error_message
-                                .unwrap_or_else(|| "路径无效或不是 Node.js".to_string()),
-                        );
+                        this.startup_state.nodejs_custom_path_error =
+                            Some(result.error_message.unwrap_or_else(|| {
+                                t!("startup.nodejs.error.invalid_path").to_string()
+                            }));
                     }
                     Err(err) => {
                         this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
                             message: err.to_string(),
                             hint: None,
                         };
-                        this.startup_state.nodejs_custom_path_error =
-                            Some(format!("验证失败: {}", err));
+                        this.startup_state.nodejs_custom_path_error = Some(
+                            t!(
+                                "startup.nodejs.error.validate_failed",
+                                error = err.to_string()
+                            )
+                            .to_string(),
+                        );
                     }
                 }
 
@@ -521,7 +541,7 @@ impl DockWorkspace {
             Some(service) => service.clone(),
             None => {
                 self.startup_state.agent_apply_error =
-                    Some("Agent service is not initialized yet.".to_string());
+                    Some(t!("startup.agents.error.service_unavailable").to_string());
                 cx.notify();
                 return;
             }
@@ -591,7 +611,7 @@ impl DockWorkspace {
             Some(service) => service.clone(),
             None => {
                 self.startup_state.workspace_error =
-                    Some("Workspace service is not available.".to_string());
+                    Some(t!("startup.workspace.error.service_unavailable").to_string());
                 cx.notify();
                 return;
             }
@@ -601,10 +621,10 @@ impl DockWorkspace {
         self.startup_state.workspace_error = None;
         cx.notify();
 
-        let dialog_title = "Open Project Folder";
+        let dialog_title = t!("startup.workspace.dialog.title").to_string();
 
         cx.spawn_in(window, async move |this, window| {
-            let selection = utils::pick_folder(dialog_title).await;
+            let selection = utils::pick_folder(&dialog_title).await;
             let cancelled = selection.is_none();
 
             if cancelled {
@@ -665,7 +685,8 @@ impl DockWorkspace {
         let agent_config_service = match AppState::global(cx).agent_config_service() {
             Some(service) => service.clone(),
             None => {
-                self.startup_state.proxy_apply_error = Some("Agent 配置服务尚未就绪。".to_string());
+                self.startup_state.proxy_apply_error =
+                    Some(t!("startup.proxy.error.service_unavailable").to_string());
                 cx.notify();
                 return;
             }
@@ -725,6 +746,12 @@ impl DockWorkspace {
 
     pub(super) fn render_startup(&mut self, cx: &mut Context<Self>) -> AnyElement {
         // 获取步骤图标
+        let intro_icon = if self.startup_state.intro_completed {
+            IconName::CircleCheck
+        } else {
+            IconName::Settings
+        };
+
         let node_icon = match self.startup_state.nodejs_status {
             NodeJsStatus::Available { .. } => IconName::CircleCheck,
             NodeJsStatus::Unavailable { .. } => IconName::TriangleAlert,
@@ -762,6 +789,21 @@ impl DockWorkspace {
             .selected_index(self.startup_state.step)
             .text_center(true)
             .items([
+                StepperItem::new().icon(intro_icon).child(
+                    v_flex()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_size(px(14.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(t!("startup.step.preferences.title").to_string()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .child(t!("startup.step.preferences.subtitle").to_string()),
+                        ),
+                ),
                 StepperItem::new().icon(node_icon).child(
                     v_flex()
                         .items_center()
@@ -769,9 +811,13 @@ impl DockWorkspace {
                             div()
                                 .text_size(px(14.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("Node.js 环境"),
+                                .child(t!("startup.step.nodejs.title").to_string()),
                         )
-                        .child(div().text_size(px(12.)).child("检测系统依赖")),
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .child(t!("startup.step.nodejs.subtitle").to_string()),
+                        ),
                 ),
                 StepperItem::new().icon(agent_icon).child(
                     v_flex()
@@ -780,9 +826,13 @@ impl DockWorkspace {
                             div()
                                 .text_size(px(14.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("启用 Agent"),
+                                .child(t!("startup.step.agents.title").to_string()),
                         )
-                        .child(div().text_size(px(12.)).child("选择默认配置")),
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .child(t!("startup.step.agents.subtitle").to_string()),
+                        ),
                 ),
                 StepperItem::new().icon(proxy_icon).child(
                     v_flex()
@@ -791,9 +841,13 @@ impl DockWorkspace {
                             div()
                                 .text_size(px(14.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("代理配置"),
+                                .child(t!("startup.step.proxy.title").to_string()),
                         )
-                        .child(div().text_size(px(12.)).child("设置网络代理")),
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .child(t!("startup.step.proxy.subtitle").to_string()),
+                        ),
                 ),
                 StepperItem::new().icon(workspace_icon).child(
                     v_flex()
@@ -802,21 +856,29 @@ impl DockWorkspace {
                             div()
                                 .text_size(px(14.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("打开文件夹"),
+                                .child(t!("startup.step.workspace.title").to_string()),
                         )
-                        .child(div().text_size(px(12.)).child("设置工作区")),
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .child(t!("startup.step.workspace.subtitle").to_string()),
+                        ),
                 ),
             ])
             .on_click(cx.listener(|this, step, _, cx| {
+                if !this.startup_state.intro_completed && *step > 0 {
+                    return;
+                }
                 this.startup_state.step = *step;
                 cx.notify();
             }));
 
         // 渲染当前步骤内容
         let content = match self.startup_state.step {
-            0 => self.render_nodejs_step(cx),
-            1 => self.render_agents_step(cx),
-            2 => self.render_proxy_step(cx),
+            0 => self.render_preferences_step(cx),
+            1 => self.render_nodejs_step(cx),
+            2 => self.render_agents_step(cx),
+            3 => self.render_proxy_step(cx),
             _ => self.render_workspace_step(cx),
         };
 
@@ -843,7 +905,7 @@ impl DockWorkspace {
                             .font_weight(FontWeight::BOLD)
                             .text_color(cx.theme().foreground)
                             .text_center()
-                            .child("欢迎使用 AgentX"),
+                            .child(t!("startup.title").to_string()),
                     )
                     .child(stepper)
                     .child(
@@ -863,6 +925,137 @@ impl DockWorkspace {
             .into_any_element()
     }
 
+    fn render_preferences_step(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let current_locale = AppSettings::global(cx).locale.clone();
+        let current_theme = cx.theme().theme_name().clone();
+        let is_dark = cx.theme().mode.is_dark();
+        let themes = ThemeRegistry::global(cx).sorted_themes();
+
+        let locale_buttons = h_flex()
+            .gap_2()
+            .child(
+                Button::new("startup-locale-en")
+                    .label(t!("startup.preferences.locale.en").to_string())
+                    .when(current_locale.as_ref() == "en", |btn| btn.primary())
+                    .when(current_locale.as_ref() != "en", |btn| btn.outline())
+                    .on_click(cx.listener(|_, _ev, window, cx| {
+                        window.dispatch_action(Box::new(SelectLocale("en".into())), cx);
+                    })),
+            )
+            .child(
+                Button::new("startup-locale-zh")
+                    .label(t!("startup.preferences.locale.zh_cn").to_string())
+                    .when(current_locale.as_ref() == "zh-CN", |btn| btn.primary())
+                    .when(current_locale.as_ref() != "zh-CN", |btn| btn.outline())
+                    .on_click(cx.listener(|_, _ev, window, cx| {
+                        window.dispatch_action(Box::new(SelectLocale("zh-CN".into())), cx);
+                    })),
+            );
+
+        let theme_mode_buttons = h_flex()
+            .gap_2()
+            .child(
+                Button::new("startup-theme-light")
+                    .label(t!("startup.preferences.mode.light").to_string())
+                    .when(!is_dark, |btn| btn.primary())
+                    .when(is_dark, |btn| btn.outline())
+                    .on_click(cx.listener(|_, _ev, window, cx| {
+                        window.dispatch_action(Box::new(SwitchThemeMode(ThemeMode::Light)), cx);
+                    })),
+            )
+            .child(
+                Button::new("startup-theme-dark")
+                    .label(t!("startup.preferences.mode.dark").to_string())
+                    .when(is_dark, |btn| btn.primary())
+                    .when(!is_dark, |btn| btn.outline())
+                    .on_click(cx.listener(|_, _ev, window, cx| {
+                        window.dispatch_action(Box::new(SwitchThemeMode(ThemeMode::Dark)), cx);
+                    })),
+            );
+
+        let mut theme_buttons = h_flex().w_full().gap_2().flex_wrap();
+        for (idx, theme_config) in themes.iter().enumerate() {
+            let name = theme_config.name.clone();
+            let is_active = name == current_theme;
+            theme_buttons = theme_buttons.child(
+                Button::new(("startup-theme-btn", idx))
+                    .label(name.clone())
+                    .when(is_active, |btn| btn.icon(IconName::Check))
+                    .when(!is_active, |btn| btn.outline())
+                    .small()
+                    .on_click(cx.listener(move |_, _ev, window, cx| {
+                        window.dispatch_action(Box::new(SwitchTheme(name.clone())), cx);
+                    })),
+            );
+        }
+
+        let mut content = v_flex()
+            .gap_4()
+            .child(
+                div()
+                    .text_size(px(20.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(t!("startup.preferences.title").to_string()),
+            )
+            .child(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .line_height(rems(1.5))
+                    .child(t!("startup.preferences.description").to_string()),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t!("startup.preferences.language_label").to_string()),
+                    )
+                    .child(locale_buttons),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t!("startup.preferences.theme_mode_label").to_string()),
+                    )
+                    .child(theme_mode_buttons),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t!("startup.preferences.theme_label").to_string()),
+                    )
+                    .child(theme_buttons),
+            );
+
+        let actions = h_flex().gap_3().mt_6().justify_end().child(
+            Button::new("startup-preferences-next")
+                .label(t!("startup.preferences.continue").to_string())
+                .primary()
+                .on_click(cx.listener(|this, _ev, _window, cx| {
+                    this.startup_state.intro_completed = true;
+                    if this.startup_state.step == 0 {
+                        this.startup_state.step = 1;
+                    }
+                    this.startup_state.advance_step_if_needed();
+                    cx.notify();
+                })),
+        );
+
+        content = content.child(actions);
+        content.into_any_element()
+    }
+
     fn render_nodejs_step(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
 
@@ -872,13 +1065,13 @@ impl DockWorkspace {
                 div()
                     .text_size(px(20.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Node.js 环境检查"),
+                    .child(t!("startup.nodejs.title").to_string()),
             )
             .child(
                 div()
                     .text_color(theme.muted_foreground)
                     .line_height(rems(1.5))
-                    .child("用于启动内置 agent，可在设置中自定义 Node.js 路径。"),
+                    .child(t!("startup.nodejs.description").to_string()),
             );
 
         match &self.startup_state.nodejs_status {
@@ -890,7 +1083,7 @@ impl DockWorkspace {
                         .rounded(theme.radius)
                         .bg(theme.muted)
                         .text_color(theme.muted_foreground)
-                        .child("准备检测 Node.js 环境..."),
+                        .child(t!("startup.nodejs.status.idle").to_string()),
                 );
             }
             NodeJsStatus::Checking => {
@@ -905,18 +1098,27 @@ impl DockWorkspace {
                         .child(
                             div()
                                 .text_color(theme.accent_foreground)
-                                .child("正在检测 Node.js 环境..."),
+                                .child(t!("startup.nodejs.status.checking").to_string()),
                         ),
                 );
             }
             NodeJsStatus::Available { version, path } => {
                 let detail = match (version, path) {
-                    (Some(version), Some(path)) => {
-                        format!("版本: {} | 路径: {}", version, path.display())
+                    (Some(version), Some(path)) => t!(
+                        "startup.nodejs.detail.version_path",
+                        version = version,
+                        path = path.display().to_string()
+                    )
+                    .to_string(),
+                    (Some(version), None) => {
+                        t!("startup.nodejs.detail.version", version = version).to_string()
                     }
-                    (Some(version), None) => format!("版本: {}", version),
-                    (None, Some(path)) => format!("路径: {}", path.display()),
-                    (None, None) => "Node.js 可用".to_string(),
+                    (None, Some(path)) => t!(
+                        "startup.nodejs.detail.path",
+                        path = path.display().to_string()
+                    )
+                    .to_string(),
+                    (None, None) => t!("startup.nodejs.detail.available").to_string(),
                 };
 
                 content = content.child(
@@ -932,7 +1134,7 @@ impl DockWorkspace {
                             div()
                                 .text_color(theme.success_active)
                                 .font_weight(FontWeight::MEDIUM)
-                                .child("✓ Node.js 环境检测成功"),
+                                .child(t!("startup.nodejs.success").to_string()),
                         )
                         .child(
                             div()
@@ -987,34 +1189,29 @@ impl DockWorkspace {
                             .text_size(px(14.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.foreground)
-                            .child("手动指定 Node.js 路径"),
+                            .child(t!("startup.nodejs.custom.title").to_string()),
                     )
                     .child(
                         div()
                             .text_size(px(13.))
                             .text_color(theme.muted_foreground)
-                            .child("可通过终端执行 `which node` 获取路径"),
+                            .child(t!("startup.nodejs.custom.hint").to_string()),
                     )
                     .when_some(custom_path_input, |this, input| {
                         this.child(
-                            h_flex()
-                                .gap_2()
-                                .child(Input::new(&input).w_full())
-                                .child(
-                                    Button::new("startup-nodejs-validate")
-                                        .label(if is_validating {
-                                            "验证中..."
-                                        } else {
-                                            "验证"
-                                        })
-                                        .outline()
-                                        .disabled(is_validating)
-                                        .on_click(cx.listener(
-                                            |this, _ev, window, cx| {
-                                                this.validate_custom_nodejs_path(window, cx);
-                                            },
-                                        )),
-                                ),
+                            h_flex().gap_2().child(Input::new(&input).w_full()).child(
+                                Button::new("startup-nodejs-validate")
+                                    .label(if is_validating {
+                                        t!("startup.nodejs.custom.validating").to_string()
+                                    } else {
+                                        t!("startup.nodejs.custom.validate").to_string()
+                                    })
+                                    .outline()
+                                    .disabled(is_validating)
+                                    .on_click(cx.listener(|this, _ev, window, cx| {
+                                        this.validate_custom_nodejs_path(window, cx);
+                                    })),
+                            ),
                         )
                     })
                     .when_some(
@@ -1038,7 +1235,7 @@ impl DockWorkspace {
             .gap_2()
             .child(
                 Button::new("startup-nodejs-recheck")
-                    .label("重新检测")
+                    .label(t!("startup.nodejs.action.recheck").to_string())
                     .outline()
                     .on_click(cx.listener(|this, _ev, window, cx| {
                         this.start_nodejs_check(window, cx, NodeJsDetectionMode::Full);
@@ -1046,7 +1243,11 @@ impl DockWorkspace {
             )
             .child(
                 Button::new("startup-nodejs-manual")
-                    .label(if show_custom { "收起" } else { "手动设置" })
+                    .label(if show_custom {
+                        t!("startup.nodejs.action.collapse").to_string()
+                    } else {
+                        t!("startup.nodejs.action.manual").to_string()
+                    })
                     .ghost()
                     .on_click(cx.listener(|this, _ev, _, cx| {
                         this.startup_state.nodejs_show_custom_input =
@@ -1058,17 +1259,17 @@ impl DockWorkspace {
         let right_actions = if self.startup_state.nodejs_ready() {
             h_flex().child(
                 Button::new("startup-nodejs-next")
-                    .label("下一步")
+                    .label(t!("startup.nodejs.action.next").to_string())
                     .primary()
                     .on_click(cx.listener(|this, _ev, _, cx| {
-                        this.startup_state.step = 1;
+                        this.startup_state.step = 2;
                         cx.notify();
                     })),
             )
         } else {
             h_flex().child(
                 Button::new("startup-nodejs-skip")
-                    .label("跳过")
+                    .label(t!("startup.nodejs.action.skip").to_string())
                     .ghost()
                     .on_click(cx.listener(|this, _ev, _, cx| {
                         this.startup_state.nodejs_skipped = true;
@@ -1109,14 +1310,14 @@ impl DockWorkspace {
                             .text_size(px(24.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(theme.foreground)
-                            .child("选择启用的 Agent"),
+                            .child(t!("startup.agents.title").to_string()),
                     )
                     .child(
                         div()
                             .text_size(px(14.))
                             .text_color(theme.muted_foreground)
                             .line_height(rems(1.5))
-                            .child("选择后用懒惰配置的 Agent，资源配置全部就绪，精简工作区管理。"),
+                            .child(t!("startup.agents.description").to_string()),
                     ),
             );
 
@@ -1140,7 +1341,7 @@ impl DockWorkspace {
                     .rounded(px(8.))
                     .bg(theme.muted)
                     .text_color(theme.muted_foreground)
-                    .child("未找到内置 agent 配置。"),
+                    .child(t!("startup.agents.empty").to_string()),
             );
         } else {
             let disabled = self.startup_state.agent_apply_in_progress;
@@ -1248,7 +1449,7 @@ impl DockWorkspace {
                     .rounded(px(8.))
                     .bg(theme.muted)
                     .text_color(theme.muted_foreground)
-                    .child("Agent 服务初始化中，请稍后..."),
+                    .child(t!("startup.agents.service_loading").to_string()),
             );
         }
 
@@ -1267,9 +1468,9 @@ impl DockWorkspace {
 
         let service_ready = AppState::global(cx).agent_config_service().is_some();
         let apply_label = if self.startup_state.agent_apply_in_progress {
-            "应用中..."
+            t!("startup.agents.apply.in_progress")
         } else {
-            "应用并继续"
+            t!("startup.agents.apply.ready")
         };
 
         let enabled_count = self
@@ -1291,18 +1492,21 @@ impl DockWorkspace {
                 div()
                     .text_size(px(14.))
                     .text_color(theme.colors.muted_foreground)
-                    .child(format!(
-                        "已选择 {} / {} 个 Agent",
-                        enabled_count,
-                        self.startup_state.agent_choices.len()
-                    )),
+                    .child(
+                        t!(
+                            "startup.agents.footer.selected",
+                            selected = enabled_count,
+                            total = self.startup_state.agent_choices.len()
+                        )
+                        .to_string(),
+                    ),
             )
             .child(
                 h_flex()
                     .gap_3()
                     .child(
                         Button::new("startup-agent-skip")
-                            .label("稍后设置")
+                            .label(t!("startup.agents.action.skip").to_string())
                             .outline()
                             .on_click(cx.listener(|this, _ev, _, cx| {
                                 this.startup_state.agent_applied = true;
@@ -1312,7 +1516,7 @@ impl DockWorkspace {
                     )
                     .child(
                         Button::new("startup-agent-apply")
-                            .label(apply_label)
+                            .label(apply_label.to_string())
                             .primary()
                             .disabled(!service_ready || self.startup_state.agent_apply_in_progress)
                             .on_click(cx.listener(|this, _ev, window, cx| {
@@ -1337,13 +1541,13 @@ impl DockWorkspace {
                 div()
                     .text_size(px(20.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("代理配置"),
+                    .child(t!("startup.proxy.title").to_string()),
             )
             .child(
                 div()
                     .text_color(theme.muted_foreground)
                     .line_height(rems(1.5))
-                    .child("默认不提供代理值，请手动填写需要的环境变量。"),
+                    .child(t!("startup.proxy.description").to_string()),
             )
             .child(
                 h_flex()
@@ -1361,7 +1565,7 @@ impl DockWorkspace {
                         div()
                             .text_size(px(14.))
                             .text_color(theme.foreground)
-                            .child("启用代理"),
+                            .child(t!("startup.proxy.enable").to_string()),
                     ),
             );
 
@@ -1433,9 +1637,9 @@ impl DockWorkspace {
         }
 
         let apply_label = if self.startup_state.proxy_apply_in_progress {
-            "保存中..."
+            t!("startup.proxy.apply.in_progress")
         } else {
-            "保存并继续"
+            t!("startup.proxy.apply.ready")
         };
 
         let actions = h_flex()
@@ -1447,7 +1651,7 @@ impl DockWorkspace {
             .items_center()
             .child(
                 Button::new("startup-proxy-skip")
-                    .label("稍后设置")
+                    .label(t!("startup.proxy.action.skip").to_string())
                     .outline()
                     .on_click(cx.listener(|this, _ev, _, cx| {
                         this.startup_state.proxy_applied = true;
@@ -1457,7 +1661,7 @@ impl DockWorkspace {
             )
             .child(
                 Button::new("startup-proxy-apply")
-                    .label(apply_label)
+                    .label(apply_label.to_string())
                     .primary()
                     .disabled(self.startup_state.proxy_apply_in_progress)
                     .on_click(cx.listener(|this, _ev, window, cx| {
@@ -1477,13 +1681,13 @@ impl DockWorkspace {
                 div()
                     .text_size(px(20.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("打开工作区文件夹"),
+                    .child(t!("startup.workspace.title").to_string()),
             )
             .child(
                 div()
                     .text_color(theme.muted_foreground)
                     .line_height(rems(1.5))
-                    .child("选择一个本地项目文件夹作为工作区，Agent 将在此目录中工作。"),
+                    .child(t!("startup.workspace.description").to_string()),
             );
 
         if let Some(path) = &self.startup_state.workspace_path {
@@ -1500,7 +1704,7 @@ impl DockWorkspace {
                         div()
                             .text_color(theme.success_active)
                             .font_weight(FontWeight::MEDIUM)
-                            .child("✓ 工作区已选择"),
+                            .child(t!("startup.workspace.status.selected").to_string()),
                     )
                     .child(
                         div()
@@ -1517,7 +1721,7 @@ impl DockWorkspace {
                     .rounded(theme.radius)
                     .bg(theme.muted)
                     .text_color(theme.muted_foreground)
-                    .child("尚未选择工作区文件夹"),
+                    .child(t!("startup.workspace.status.not_selected").to_string()),
             );
         }
 
@@ -1543,14 +1747,14 @@ impl DockWorkspace {
                     .rounded(theme.radius)
                     .bg(theme.muted)
                     .text_color(theme.accent_foreground)
-                    .child("正在打开文件夹..."),
+                    .child(t!("startup.workspace.status.loading").to_string()),
             );
         }
 
         let pick_label = if self.startup_state.workspace_selected {
-            "重新选择"
+            t!("startup.workspace.action.repick").to_string()
         } else {
-            "选择文件夹"
+            t!("startup.workspace.action.pick").to_string()
         };
 
         // 底部操作栏
@@ -1578,7 +1782,7 @@ impl DockWorkspace {
                     .when(self.startup_state.workspace_selected, |this| {
                         this.child(
                             Button::new("startup-workspace-finish")
-                                .label("立即使用")
+                                .label(t!("startup.workspace.action.finish").to_string())
                                 .primary()
                                 .disabled(self.startup_state.workspace_loading)
                                 .on_click(cx.listener(|this, _ev, window, cx| {

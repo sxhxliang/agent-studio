@@ -93,6 +93,7 @@ base64 = "0.22"
 which = "7.0"
 image = "0.25"
 dirs = "6.0"
+sys-locale = "0.3"
 
 # System tray
 tray-icon = "0.19"

@@ -59,7 +59,23 @@ impl Default for AppSettings {
 impl Global for AppSettings {}
 
 fn default_locale() -> SharedString {
-    "en".into()
+    detect_system_locale().unwrap_or_else(|| "en".into())
+}
+
+fn detect_system_locale() -> Option<SharedString> {
+    let raw_locale = sys_locale::get_locale().or_else(|| std::env::var("LANG").ok())?;
+    normalize_locale(&raw_locale).map(SharedString::from)
+}
+
+fn normalize_locale(locale: &str) -> Option<&'static str> {
+    let lower = locale.to_lowercase();
+    if lower.starts_with("zh") {
+        return Some("zh-CN");
+    }
+    if lower.starts_with("en") {
+        return Some("en");
+    }
+    None
 }
 
 impl AppSettings {
