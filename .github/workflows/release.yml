@@ -136,7 +136,6 @@ jobs:
       - name: Create MSI installer
         shell: bash
         run: |
-          cargo wix init --force
           cargo wix --no-build --nocapture
           installer=$(ls target/wix/*.msi | head -n 1)
           cp "$installer" agentx-windows.msi

@@ -163,9 +163,12 @@ pub async fn generate_install_hint() -> String {
 async fn command_exists(command: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
-        tokio::process::Command::new("where")
-            .arg(command)
-            .output()
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut cmd = tokio::process::Command::new("where");
+        cmd.arg(command);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.output()
             .await
             .map(|output| output.status.success())
             .unwrap_or(false)

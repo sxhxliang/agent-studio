@@ -6,6 +6,18 @@ use tokio::process::Command;
 
 use super::{NodeJsDetectionMode, error};
 
+/// Create a Command with console window hidden on Windows
+fn new_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Timeout for each subprocess command (e.g., `which node`, `node --version`)
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_NVM_SEARCH_DEPTH: usize = 6;
@@ -149,7 +161,7 @@ async fn try_which_command(command: &str) -> Option<PathBuf> {
 
     match tokio::time::timeout(
         COMMAND_TIMEOUT,
-        Command::new(which_cmd).arg(command).output(),
+        new_command(which_cmd).arg(command).output(),
     )
     .await
     {
@@ -336,7 +348,7 @@ pub async fn verify_nodejs_executable(path: &Path) -> Result<String> {
     // Run 'node --version' to verify it's actually Node.js
     match tokio::time::timeout(
         COMMAND_TIMEOUT,
-        Command::new(path).arg("--version").output(),
+        new_command(path).arg("--version").output(),
     )
     .await
     {

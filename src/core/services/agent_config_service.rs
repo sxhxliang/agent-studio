@@ -287,7 +287,13 @@ impl AgentConfigService {
         }
 
         // Remove from AgentManager (shuts down process)
-        self.agent_manager.remove_agent(name).await?;
+        match self.agent_manager.remove_agent_if_present(name).await {
+            Ok(true) => {}
+            Ok(false) => {
+                log::warn!("Agent '{}' not running; removing config only.", name);
+            }
+            Err(err) => return Err(err),
+        }
 
         // Update config
         {

@@ -173,6 +173,23 @@ impl AgentManager {
         Ok(())
     }
 
+    /// Remove an agent if present, returning whether it was found.
+    pub async fn remove_agent_if_present(&self, name: &str) -> Result<bool> {
+        let handle = {
+            let mut agents = self.agents.write().await;
+            agents.remove(name)
+        };
+
+        let Some(handle) = handle else {
+            return Ok(false);
+        };
+
+        // Shutdown the agent
+        handle.shutdown().await?;
+        log::info!("Successfully removed agent '{}'", name);
+        Ok(true)
+    }
+
     /// Restart an agent with new configuration
     pub async fn restart_agent(&self, name: &str, config: AgentProcessConfig) -> Result<()> {
         // Remove old agent
@@ -592,6 +609,14 @@ async fn agent_event_loop(
         cmd.args(&config.args);
         cmd
     };
+
+    // Hide console window for child processes on Windows
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
 
     // Set environment variables from config
     command.envs(&config.env);

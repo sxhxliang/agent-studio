@@ -71,11 +71,25 @@ impl SystemEditor {
     }
 
     fn is_available(&self) -> bool {
-        Command::new("which")
-            .arg(self.command_name())
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new("where")
+                .arg(self.command_name())
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("which")
+                .arg(self.command_name())
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        }
     }
 }
 

@@ -43,8 +43,11 @@ fn os_version() -> String {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         std::process::Command::new("cmd")
             .args(["/C", "ver"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())

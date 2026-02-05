@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use agentx::Assets;
 use agentx::core::config_manager;
 use agentx::{AgentManager, Config, PermissionStore, workspace::open_new};
