@@ -30,8 +30,8 @@ pub use core::{
     agent::{AgentHandle, AgentManager, PermissionStore},
     config::{AgentProcessConfig, Config},
     event_bus::{
-        PermissionBusContainer, PermissionRequestEvent, SessionUpdateBusContainer,
-        SessionUpdateEvent,
+        AgentConfigEvent, AppEvent, CodeSelectionEvent, EventHub, PermissionRequestEvent,
+        SessionUpdateEvent, WorkspaceUpdateEvent,
     },
 };
 

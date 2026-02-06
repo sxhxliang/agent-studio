@@ -24,10 +24,7 @@ use tokio::{
 };
 
 use crate::core::config::{AgentProcessConfig, ProxyConfig};
-use crate::core::event_bus::{
-    permission_bus::{PermissionBusContainer, PermissionRequestEvent},
-    session_bus::{SessionUpdateBusContainer, SessionUpdateEvent},
-};
+use crate::core::event_bus::{EventHub, PermissionRequestEvent, SessionUpdateEvent};
 
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -35,8 +32,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 pub struct AgentManager {
     agents: Arc<RwLock<HashMap<String, Arc<AgentHandle>>>>,
     permission_store: Arc<PermissionStore>,
-    session_bus: SessionUpdateBusContainer,
-    permission_bus: PermissionBusContainer,
+    event_hub: EventHub,
     proxy_config: Arc<RwLock<ProxyConfig>>,
 }
 
@@ -45,16 +41,14 @@ impl AgentManager {
     pub(crate) fn new(
         configs: HashMap<String, AgentProcessConfig>,
         permission_store: Arc<PermissionStore>,
-        session_bus: SessionUpdateBusContainer,
-        permission_bus: PermissionBusContainer,
+        event_hub: EventHub,
         proxy_config: ProxyConfig,
     ) -> Self {
         let _ = configs;
         Self {
             agents: Arc::new(RwLock::new(HashMap::new())),
             permission_store,
-            session_bus,
-            permission_bus,
+            event_hub,
             proxy_config: Arc::new(RwLock::new(proxy_config)),
         }
     }
@@ -62,8 +56,7 @@ impl AgentManager {
     pub async fn initialize(
         configs: HashMap<String, AgentProcessConfig>,
         permission_store: Arc<PermissionStore>,
-        session_bus: SessionUpdateBusContainer,
-        permission_bus: PermissionBusContainer,
+        event_hub: EventHub,
         proxy_config: ProxyConfig,
     ) -> Result<Arc<Self>> {
         if configs.is_empty() {
@@ -73,8 +66,7 @@ impl AgentManager {
         let manager = Arc::new(Self {
             agents: Arc::new(RwLock::new(HashMap::new())),
             permission_store,
-            session_bus,
-            permission_bus,
+            event_hub,
             proxy_config,
         });
         let remaining = Arc::new(AtomicUsize::new(configs.len()));
@@ -145,8 +137,7 @@ impl AgentManager {
             name.clone(),
             config,
             self.permission_store.clone(),
-            self.session_bus.clone(),
-            self.permission_bus.clone(),
+            self.event_hub.clone(),
             self.proxy_config.read().await.clone(),
         )
         .await?;
@@ -210,8 +201,7 @@ impl AgentManager {
             name.to_string(),
             config,
             self.permission_store.clone(),
-            self.session_bus.clone(),
-            self.permission_bus.clone(),
+            self.event_hub.clone(),
             self.proxy_config.read().await.clone(),
         )
         .await?;
@@ -265,8 +255,7 @@ impl AgentHandle {
         name: String,
         config: AgentProcessConfig,
         permission_store: Arc<PermissionStore>,
-        session_bus: SessionUpdateBusContainer,
-        permission_bus: PermissionBusContainer,
+        event_hub: EventHub,
         proxy_config: ProxyConfig,
     ) -> Result<Self> {
         let (sender, receiver) = mpsc::channel(32);
@@ -283,8 +272,7 @@ impl AgentHandle {
                     worker_name,
                     config,
                     permission_store,
-                    session_bus,
-                    permission_bus,
+                    event_hub,
                     receiver,
                     ready_tx,
                     init_response_clone,
@@ -511,8 +499,7 @@ fn run_agent_worker(
     agent_name: String,
     config: AgentProcessConfig,
     permission_store: Arc<PermissionStore>,
-    session_bus: SessionUpdateBusContainer,
-    permission_bus: PermissionBusContainer,
+    event_hub: EventHub,
     command_rx: mpsc::Receiver<AgentCommand>,
     ready_tx: oneshot::Sender<Result<agent_client_protocol::InitializeResponse>>,
     init_response: Arc<std::sync::RwLock<Option<acp::InitializeResponse>>>,
@@ -530,8 +517,7 @@ fn run_agent_worker(
                 agent_name,
                 config,
                 permission_store,
-                session_bus,
-                permission_bus,
+                event_hub,
                 command_rx,
                 ready_tx,
                 init_response,
@@ -545,8 +531,7 @@ async fn agent_event_loop(
     agent_name: String,
     config: AgentProcessConfig,
     permission_store: Arc<PermissionStore>,
-    session_bus: SessionUpdateBusContainer,
-    permission_bus: PermissionBusContainer,
+    event_hub: EventHub,
     mut command_rx: mpsc::Receiver<AgentCommand>,
     ready_tx: oneshot::Sender<Result<agent_client_protocol::InitializeResponse>>,
     init_response: Arc<std::sync::RwLock<Option<acp::InitializeResponse>>>,
@@ -649,12 +634,7 @@ async fn agent_event_loop(
         .ok_or_else(|| anyhow!("agent {agent_name} missing stdout"))?
         .compat();
 
-    let client = GuiClient::new(
-        agent_name.clone(),
-        permission_store,
-        session_bus,
-        permission_bus,
-    );
+    let client = GuiClient::new(agent_name.clone(), permission_store, event_hub);
     let (conn, io_task) = acp::ClientSideConnection::new(client, outgoing, incoming, |fut| {
         tokio::task::spawn_local(fut);
     });
@@ -827,22 +807,19 @@ async fn agent_event_loop(
 struct GuiClient {
     agent_name: String,
     permission_store: Arc<PermissionStore>,
-    session_bus: SessionUpdateBusContainer,
-    permission_bus: PermissionBusContainer,
+    event_hub: EventHub,
 }
 
 impl GuiClient {
     pub fn new(
         agent_name: String,
         permission_store: Arc<PermissionStore>,
-        session_bus: SessionUpdateBusContainer,
-        permission_bus: PermissionBusContainer,
+        event_hub: EventHub,
     ) -> Self {
         Self {
             agent_name,
             permission_store,
-            session_bus,
-            permission_bus,
+            event_hub,
         }
     }
 }
@@ -873,7 +850,7 @@ impl acp::Client for GuiClient {
             permission_id,
             event.session_id
         );
-        self.permission_bus.publish(event);
+        self.event_hub.publish_permission_request(event);
 
         rx.await
             .map_err(|_| acp::Error::internal_error().data("permission request channel closed"))
@@ -947,7 +924,7 @@ impl acp::Client for GuiClient {
         };
 
         log::debug!("[GuiClient] Publishing SessionUpdateEvent to bus");
-        self.session_bus.publish(event);
+        self.event_hub.publish_session_update(event);
         Ok(())
     }
 

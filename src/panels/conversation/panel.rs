@@ -365,34 +365,39 @@ impl ConversationPanel {
         cx: &mut App,
     ) {
         let weak_entity = entity.downgrade();
-        let permission_bus = AppState::global(cx).permission_bus.clone();
+        let event_hub = AppState::global(cx).event_hub.clone();
 
         // Create unbounded channel for cross-thread communication
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<
-            crate::core::event_bus::permission_bus::PermissionRequestEvent,
+            crate::core::event_bus::PermissionRequestEvent,
         >();
 
         // Clone session_filter for logging after the closure
         let filter_log = session_filter.clone();
         let filter_log_inner = session_filter.clone();
 
-        // Subscribe to permission bus, send requests to channel in callback
-        permission_bus.subscribe(move |event| {
-            // Filter by session_id if specified
-            if let Some(ref filter_id) = session_filter {
-                if &event.session_id != filter_id {
-                    return; // Skip this permission request
-                }
-            }
-
-            // This callback runs in agent I/O thread
-            let _ = tx.send(event.clone());
-            log::info!(
-                "Permission request sent to channel: permission_id={}, session_id={}",
-                event.permission_id,
-                event.session_id
-            );
-        });
+        // Subscribe to permission requests, send requests to channel in callback
+        if let Some(filter_id) = session_filter.clone() {
+            event_hub.subscribe_permission_requests_for_session(filter_id, move |event| {
+                // This callback runs in agent I/O thread
+                let _ = tx.send(event.clone());
+                log::info!(
+                    "Permission request sent to channel: permission_id={}, session_id={}",
+                    event.permission_id,
+                    event.session_id
+                );
+            });
+        } else {
+            event_hub.subscribe_permission_requests(move |event| {
+                // This callback runs in agent I/O thread
+                let _ = tx.send(event.clone());
+                log::info!(
+                    "Permission request sent to channel: permission_id={}, session_id={}",
+                    event.permission_id,
+                    event.session_id
+                );
+            });
+        }
 
         // Spawn background task to receive from channel and update entity
         cx.spawn(async move |cx| {
@@ -457,14 +462,14 @@ impl ConversationPanel {
         .detach();
 
         let filter_log_str = filter_log.as_deref().unwrap_or("all sessions");
-        log::info!("Subscribed to permission bus for: {}", filter_log_str);
+        log::info!("Subscribed to permission events for: {}", filter_log_str);
     }
 
-    /// Subscribe to CodeSelectionBus to receive code selection events
+    /// Subscribe to code selection events via EventHub
     pub fn subscribe_to_code_selections(entity: &Entity<Self>, cx: &mut App) {
         crate::core::event_bus::subscribe_entity_to_code_selections(
             entity,
-            AppState::global(cx).code_selection_bus.clone(),
+            AppState::global(cx).event_hub.clone(),
             "ConversationPanel",
             |panel, selection, cx| {
                 panel.code_selections.push(selection);
@@ -481,21 +486,24 @@ impl ConversationPanel {
         cx: &mut App,
     ) {
         let weak_entity = entity.downgrade();
-        let workspace_bus = AppState::global(cx).workspace_bus.clone();
+        let event_hub = AppState::global(cx).event_hub.clone();
 
         // Create unbounded channel for cross-thread communication
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<
-            crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent,
-        >();
+        let (tx, mut rx) =
+            tokio::sync::mpsc::unbounded_channel::<crate::core::event_bus::WorkspaceUpdateEvent>();
 
         let filter_log = session_filter.clone();
         let filter_log2 = session_filter.clone();
         let filter_log3 = session_filter.clone();
 
         // Subscribe to workspace bus, send status updates to channel in callback
-        workspace_bus.subscribe(move |event| {
+        event_hub.subscribe_workspace_updates(move |event| {
             // Only handle SessionStatusUpdated events
-            if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated { session_id, .. } = event {
+            if let crate::core::event_bus::WorkspaceUpdateEvent::SessionStatusUpdated {
+                session_id,
+                ..
+            } = event
+            {
                 // Filter by session_id if specified
                 if let Some(ref filter_id) = session_filter {
                     if session_id != filter_id {
@@ -519,7 +527,7 @@ impl ConversationPanel {
                 filter_log2.as_deref().unwrap_or("all")
             );
             while let Some(event) = rx.recv().await {
-                if let crate::core::event_bus::workspace_bus::WorkspaceUpdateEvent::SessionStatusUpdated {
+                if let crate::core::event_bus::WorkspaceUpdateEvent::SessionStatusUpdated {
                     session_id,
                     agent_name,
                     status,

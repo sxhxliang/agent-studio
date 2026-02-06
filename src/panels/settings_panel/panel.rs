@@ -139,12 +139,12 @@ impl SettingsPanel {
             .detach();
         }
 
-        // Subscribe to AgentConfigBus for dynamic updates
-        let agent_config_bus = AppState::global(cx).agent_config_bus.clone();
+        // Subscribe to EventHub for dynamic updates
+        let event_hub = AppState::global(cx).event_hub.clone();
         let weak_entity = cx.entity().downgrade();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        agent_config_bus.subscribe(move |event| {
+        event_hub.subscribe_agent_config_updates(move |event| {
             let _ = tx.send(event.clone());
         });
 
@@ -169,10 +169,10 @@ impl SettingsPanel {
     /// Handle agent configuration events
     fn on_agent_config_event(
         &mut self,
-        event: &crate::core::event_bus::agent_config_bus::AgentConfigEvent,
+        event: &crate::core::event_bus::AgentConfigEvent,
         cx: &mut Context<Self>,
     ) {
-        use crate::core::event_bus::agent_config_bus::AgentConfigEvent;
+        use crate::core::event_bus::AgentConfigEvent;
 
         log::info!("[SettingsPanel] Processing config event: {:?}", event);
 

@@ -31,9 +31,8 @@ fn main() {
             }
         }
 
-        // Get session_bus and permission_bus from global AppState
-        let session_bus = agentx::AppState::global(cx).session_bus.clone();
-        let permission_bus = agentx::AppState::global(cx).permission_bus.clone();
+        // Get EventHub from global AppState
+        let event_hub = agentx::AppState::global(cx).event_hub.clone();
 
         // Open GUI window immediately (non-blocking)
         open_new(cx, |_, _, _| {
@@ -96,8 +95,7 @@ fn main() {
             match AgentManager::initialize(
                 agent_servers,
                 permission_store.clone(),
-                session_bus.clone(),
-                permission_bus.clone(),
+                event_hub.clone(),
                 config.proxy.clone(),
             )
             .await

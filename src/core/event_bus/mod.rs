@@ -11,22 +11,17 @@
 pub mod batching;
 pub mod core;
 
-// Specialized event buses
-pub mod agent_config_bus;
-pub mod code_selection_bus;
-pub mod permission_bus;
-pub mod session_bus;
-pub mod workspace_bus;
+// Event types and hub
+pub mod events;
+pub mod hub;
 
 // Re-export core types
 pub use batching::{BatchedEventCollector, BatchedEvents, Debouncer, DebouncerContainer};
 pub use core::{EventBus, EventBusContainer, EventBusStats, SubscriptionId};
 
-// Re-export specialized event bus types
-pub use agent_config_bus::{AgentConfigBusContainer, AgentConfigEvent};
-pub use code_selection_bus::{
-    CodeSelectionBusContainer, CodeSelectionEvent, subscribe_entity_to_code_selections,
+// Re-export event types + hub
+pub use events::{
+    AgentConfigEvent, CodeSelectionEvent, PermissionRequestEvent, SessionUpdateEvent,
+    WorkspaceUpdateEvent,
 };
-pub use permission_bus::{PermissionBusContainer, PermissionRequestEvent};
-pub use session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
-pub use workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
+pub use hub::{subscribe_entity_to_code_selections, AppEvent, EventHub};

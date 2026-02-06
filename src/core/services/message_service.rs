@@ -14,8 +14,7 @@ use agent_client_protocol::{
 };
 use anyhow::{Result, anyhow};
 
-use crate::core::event_bus::session_bus::{SessionUpdateBusContainer, SessionUpdateEvent};
-use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
+use crate::core::event_bus::{EventHub, SessionUpdateEvent, WorkspaceUpdateEvent};
 use crate::core::services::SessionStatus;
 
 use super::agent_service::AgentService;
@@ -23,40 +22,37 @@ use super::persistence_service::{PersistedMessage, PersistenceService};
 
 /// Message service - handles message sending and event bus interaction
 pub struct MessageService {
-    session_bus: SessionUpdateBusContainer,
+    event_hub: EventHub,
     agent_service: Arc<AgentService>,
     persistence_service: Arc<PersistenceService>,
-    workspace_bus: WorkspaceUpdateBusContainer,
 }
 
 impl MessageService {
     pub fn new(
-        session_bus: SessionUpdateBusContainer,
+        event_hub: EventHub,
         agent_service: Arc<AgentService>,
         persistence_service: Arc<PersistenceService>,
-        workspace_bus: WorkspaceUpdateBusContainer,
     ) -> Self {
         Self {
-            session_bus,
+            event_hub,
             agent_service,
             persistence_service,
-            workspace_bus,
         }
     }
 
     /// Initialize persistence subscription
     ///
     /// This should be called after the MessageService is created.
-    /// Subscribes to both session_bus and workspace_bus events.
+    /// Subscribes to session and workspace events.
     pub fn init_persistence(&self) {
         let persistence_service = self.persistence_service.clone();
-        let session_bus = self.session_bus.clone();
+        let event_hub = self.event_hub.clone();
         let agent_service = self.agent_service.clone();
         let load_persist_policy: Arc<Mutex<HashMap<String, bool>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        // Subscribe to session bus for all session updates
-        session_bus.subscribe(move |event| {
+        // Subscribe to session updates
+        event_hub.subscribe_session_updates(move |event| {
             let session_id = event.session_id.clone();
             let update = (*event.update).clone();
             let agent_name = event.agent_name.clone();
@@ -128,9 +124,9 @@ impl MessageService {
 
         // Subscribe to workspace bus for session status changes
         let persistence_service_ws = self.persistence_service.clone();
-        let workspace_bus = self.workspace_bus.clone();
+        let event_hub = self.event_hub.clone();
 
-        workspace_bus.subscribe(move |event| {
+        event_hub.subscribe_workspace_updates(move |event| {
             if let WorkspaceUpdateEvent::SessionStatusUpdated {
                 session_id, status, ..
             } = event
@@ -154,9 +150,7 @@ impl MessageService {
             }
         });
 
-        log::info!(
-            "MessageService persistence subscriptions initialized (session_bus + workspace_bus)"
-        );
+        log::info!("MessageService persistence subscriptions initialized (event_hub)");
     }
 
     /// Send a user message to an existing session
@@ -209,7 +203,7 @@ impl MessageService {
             update: Arc::new(SessionUpdate::UserMessageChunk(content_chunk)),
         };
 
-        self.session_bus.publish(user_event);
+        self.event_hub.publish_session_update(user_event);
         log::debug!("Published user message to session bus: {}", session_id);
     }
 
@@ -241,7 +235,7 @@ impl MessageService {
             update: Arc::new(SessionUpdate::UserMessageChunk(content_chunk)),
         };
 
-        self.session_bus.publish(user_event);
+        self.event_hub.publish_session_update(user_event);
         log::debug!(
             "Published user content block to session bus: {}",
             session_id
@@ -258,7 +252,7 @@ impl MessageService {
     ) -> tokio::sync::mpsc::UnboundedReceiver<SessionUpdateEvent> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        self.session_bus.subscribe(move |event| {
+        self.event_hub.subscribe_session_updates(move |event| {
             // Filter by session_id if specified
             if let Some(ref filter_id) = session_id {
                 if &event.session_id != filter_id {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::core::event_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
+use crate::core::event_bus::{EventHub, WorkspaceUpdateEvent};
 use crate::core::services::SessionStatus;
 use crate::schemas::workspace_schema::{Workspace, WorkspaceConfig, WorkspaceTask};
 
@@ -19,7 +19,7 @@ use crate::schemas::workspace_schema::{Workspace, WorkspaceConfig, WorkspaceTask
 pub struct WorkspaceService {
     config: Arc<RwLock<WorkspaceConfig>>,
     config_path: PathBuf,
-    workspace_bus: Option<WorkspaceUpdateBusContainer>,
+    event_hub: Option<EventHub>,
 }
 
 impl WorkspaceService {
@@ -30,20 +30,20 @@ impl WorkspaceService {
         Self {
             config: Arc::new(RwLock::new(config)),
             config_path,
-            workspace_bus: None,
+            event_hub: None,
         }
     }
 
-    /// Set the workspace event bus (called after AppState initialization)
-    pub fn set_workspace_bus(&mut self, bus: WorkspaceUpdateBusContainer) {
-        self.workspace_bus = Some(bus);
+    /// Set the event hub (called after AppState initialization)
+    pub fn set_event_hub(&mut self, hub: EventHub) {
+        self.event_hub = Some(hub);
     }
 
-    /// Publish a workspace update event if bus is available
+    /// Publish a workspace update event if hub is available
     fn publish_event(&self, event: WorkspaceUpdateEvent) {
-        if let Some(bus) = &self.workspace_bus {
+        if let Some(hub) = &self.event_hub {
             log::debug!("[WorkspaceService] Publishing event: {:?}", &event);
-            bus.publish(event);
+            hub.publish_workspace_update(event);
         }
     }
 

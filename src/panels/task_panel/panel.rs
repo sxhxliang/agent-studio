@@ -396,7 +396,7 @@ impl TaskPanel {
     }
 
     fn subscribe_to_workspace_updates(entity: &Entity<Self>, cx: &mut App) {
-        let workspace_bus = AppState::global(cx).workspace_bus.clone();
+        let event_hub = AppState::global(cx).event_hub.clone();
         let workspace_service = match AppState::global(cx).workspace_service() {
             Some(service) => service.clone(),
             None => {
@@ -409,7 +409,7 @@ impl TaskPanel {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Subscribe to workspace bus
-        workspace_bus.subscribe(move |event| {
+        event_hub.subscribe_workspace_updates(move |event| {
             let _ = tx.send(event.clone());
         });
 

@@ -5,10 +5,7 @@ use std::sync::Arc;
 use crate::{
     core::agent::{AgentManager, PermissionStore},
     core::config::DEFAULT_TOOL_CALL_PREVIEW_MAX_LINES,
-    core::event_bus::{
-        AgentConfigBusContainer, CodeSelectionBusContainer, PermissionBusContainer,
-        SessionUpdateBusContainer, WorkspaceUpdateBusContainer,
-    },
+    core::event_bus::EventHub,
     core::services::{
         AgentConfigService, AgentService, AiService, MessageService, PersistenceService,
         WorkspaceService,
@@ -26,11 +23,7 @@ pub struct AppState {
     pub invisible_panels: Entity<Vec<SharedString>>,
     agent_manager: Option<Arc<AgentManager>>,
     permission_store: Option<Arc<PermissionStore>>,
-    pub session_bus: SessionUpdateBusContainer,
-    pub permission_bus: PermissionBusContainer,
-    pub workspace_bus: WorkspaceUpdateBusContainer,
-    pub code_selection_bus: CodeSelectionBusContainer,
-    pub agent_config_bus: AgentConfigBusContainer,
+    pub event_hub: EventHub,
     /// Current welcome session - created when user selects an agent
     welcome_session: Option<WelcomeSession>,
     /// Service layer
@@ -57,12 +50,12 @@ impl AppState {
         // Initialize WorkspaceService with config path
         let config_path = crate::core::config_manager::get_workspace_config_path();
 
-        // Create workspace bus
-        let workspace_bus = WorkspaceUpdateBusContainer::new();
+        // Create shared event hub
+        let event_hub = EventHub::new();
 
         // Create workspace service and set its bus
         let mut workspace_service = WorkspaceService::new(config_path);
-        workspace_service.set_workspace_bus(workspace_bus.clone());
+        workspace_service.set_event_hub(event_hub.clone());
         let workspace_service = Arc::new(workspace_service);
         let sessions_dir = crate::core::config_manager::get_sessions_dir();
         let persistence_service = Arc::new(PersistenceService::new(sessions_dir));
@@ -71,13 +64,7 @@ impl AppState {
             invisible_panels: cx.new(|_| Vec::new()),
             agent_manager: None,
             permission_store: None,
-            session_bus: SessionUpdateBusContainer::new(),
-            permission_bus: PermissionBusContainer::new(),
-            workspace_bus,
-            code_selection_bus: Arc::new(std::sync::Mutex::new(
-                crate::core::event_bus::code_selection_bus::CodeSelectionBus::new(),
-            )),
-            agent_config_bus: AgentConfigBusContainer::new(),
+            event_hub,
             welcome_session: None,
             agent_service: None,
             message_service: None,
@@ -160,14 +147,13 @@ impl AppState {
 
         // Initialize services when agent_manager is set
         let mut agent_service = AgentService::new(manager.clone());
-        agent_service.set_workspace_bus(self.workspace_bus.clone());
+        agent_service.set_event_hub(self.event_hub.clone());
         let agent_service = Arc::new(agent_service);
 
         let message_service = Arc::new(MessageService::new(
-            self.session_bus.clone(),
+            self.event_hub.clone(),
             agent_service.clone(),
             persistence_service,
-            self.workspace_bus.clone(),
         ));
 
         // Initialize AgentConfigService if config_path is set
@@ -176,7 +162,7 @@ impl AppState {
                 initial_config.clone(),
                 config_path.clone(),
                 manager.clone(),
-                self.agent_config_bus.clone(),
+                self.event_hub.clone(),
             );
             service.set_agent_service(agent_service.clone());
             Some(Arc::new(service))

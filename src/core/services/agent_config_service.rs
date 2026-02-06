@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::core::agent::AgentManager;
 use crate::core::config::{AgentProcessConfig, Config};
-use crate::core::event_bus::{AgentConfigBusContainer, AgentConfigEvent};
+use crate::core::event_bus::{AgentConfigEvent, EventHub};
 use crate::core::services::AgentService;
 use anyhow::{Context, Result, anyhow};
 
@@ -25,8 +25,8 @@ pub struct AgentConfigService {
     agent_manager: Arc<AgentManager>,
     /// Reference to AgentService to check active sessions
     agent_service: Option<Arc<AgentService>>,
-    /// Event bus for publishing configuration changes
-    event_bus: AgentConfigBusContainer,
+    /// Event hub for publishing configuration changes
+    event_hub: EventHub,
 }
 
 impl AgentConfigService {
@@ -35,14 +35,14 @@ impl AgentConfigService {
         initial_config: Config,
         config_path: PathBuf,
         agent_manager: Arc<AgentManager>,
-        event_bus: AgentConfigBusContainer,
+        event_hub: EventHub,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(initial_config)),
             config_path,
             agent_manager,
             agent_service: None,
-            event_bus,
+            event_hub,
         }
     }
 
@@ -228,10 +228,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::AgentAdded {
-            name: name.clone(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::AgentAdded {
+                name: name.clone(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully added agent '{}'", name);
         Ok(())
@@ -267,10 +268,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::AgentUpdated {
-            name: name.to_string(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::AgentUpdated {
+                name: name.to_string(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully updated agent '{}'", name);
         Ok(())
@@ -305,9 +307,10 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::AgentRemoved {
-            name: name.to_string(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::AgentRemoved {
+                name: name.to_string(),
+            });
 
         log::info!("Successfully removed agent '{}'", name);
         Ok(())
@@ -323,9 +326,10 @@ impl AgentConfigService {
 
         self.save_to_file().await?;
 
-        self.event_bus.publish(AgentConfigEvent::ConfigReloaded {
-            config: Box::new(updated_config),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ConfigReloaded {
+                config: Box::new(updated_config),
+            });
 
         Ok(())
     }
@@ -356,10 +360,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::ModelAdded {
-            name: name.clone(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ModelAdded {
+                name: name.clone(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully added model '{}'", name);
         Ok(())
@@ -391,10 +396,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::ModelUpdated {
-            name: name.to_string(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ModelUpdated {
+                name: name.to_string(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully updated model '{}'", name);
         Ok(())
@@ -420,9 +426,10 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::ModelRemoved {
-            name: name.to_string(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ModelRemoved {
+                name: name.to_string(),
+            });
 
         log::info!("Successfully removed model '{}'", name);
         Ok(())
@@ -456,10 +463,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::McpServerAdded {
-            name: name.clone(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::McpServerAdded {
+                name: name.clone(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully added MCP server '{}'", name);
         Ok(())
@@ -491,10 +499,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::McpServerUpdated {
-            name: name.to_string(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::McpServerUpdated {
+                name: name.to_string(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully updated MCP server '{}'", name);
         Ok(())
@@ -520,9 +529,10 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::McpServerRemoved {
-            name: name.to_string(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::McpServerRemoved {
+                name: name.to_string(),
+            });
 
         log::info!("Successfully removed MCP server '{}'", name);
         Ok(())
@@ -554,10 +564,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::CommandAdded {
-            name: name.clone(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::CommandAdded {
+                name: name.clone(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully added command '{}'", name);
         Ok(())
@@ -589,10 +600,11 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::CommandUpdated {
-            name: name.to_string(),
-            config: config.clone(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::CommandUpdated {
+                name: name.to_string(),
+                config: config.clone(),
+            });
 
         log::info!("Successfully updated command '{}'", name);
         Ok(())
@@ -618,9 +630,10 @@ impl AgentConfigService {
         self.save_to_file().await?;
 
         // Publish event
-        self.event_bus.publish(AgentConfigEvent::CommandRemoved {
-            name: name.to_string(),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::CommandRemoved {
+                name: name.to_string(),
+            });
 
         log::info!("Successfully removed command '{}'", name);
         Ok(())
@@ -680,9 +693,10 @@ impl AgentConfigService {
 
         // Publish config reload event
         let config = self.config.read().await;
-        self.event_bus.publish(AgentConfigEvent::ConfigReloaded {
-            config: Box::new(config.clone()),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ConfigReloaded {
+                config: Box::new(config.clone()),
+            });
 
         log::info!("Successfully updated system prompts");
         Ok(())
@@ -734,9 +748,10 @@ impl AgentConfigService {
         }
 
         // Publish reload event with full config
-        self.event_bus.publish(AgentConfigEvent::ConfigReloaded {
-            config: Box::new(new_config),
-        });
+        self.event_hub
+            .publish_agent_config_update(AgentConfigEvent::ConfigReloaded {
+                config: Box::new(new_config),
+            });
 
         log::info!("Configuration reloaded from: {:?}", self.config_path);
         Ok(())
@@ -806,18 +821,17 @@ mod tests {
             proxy: ProxyConfig::default(),
         };
 
-        let event_bus = AgentConfigBusContainer::new();
+        let event_hub = EventHub::new();
         let config_path = std::env::temp_dir().join("test-config.json");
 
         // Mock agent manager for testing
         let agent_manager = Arc::new(crate::core::agent::AgentManager::new(
             HashMap::new(),
             Arc::new(Default::default()),
-            crate::core::event_bus::SessionUpdateBusContainer::new(),
-            crate::core::event_bus::PermissionBusContainer::new(),
+            event_hub.clone(),
             ProxyConfig::default(),
         ));
 
-        AgentConfigService::new(config, config_path, agent_manager, event_bus)
+        AgentConfigService::new(config, config_path, agent_manager, event_hub)
     }
 }

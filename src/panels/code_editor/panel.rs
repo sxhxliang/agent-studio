@@ -590,22 +590,13 @@ impl CodeEditorPanel {
         };
 
         // 发布到事件总线（替代 window.dispatch_action）
-        log::info!(
-            "[CodeEditorPanel] Publishing to CodeSelectionBus instead of dispatching action"
-        );
+        log::info!("[CodeEditorPanel] Publishing code selection via EventHub");
 
-        // Clone the bus container first to ensure it lives long enough
-        crate::AppState::global(cx)
-            .code_selection_bus
-            .clone()
-            .lock()
-            .map(|bus| {
-                bus.publish(crate::core::event_bus::CodeSelectionEvent { selection: action });
-                log::info!("[CodeEditorPanel] Event published successfully to CodeSelectionBus");
-            })
-            .unwrap_or_else(|_| {
-                log::error!("[CodeEditorPanel] Failed to lock CodeSelectionBus");
-            });
+        let event_hub = crate::AppState::global(cx).event_hub.clone();
+        event_hub.publish_code_selection(crate::core::event_bus::CodeSelectionEvent {
+            selection: action,
+        });
+        log::info!("[CodeEditorPanel] Code selection event published");
     }
 
     fn render_empty_state(&self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

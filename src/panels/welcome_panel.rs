@@ -171,10 +171,10 @@ impl WelcomePanel {
     ) -> Entity<Self> {
         let entity = cx.new(|cx| Self::new(workspace_id.clone(), working_directory, window, cx));
 
-        // Subscribe to CodeSelectionBus using the shared helper function
+        // Subscribe to code selection events using the shared helper function
         crate::core::event_bus::subscribe_entity_to_code_selections(
             &entity,
-            AppState::global(cx).code_selection_bus.clone(),
+            AppState::global(cx).event_hub.clone(),
             "WelcomePanel",
             |panel, selection, cx| {
                 panel.code_selections.push(selection);
@@ -183,15 +183,15 @@ impl WelcomePanel {
             cx,
         );
 
-        // Subscribe to AgentConfigBus for dynamic agent list updates
+        // Subscribe to agent config events for dynamic agent list updates
         {
-            let agent_config_bus = AppState::global(cx).agent_config_bus.clone();
+            let event_hub = AppState::global(cx).event_hub.clone();
             let weak_entity = entity.downgrade();
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // Subscribe to bus
-            log::info!("[WelcomePanel] Subscribing to AgentConfigBus");
-            agent_config_bus.subscribe(move |event| {
+            // Subscribe to hub
+            log::info!("[WelcomePanel] Subscribing to agent config events");
+            event_hub.subscribe_agent_config_updates(move |event| {
                 log::debug!("[WelcomePanel] Received agent config event");
                 let _ = tx.send(event.clone());
             });
@@ -579,10 +579,10 @@ impl WelcomePanel {
     /// Handle agent configuration events (add/remove/reload)
     fn on_agent_config_event(
         &mut self,
-        event: &crate::core::event_bus::agent_config_bus::AgentConfigEvent,
+        event: &crate::core::event_bus::AgentConfigEvent,
         cx: &mut Context<Self>,
     ) {
-        use crate::core::event_bus::agent_config_bus::AgentConfigEvent;
+        use crate::core::event_bus::AgentConfigEvent;
 
         log::info!("[WelcomePanel] Received agent config event: {:?}", event);
 
@@ -991,11 +991,10 @@ impl WelcomePanel {
         if needs_scan {
             let weak_self = cx.entity().downgrade();
             cx.spawn(async move |_this, cx| {
-                let items = tokio::task::spawn_blocking(move || {
+                let items = smol::unblock(move || {
                     FilePickerDelegate::scan_directory(&root_path, &root_path)
                 })
-                .await
-                .unwrap_or_default();
+                .await;
 
                 _ = cx.update(|cx| {
                     if let Some(this) = weak_self.upgrade() {

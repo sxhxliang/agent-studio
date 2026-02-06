@@ -16,7 +16,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::core::agent::{AgentHandle, AgentManager};
-use crate::core::event_bus::workspace_bus::{WorkspaceUpdateBusContainer, WorkspaceUpdateEvent};
+use crate::core::event_bus::{EventHub, WorkspaceUpdateEvent};
 
 /// Agent service - manages agents and their sessions
 pub struct AgentService {
@@ -25,8 +25,8 @@ pub struct AgentService {
     sessions: Arc<RwLock<HashMap<String, HashMap<String, AgentSessionInfo>>>>,
     /// Tracks sessions currently loading history via session/load
     loading_sessions: Arc<RwLock<HashSet<String>>>,
-    /// Workspace event bus for publishing status updates
-    workspace_bus: Option<WorkspaceUpdateBusContainer>,
+    /// Event hub for publishing status updates
+    event_hub: Option<EventHub>,
 }
 
 /// Agent session information
@@ -61,14 +61,14 @@ impl AgentService {
             agent_manager,
             sessions: Arc::new(RwLock::new(HashMap::new())),
             loading_sessions: Arc::new(RwLock::new(HashSet::new())),
-            workspace_bus: None,
+            event_hub: None,
         }
     }
 
-    /// Set the workspace event bus for publishing status updates
-    pub fn set_workspace_bus(&mut self, bus: WorkspaceUpdateBusContainer) {
-        log::info!("AgentService: Setting workspace event bus");
-        self.workspace_bus = Some(bus);
+    /// Set the event hub for publishing status updates
+    pub fn set_event_hub(&mut self, hub: EventHub) {
+        log::info!("AgentService: Setting event hub");
+        self.event_hub = Some(hub);
     }
 
     // ========== Agent Operations ==========
@@ -432,8 +432,8 @@ impl AgentService {
                     agent_name
                 );
 
-                // Publish status update to workspace bus
-                if let Some(ref workspace_bus) = self.workspace_bus {
+                // Publish status update to event hub
+                if let Some(ref event_hub) = self.event_hub {
                     let event = WorkspaceUpdateEvent::SessionStatusUpdated {
                         session_id: session_id.to_string(),
                         agent_name: agent_name.to_string(),
@@ -441,8 +441,8 @@ impl AgentService {
                         last_active: info.last_active,
                         message_count: 0,
                     };
-                    workspace_bus.publish(event);
-                    log::info!("AgentService: Published session status update to workspace bus");
+                    event_hub.publish_workspace_update(event);
+                    log::info!("AgentService: Published session status update to event hub");
                 }
             } else {
                 log::warn!(
@@ -580,8 +580,8 @@ impl AgentService {
                 );
                 info.status = status.clone();
 
-                // Publish status update to workspace bus
-                if let Some(ref workspace_bus) = self.workspace_bus {
+                // Publish status update to event hub
+                if let Some(ref event_hub) = self.event_hub {
                     let event = WorkspaceUpdateEvent::SessionStatusUpdated {
                         session_id: session_id.to_string(),
                         agent_name: agent_name.to_string(),
@@ -589,8 +589,8 @@ impl AgentService {
                         last_active: info.last_active,
                         message_count: 0, // TODO: Track actual message count
                     };
-                    workspace_bus.publish(event);
-                    log::debug!("Published session status update to workspace bus");
+                    event_hub.publish_workspace_update(event);
+                    log::debug!("Published session status update to event hub");
                 }
             }
         }
