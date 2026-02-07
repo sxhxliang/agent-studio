@@ -12,6 +12,8 @@ use crate::{
     },
 };
 
+use super::service_registry::ServiceRegistry;
+
 /// Welcome session info - stores the session created when user selects an agent
 #[derive(Clone, Debug)]
 pub struct WelcomeSession {
@@ -20,28 +22,24 @@ pub struct WelcomeSession {
 }
 
 pub struct AppState {
+    // UI state (GPUI entities)
     pub invisible_panels: Entity<Vec<SharedString>>,
+    pub selected_tool_call: Entity<Option<agent_client_protocol::ToolCall>>,
+
+    // Infrastructure
     agent_manager: Option<Arc<AgentManager>>,
     permission_store: Option<Arc<PermissionStore>>,
-    pub event_hub: EventHub,
-    /// Current welcome session - created when user selects an agent
-    welcome_session: Option<WelcomeSession>,
-    /// Service layer
-    agent_service: Option<Arc<AgentService>>,
-    message_service: Option<Arc<MessageService>>,
-    persistence_service: Option<Arc<PersistenceService>>,
-    workspace_service: Option<Arc<WorkspaceService>>,
-    agent_config_service: Option<Arc<AgentConfigService>>,
-    ai_service: Option<Arc<AiService>>,
-    /// Config file path for AgentConfigService
+
+    /// Service registry — Clone + Send, can be captured in async closures
+    pub services: ServiceRegistry,
+
+    // Configuration
     config_path: Option<PathBuf>,
-    /// Current working directory for the code editor
     current_working_dir: PathBuf,
-    /// Max lines to show in tool call previews (0 disables truncation)
     tool_call_preview_max_lines: usize,
-    /// Selected tool call for detail view
-    pub selected_tool_call: Entity<Option<agent_client_protocol::ToolCall>>,
-    /// Cached title for rebuilding app menus after locale changes
+
+    // Temporary UI state
+    welcome_session: Option<WelcomeSession>,
     app_title: SharedString,
 }
 
@@ -53,25 +51,23 @@ impl AppState {
         // Create shared event hub
         let event_hub = EventHub::new();
 
+        // Create service registry
+        let mut services = ServiceRegistry::new(event_hub.clone());
+
         // Create workspace service and set its bus
         let mut workspace_service = WorkspaceService::new(config_path);
         workspace_service.set_event_hub(event_hub.clone());
-        let workspace_service = Arc::new(workspace_service);
+        services.set_workspace_service(Arc::new(workspace_service));
+
         let sessions_dir = crate::core::config_manager::get_sessions_dir();
-        let persistence_service = Arc::new(PersistenceService::new(sessions_dir));
+        services.set_persistence_service(Arc::new(PersistenceService::new(sessions_dir)));
 
         let state = Self {
             invisible_panels: cx.new(|_| Vec::new()),
             agent_manager: None,
             permission_store: None,
-            event_hub,
+            services,
             welcome_session: None,
-            agent_service: None,
-            message_service: None,
-            persistence_service: Some(persistence_service),
-            workspace_service: Some(workspace_service),
-            agent_config_service: None,
-            ai_service: None,
             config_path: None,
             current_working_dir: Self::resolve_initial_working_dir(),
             tool_call_preview_max_lines: DEFAULT_TOOL_CALL_PREVIEW_MAX_LINES,
@@ -138,59 +134,61 @@ impl AppState {
     ) {
         log::info!("Setting AgentManager");
 
-        // Determine sessions directory path
+        // Ensure persistence service exists
         let sessions_dir = crate::core::config_manager::get_sessions_dir();
-        let persistence_service = self
-            .persistence_service
-            .get_or_insert_with(|| Arc::new(PersistenceService::new(sessions_dir)))
-            .clone();
+        let persistence_service = match self.services.persistence_service() {
+            Ok(ps) => ps.clone(),
+            Err(_) => {
+                let ps = Arc::new(PersistenceService::new(sessions_dir));
+                self.services.set_persistence_service(ps.clone());
+                ps
+            }
+        };
+
+        let event_hub = self.services.event_hub.clone();
 
         // Initialize services when agent_manager is set
         let mut agent_service = AgentService::new(manager.clone());
-        agent_service.set_event_hub(self.event_hub.clone());
+        agent_service.set_event_hub(event_hub.clone());
         let agent_service = Arc::new(agent_service);
 
         let message_service = Arc::new(MessageService::new(
-            self.event_hub.clone(),
+            event_hub.clone(),
             agent_service.clone(),
             persistence_service,
         ));
 
         // Initialize AgentConfigService if config_path is set
-        let agent_config_service = if let Some(config_path) = &self.config_path {
+        if let Some(config_path) = &self.config_path {
             let mut service = AgentConfigService::new(
                 initial_config.clone(),
                 config_path.clone(),
                 manager.clone(),
-                self.event_hub.clone(),
+                event_hub.clone(),
             );
             service.set_agent_service(agent_service.clone());
-            Some(Arc::new(service))
+            self.services.set_agent_config_service(Arc::new(service));
         } else {
             log::warn!("Config path not set, AgentConfigService will not be initialized");
-            None
-        };
+        }
 
         // Initialize AI Service from config
-        let ai_service = if !initial_config.models.is_empty() {
+        if !initial_config.models.is_empty() {
             log::info!(
                 "Initializing AI Service with {} models",
                 initial_config.models.len()
             );
-            Some(Arc::new(AiService::new(
+            self.services.set_ai_service(Arc::new(AiService::new(
                 initial_config.models.clone(),
                 initial_config.system_prompts.clone(),
-            )))
+            )));
         } else {
             log::warn!("No AI models configured in config.json");
-            None
-        };
+        }
 
         self.agent_manager = Some(manager);
-        self.agent_service = Some(agent_service);
-        self.message_service = Some(message_service);
-        self.agent_config_service = agent_config_service;
-        self.ai_service = ai_service;
+        self.services.set_agent_service(agent_service);
+        self.services.set_message_service(message_service);
         self.tool_call_preview_max_lines = initial_config.tool_call_preview_max_lines;
 
         log::info!(
@@ -227,6 +225,11 @@ impl AppState {
         self.permission_store.as_ref()
     }
 
+    /// Get the event hub
+    pub fn event_hub(&self) -> &EventHub {
+        &self.services.event_hub
+    }
+
     /// Set the welcome session
     pub fn set_welcome_session(&mut self, session: WelcomeSession) {
         log::info!(
@@ -248,34 +251,30 @@ impl AppState {
         self.welcome_session = None;
     }
 
-    /// Get the AgentService
+    // --- Backward-compatible service accessors (delegate to ServiceRegistry) ---
+
     pub fn agent_service(&self) -> Option<&Arc<AgentService>> {
-        self.agent_service.as_ref()
+        self.services.agent_service().ok()
     }
 
-    /// Get the MessageService
     pub fn message_service(&self) -> Option<&Arc<MessageService>> {
-        self.message_service.as_ref()
+        self.services.message_service().ok()
     }
 
-    /// Get the PersistenceService
     pub fn persistence_service(&self) -> Option<&Arc<PersistenceService>> {
-        self.persistence_service.as_ref()
+        self.services.persistence_service().ok()
     }
 
-    /// Get the WorkspaceService
     pub fn workspace_service(&self) -> Option<&Arc<WorkspaceService>> {
-        self.workspace_service.as_ref()
+        self.services.workspace_service().ok()
     }
 
-    /// Get the AgentConfigService
     pub fn agent_config_service(&self) -> Option<&Arc<AgentConfigService>> {
-        self.agent_config_service.as_ref()
+        self.services.agent_config_service().ok()
     }
 
-    /// Get the AI Service
     pub fn ai_service(&self) -> Option<&Arc<AiService>> {
-        self.ai_service.as_ref()
+        self.services.ai_service().ok()
     }
 
     /// Get the current working directory

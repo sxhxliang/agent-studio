@@ -1,0 +1,28 @@
+[package]
+name = "agentx-acp-ui"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+agent-client-protocol = { version = "0.9.3", features = ["unstable"] }
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui-component = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+similar = { version = "2.6", features = ["text"] }
+
+[dev-dependencies]
+anyhow = "1"
+gpui-component-assets = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
+
+[lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
+unused_imports = "allow"
+
+[lints.clippy]
+style = { level = "allow", priority = -1 }
+module_inception = "allow"

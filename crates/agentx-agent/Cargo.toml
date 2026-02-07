@@ -1,0 +1,25 @@
+[package]
+name = "agentx-agent"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+unstable = []
+test-support = []
+
+[dependencies]
+agentx-types.workspace = true
+agentx-event-bus.workspace = true
+agent-client-protocol.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "process", "fs", "io-util", "sync", "time", "macros"] }
+tokio-util.workspace = true
+anyhow.workspace = true
+log.workspace = true
+smol.workspace = true
+which.workspace = true
+async-trait.workspace = true
+
+[lints]
+workspace = true

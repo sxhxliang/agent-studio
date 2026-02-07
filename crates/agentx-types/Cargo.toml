@@ -1,0 +1,19 @@
+[package]
+name = "agentx-types"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+agent-client-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

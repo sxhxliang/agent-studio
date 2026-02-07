@@ -592,9 +592,9 @@ impl CodeEditorPanel {
         // 发布到事件总线（替代 window.dispatch_action）
         log::info!("[CodeEditorPanel] Publishing code selection via EventHub");
 
-        let event_hub = crate::AppState::global(cx).event_hub.clone();
+        let event_hub = crate::AppState::global(cx).event_hub().clone();
         event_hub.publish_code_selection(crate::core::event_bus::CodeSelectionEvent {
-            selection: action,
+            selection: action.into(),
         });
         log::info!("[CodeEditorPanel] Code selection event published");
     }

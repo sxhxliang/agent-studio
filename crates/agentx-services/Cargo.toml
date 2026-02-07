@@ -1,0 +1,28 @@
+[package]
+name = "agentx-services"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+agentx-types.workspace = true
+agentx-event-bus.workspace = true
+agentx-agent.workspace = true
+agent-client-protocol.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "process", "fs", "io-util", "sync", "time"] }
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+smol.workspace = true
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
+notify = "8.0"
+which.workspace = true
+
+[dev-dependencies]
+agentx-agent = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

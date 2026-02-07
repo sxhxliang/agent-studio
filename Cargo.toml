@@ -1,3 +1,56 @@
+[workspace]
+members = [
+    ".",
+    "crates/agentx-types",
+    "crates/agentx-event-bus",
+    "crates/agentx-agent",
+    "crates/agentx-services",
+    "crates/agentx-acp-ui",
+    "crates/git-worktree-manager",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Internal crates
+agentx-types = { path = "crates/agentx-types" }
+agentx-event-bus = { path = "crates/agentx-event-bus" }
+agentx-agent = { path = "crates/agentx-agent" }
+agentx-services = { path = "crates/agentx-services" }
+
+# Agent communication
+agent-client-protocol = { version = "0.9.3", features = ["unstable"] }
+
+# Async runtime
+tokio = { version = "1.48.0" }
+tokio-util = { version = "0.7.17", features = ["compat"] }
+async-trait = "0.1"
+smol = "2"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling and logging
+anyhow = "1"
+log = "0.4"
+
+# Utilities
+uuid = { version = "1.11", features = ["v4"] }
+dirs = "6.0"
+which = "7.0"
+
+[workspace.lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
+unused_imports = "allow"
+
+[workspace.lints.clippy]
+style = { level = "allow", priority = -1 }
+module_inception = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
 [package]
 name = "agentx"
 version = "0.2.4"
@@ -35,6 +88,12 @@ default = ["unstable"]
 unstable = []
 
 [dependencies]
+# Internal crates
+agentx-types.workspace = true
+agentx-event-bus.workspace = true
+agentx-agent = { workspace = true, features = ["unstable"] }
+agentx-services.workspace = true
+
 # Core GPUI framework
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
@@ -42,13 +101,14 @@ gpui_term = { git = "https://github.com/sxhxliang/gpui-term" }
 # gpui-component = { path = "../crates/ui" }
 
 # Agent communication
-agent-client-protocol = {version = "0.9.3" , features = ["unstable"] }
+agent-client-protocol.workspace = true
+agentx-acp-ui = { path = "crates/agentx-acp-ui" }
 
 # Async runtime
-tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "process", "fs", "io-util"] }
-tokio-util = { version = "0.7.17", features = ["compat"] }
-async-trait = "0.1.89"
-smol = "2"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "process", "fs", "io-util"] }
+tokio-util.workspace = true
+async-trait.workspace = true
+smol.workspace = true
 
 # HTTP client (embedded)
 reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "c15662463bda39148ba154100dd44d3fba5873a4", default-features = false, features = [
@@ -66,12 +126,12 @@ bytes = "1.0"
 futures = "0.3"
 
 # Serialization
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json.workspace = true
 
 # Error handling and logging
-anyhow = "1"
-log = "0.4"
+anyhow.workspace = true
+log.workspace = true
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
@@ -83,16 +143,16 @@ lsp-types = { version = "0.97.0", features = ["proposed"] }
 # Utilities
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 autocorrect = "2.14.2"
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 rfd = "0.15"
-uuid = { version = "1.11", features = ["v4"] }
+uuid.workspace = true
 rust-i18n = "3"
 similar = { version = "2.6", features = ["text"] }
 regex = "1"
 base64 = "0.22"
-which = "7.0"
+which.workspace = true
 image = "0.25"
-dirs = "6.0"
+dirs.workspace = true
 sys-locale = "0.3"
 
 # System tray
@@ -108,7 +168,6 @@ core-text = "=21.0.0"
 core-graphics = "=0.24.0"
 
 [lints.rust]
-# Allow warnings for code under development
 dead_code = "allow"
 unused_variables = "allow"
 unused_imports = "allow"

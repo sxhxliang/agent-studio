@@ -1,27 +1,18 @@
 //! Event Bus System
 //!
-//! Provides a unified, type-safe event bus implementation with:
-//! - Subscription lifecycle management (subscribe/unsubscribe)
-//! - Advanced filtering capabilities
-//! - Performance metrics and monitoring
-//! - Event batching and debouncing
-//! - Automatic cleanup for one-shot subscriptions
+//! Re-exports from agentx-event-bus crate, plus GPUI-specific helpers.
 
-// Core event bus implementation
-pub mod batching;
-pub mod core;
-
-// Event types and hub
-pub mod events;
-pub mod hub;
-
-// Re-export core types
-pub use batching::{BatchedEventCollector, BatchedEvents, Debouncer, DebouncerContainer};
-pub use core::{EventBus, EventBusContainer, EventBusStats, SubscriptionId};
-
-// Re-export event types + hub
-pub use events::{
+// Re-export everything from the agentx-event-bus crate
+pub use agentx_event_bus::batching::{
+    BatchedEventCollector, BatchedEvents, Debouncer, DebouncerContainer,
+};
+pub use agentx_event_bus::core::{EventBus, EventBusContainer, EventBusStats, SubscriptionId};
+pub use agentx_event_bus::hub::{AppEvent, EventHub};
+pub use agentx_event_bus::{
     AgentConfigEvent, CodeSelectionEvent, PermissionRequestEvent, SessionUpdateEvent,
     WorkspaceUpdateEvent,
 };
-pub use hub::{AppEvent, EventHub, subscribe_entity_to_code_selections};
+
+// GPUI-specific helpers that depend on gpui types
+mod code_selection_helper;
+pub use code_selection_helper::subscribe_entity_to_code_selections;

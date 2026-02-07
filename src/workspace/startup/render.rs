@@ -6,746 +6,26 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputState},
+    input::Input,
     scroll::ScrollableElement as _,
     stepper::{Stepper, StepperItem},
     switch::Switch,
     v_flex,
 };
 use rust_i18n::t;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
 
 use crate::{
     AppSettings, AppState,
     app::actions::{SelectLocale, SwitchTheme, SwitchThemeMode},
     assets::get_agent_icon,
-    core::{
-        config::{AgentProcessConfig, Config},
-        nodejs::{NodeJsChecker, NodeJsDetectionMode},
-    },
-    utils,
+    core::nodejs::NodeJsDetectionMode,
 };
 
-use super::DockWorkspace;
-
-#[derive(Clone, Debug)]
-struct AgentChoice {
-    name: String,
-    enabled: bool,
-}
-
-#[derive(Clone, Debug)]
-enum NodeJsStatus {
-    Idle,
-    Checking,
-    Available {
-        version: Option<String>,
-        path: Option<PathBuf>,
-    },
-    Unavailable {
-        message: String,
-        hint: Option<String>,
-    },
-}
-
-#[derive(Debug)]
-pub(super) struct StartupState {
-    initialized: bool,
-    step: usize,
-    intro_completed: bool,
-    nodejs_status: NodeJsStatus,
-    nodejs_skipped: bool,
-    nodejs_custom_path_input: Option<Entity<InputState>>,
-    nodejs_custom_path_validating: bool,
-    nodejs_custom_path_error: Option<String>,
-    nodejs_show_custom_input: bool,
-    agent_choices: Vec<AgentChoice>,
-    default_agent_configs: HashMap<String, AgentProcessConfig>,
-    agent_list_scroll_handle: ScrollHandle,
-    agent_apply_in_progress: bool,
-    agent_apply_error: Option<String>,
-    agent_load_error: Option<String>,
-    agent_applied: bool,
-    agent_synced: bool,
-    agent_sync_in_progress: bool,
-    proxy_enabled: bool,
-    proxy_http_input: Option<Entity<InputState>>,
-    proxy_https_input: Option<Entity<InputState>>,
-    proxy_all_input: Option<Entity<InputState>>,
-    proxy_apply_in_progress: bool,
-    proxy_apply_error: Option<String>,
-    proxy_applied: bool,
-    proxy_inputs_initialized: bool,
-    workspace_selected: bool,
-    workspace_path: Option<PathBuf>,
-    workspace_loading: bool,
-    workspace_error: Option<String>,
-    workspace_checked: bool,
-    workspace_check_in_progress: bool,
-}
-
-impl StartupState {
-    pub(super) fn new() -> Self {
-        let (agent_choices, default_agent_configs, agent_load_error) =
-            Self::load_default_agent_configs();
-        let agent_applied = agent_choices.is_empty();
-
-        Self {
-            initialized: false,
-            step: 0,
-            intro_completed: false,
-            nodejs_status: NodeJsStatus::Idle,
-            nodejs_skipped: false,
-            nodejs_custom_path_input: None,
-            nodejs_custom_path_validating: false,
-            nodejs_custom_path_error: None,
-            nodejs_show_custom_input: false,
-            agent_choices,
-            default_agent_configs,
-            agent_list_scroll_handle: ScrollHandle::new(),
-            agent_apply_in_progress: false,
-            agent_apply_error: None,
-            agent_load_error,
-            agent_applied,
-            agent_synced: false,
-            agent_sync_in_progress: false,
-            proxy_enabled: false,
-            proxy_http_input: None,
-            proxy_https_input: None,
-            proxy_all_input: None,
-            proxy_apply_in_progress: false,
-            proxy_apply_error: None,
-            proxy_applied: false,
-            proxy_inputs_initialized: false,
-            workspace_selected: false,
-            workspace_path: None,
-            workspace_loading: false,
-            workspace_error: None,
-            workspace_checked: false,
-            workspace_check_in_progress: false,
-        }
-    }
-
-    fn nodejs_ready(&self) -> bool {
-        self.nodejs_skipped || matches!(self.nodejs_status, NodeJsStatus::Available { .. })
-    }
-
-    fn agents_ready(&self) -> bool {
-        self.agent_applied || self.agent_choices.is_empty()
-    }
-
-    fn workspace_ready(&self) -> bool {
-        self.workspace_selected
-    }
-
-    fn proxy_ready(&self) -> bool {
-        self.proxy_applied
-    }
-
-    pub(super) fn is_complete(&self) -> bool {
-        self.intro_completed
-            && self.nodejs_ready()
-            && self.agents_ready()
-            && self.proxy_ready()
-            && self.workspace_ready()
-    }
-
-    fn advance_step_if_needed(&mut self) {
-        if self.step == 0 && self.intro_completed {
-            self.step = 1;
-        }
-        if self.step == 1 && self.nodejs_ready() {
-            self.step = 2;
-        }
-        if self.step == 2 && self.agents_ready() {
-            self.step = 3;
-        }
-        if self.step == 3 && self.proxy_ready() {
-            self.step = 4;
-        }
-        if self.step > 4 {
-            self.step = 4;
-        }
-    }
-
-    fn load_default_agent_configs() -> (
-        Vec<AgentChoice>,
-        HashMap<String, AgentProcessConfig>,
-        Option<String>,
-    ) {
-        let raw = match crate::assets::get_default_config() {
-            Some(raw) => raw,
-            None => {
-                return (
-                    Vec::new(),
-                    HashMap::new(),
-                    Some("Embedded config.json not found.".to_string()),
-                );
-            }
-        };
-
-        let config: Config = match serde_json::from_str(&raw) {
-            Ok(config) => config,
-            Err(err) => {
-                log::error!("Failed to parse embedded config.json: {}", err);
-                return (
-                    Vec::new(),
-                    HashMap::new(),
-                    Some(format!("Failed to parse embedded config.json: {}", err)),
-                );
-            }
-        };
-
-        let mut agent_entries: Vec<_> = config.agent_servers.into_iter().collect();
-        agent_entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let mut agent_choices = Vec::new();
-        let mut default_agent_configs = HashMap::new();
-
-        for (name, config) in agent_entries {
-            default_agent_configs.insert(name.clone(), config.clone());
-            agent_choices.push(AgentChoice {
-                name,
-                enabled: true,
-            });
-        }
-
-        (agent_choices, default_agent_configs, None)
-    }
-}
+use super::state::NodeJsStatus;
+use crate::workspace::DockWorkspace;
 
 impl DockWorkspace {
-    pub(super) fn ensure_startup_initialized(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.startup_state.initialized {
-            self.startup_state.initialized = true;
-        }
-
-        if self.startup_state.intro_completed {
-            self.ensure_proxy_inputs_initialized(window, cx);
-            self.ensure_nodejs_input_initialized(window, cx);
-            if matches!(self.startup_state.nodejs_status, NodeJsStatus::Idle) {
-                self.start_nodejs_check(window, cx, NodeJsDetectionMode::Fast);
-            }
-
-            self.maybe_sync_agents(window, cx);
-            self.maybe_check_workspace(window, cx);
-        }
-    }
-
-    fn ensure_nodejs_input_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.nodejs_custom_path_input.is_some() {
-            return;
-        }
-
-        // Pre-fill with saved nodejs_path from settings
-        let saved_path = AppSettings::global(cx).nodejs_path.clone();
-        let placeholder = if cfg!(target_os = "windows") {
-            t!("startup.nodejs.placeholder.windows").to_string()
-        } else {
-            t!("startup.nodejs.placeholder.unix").to_string()
-        };
-
-        let input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder(placeholder);
-            if !saved_path.is_empty() {
-                state.set_value(saved_path.to_string(), window, cx);
-            }
-            state
-        });
-
-        self.startup_state.nodejs_custom_path_input = Some(input);
-    }
-
-    fn ensure_proxy_inputs_initialized(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.proxy_inputs_initialized {
-            return;
-        }
-
-        let http_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:1087".to_string()));
-        let https_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:1087".to_string()));
-        let all_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("socks5://127.0.0.1:1080".to_string())
-        });
-
-        self.startup_state.proxy_http_input = Some(http_input);
-        self.startup_state.proxy_https_input = Some(https_input);
-        self.startup_state.proxy_all_input = Some(all_input);
-        self.startup_state.proxy_inputs_initialized = true;
-    }
-
-    fn start_nodejs_check(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        mode: NodeJsDetectionMode,
-    ) {
-        if matches!(self.startup_state.nodejs_status, NodeJsStatus::Checking) {
-            return;
-        }
-
-        let custom_path = AppSettings::global(cx).nodejs_path.clone();
-        let custom_path = if custom_path.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(custom_path.to_string()))
-        };
-
-        self.startup_state.nodejs_status = NodeJsStatus::Checking;
-        self.startup_state.nodejs_skipped = false;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            // Run nodejs check on a background thread to avoid blocking the UI thread.
-            // NodeJsChecker uses tokio commands internally, and blocking here would freeze the UI.
-            let result = smol::unblock(move || {
-                let checker = NodeJsChecker::new(custom_path).with_detection_mode(mode);
-                checker.check_nodejs_available_blocking()
-            })
-            .await;
-
-            _ = this.update_in(window, |this, _, cx| {
-                match result {
-                    Ok(result) => {
-                        if result.available {
-                            // Save the detected path to settings so it's used next time
-                            if let Some(ref path) = result.path {
-                                let path_str = path.display().to_string();
-                                AppSettings::global_mut(cx).nodejs_path = path_str.into();
-                                crate::themes::save_state(cx);
-                                log::info!(
-                                    "Saved detected Node.js path to settings: {}",
-                                    path.display()
-                                );
-                            }
-
-                            this.startup_state.nodejs_status = NodeJsStatus::Available {
-                                version: result.version,
-                                path: result.path,
-                            };
-                        } else {
-                            this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                                message: result.error_message.unwrap_or_else(|| {
-                                    t!("startup.nodejs.error.not_found").to_string()
-                                }),
-                                hint: result.install_hint,
-                            };
-                        }
-                    }
-                    Err(err) => {
-                        this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                            message: err.to_string(),
-                            hint: None,
-                        };
-                    }
-                }
-
-                this.startup_state.advance_step_if_needed();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn validate_custom_nodejs_path(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.nodejs_custom_path_validating {
-            return;
-        }
-
-        let input_value = self
-            .startup_state
-            .nodejs_custom_path_input
-            .as_ref()
-            .map(|input| input.read(cx).value().to_string())
-            .unwrap_or_default();
-
-        let input_value = input_value.trim().to_string();
-        if input_value.is_empty() {
-            self.startup_state.nodejs_custom_path_error =
-                Some(t!("startup.nodejs.error.empty_path").to_string());
-            cx.notify();
-            return;
-        }
-
-        // Expand ~ to home directory
-        let expanded = if input_value.starts_with("~/") {
-            if let Ok(home) = std::env::var("HOME") {
-                input_value.replacen('~', &home, 1)
-            } else {
-                input_value.clone()
-            }
-        } else {
-            input_value.clone()
-        };
-
-        let custom_path = PathBuf::from(&expanded);
-
-        self.startup_state.nodejs_custom_path_validating = true;
-        self.startup_state.nodejs_custom_path_error = None;
-        self.startup_state.nodejs_status = NodeJsStatus::Checking;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            let result = smol::unblock(move || {
-                let checker = NodeJsChecker::new(Some(custom_path));
-                checker.check_nodejs_available_blocking()
-            })
-            .await;
-
-            _ = this.update_in(window, |this, _, cx| {
-                this.startup_state.nodejs_custom_path_validating = false;
-
-                match result {
-                    Ok(result) if result.available => {
-                        // Save the validated custom path to settings
-                        if let Some(ref path) = result.path {
-                            let path_str = path.display().to_string();
-                            AppSettings::global_mut(cx).nodejs_path = path_str.into();
-                            crate::themes::save_state(cx);
-                            log::info!("Saved custom Node.js path to settings: {}", path.display());
-                        }
-
-                        this.startup_state.nodejs_status = NodeJsStatus::Available {
-                            version: result.version,
-                            path: result.path,
-                        };
-                        this.startup_state.nodejs_custom_path_error = None;
-                    }
-                    Ok(result) => {
-                        this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                            message: result.error_message.clone().unwrap_or_else(|| {
-                                t!("startup.nodejs.error.not_found").to_string()
-                            }),
-                            hint: result.install_hint.clone(),
-                        };
-                        this.startup_state.nodejs_custom_path_error =
-                            Some(result.error_message.unwrap_or_else(|| {
-                                t!("startup.nodejs.error.invalid_path").to_string()
-                            }));
-                    }
-                    Err(err) => {
-                        this.startup_state.nodejs_status = NodeJsStatus::Unavailable {
-                            message: err.to_string(),
-                            hint: None,
-                        };
-                        this.startup_state.nodejs_custom_path_error = Some(
-                            t!(
-                                "startup.nodejs.error.validate_failed",
-                                error = err.to_string()
-                            )
-                            .to_string(),
-                        );
-                    }
-                }
-
-                this.startup_state.advance_step_if_needed();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn maybe_sync_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.agent_synced || self.startup_state.agent_sync_in_progress {
-            return;
-        }
-
-        let agent_config_service = match AppState::global(cx).agent_config_service() {
-            Some(service) => service.clone(),
-            None => return,
-        };
-
-        self.startup_state.agent_sync_in_progress = true;
-
-        cx.spawn_in(window, async move |this, window| {
-            let current_agents = agent_config_service.list_agents().await;
-            let current_names: HashSet<String> =
-                current_agents.into_iter().map(|(name, _)| name).collect();
-
-            _ = this.update_in(window, |this, _, cx| {
-                for choice in &mut this.startup_state.agent_choices {
-                    choice.enabled = current_names.contains(&choice.name);
-                }
-
-                this.startup_state.agent_synced = true;
-                this.startup_state.agent_sync_in_progress = false;
-
-                if this.startup_state.agent_choices.is_empty() {
-                    this.startup_state.agent_applied = true;
-                }
-
-                this.startup_state.advance_step_if_needed();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn maybe_check_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.workspace_checked || self.startup_state.workspace_check_in_progress {
-            return;
-        }
-
-        let workspace_service = match AppState::global(cx).workspace_service() {
-            Some(service) => service.clone(),
-            None => {
-                self.startup_state.workspace_checked = true;
-                return;
-            }
-        };
-
-        self.startup_state.workspace_check_in_progress = true;
-
-        cx.spawn_in(window, async move |this, window| {
-            let active_workspace = workspace_service.get_active_workspace().await;
-            let fallback_workspace = if active_workspace.is_none() {
-                workspace_service.list_workspaces().await.into_iter().next()
-            } else {
-                None
-            };
-
-            let selected_path = active_workspace
-                .map(|ws| ws.path)
-                .or_else(|| fallback_workspace.map(|ws| ws.path));
-
-            _ = this.update_in(window, |this, _, cx| {
-                if let Some(path) = selected_path {
-                    this.startup_state.workspace_selected = true;
-                    this.startup_state.workspace_path = Some(path.clone());
-                    AppState::global_mut(cx).set_current_working_dir(path);
-                }
-
-                this.startup_state.workspace_checked = true;
-                this.startup_state.workspace_check_in_progress = false;
-                this.startup_state.advance_step_if_needed();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn apply_agent_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.agent_apply_in_progress {
-            return;
-        }
-
-        let agent_config_service = match AppState::global(cx).agent_config_service() {
-            Some(service) => service.clone(),
-            None => {
-                self.startup_state.agent_apply_error =
-                    Some(t!("startup.agents.error.service_unavailable").to_string());
-                cx.notify();
-                return;
-            }
-        };
-
-        let selections = self.startup_state.agent_choices.clone();
-        let default_configs = self.startup_state.default_agent_configs.clone();
-
-        self.startup_state.agent_apply_in_progress = true;
-        self.startup_state.agent_apply_error = None;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            let current_agents = agent_config_service.list_agents().await;
-            let current_names: HashSet<String> =
-                current_agents.into_iter().map(|(name, _)| name).collect();
-            let mut errors = Vec::new();
-
-            for choice in selections {
-                if choice.enabled && !current_names.contains(&choice.name) {
-                    match default_configs.get(&choice.name) {
-                        Some(config) => {
-                            if let Err(err) = agent_config_service
-                                .add_agent(choice.name.clone(), config.clone())
-                                .await
-                            {
-                                errors.push(format!("Failed to enable {}: {}", choice.name, err));
-                            }
-                        }
-                        None => {
-                            errors.push(format!(
-                                "Missing config for selected agent: {}",
-                                choice.name
-                            ));
-                        }
-                    }
-                } else if !choice.enabled && current_names.contains(&choice.name) {
-                    if let Err(err) = agent_config_service.remove_agent(&choice.name).await {
-                        errors.push(format!("Failed to disable {}: {}", choice.name, err));
-                    }
-                }
-            }
-
-            _ = this.update_in(window, |this, _, cx| {
-                this.startup_state.agent_apply_in_progress = false;
-
-                if errors.is_empty() {
-                    this.startup_state.agent_applied = true;
-                    this.startup_state.agent_apply_error = None;
-                } else {
-                    this.startup_state.agent_apply_error = Some(errors.join("\n"));
-                }
-
-                this.startup_state.advance_step_if_needed();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn open_workspace_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.workspace_loading {
-            return;
-        }
-
-        let workspace_service = match AppState::global(cx).workspace_service() {
-            Some(service) => service.clone(),
-            None => {
-                self.startup_state.workspace_error =
-                    Some(t!("startup.workspace.error.service_unavailable").to_string());
-                cx.notify();
-                return;
-            }
-        };
-
-        self.startup_state.workspace_loading = true;
-        self.startup_state.workspace_error = None;
-        cx.notify();
-
-        let dialog_title = t!("startup.workspace.dialog.title").to_string();
-
-        cx.spawn_in(window, async move |this, window| {
-            let selection = utils::pick_folder(&dialog_title).await;
-            let cancelled = selection.is_none();
-
-            if cancelled {
-                _ = this.update_in(window, |this, _, cx| {
-                    this.startup_state.workspace_loading = false;
-                    cx.notify();
-                });
-                return;
-            }
-
-            let Some(folder_path) = selection else {
-                return;
-            };
-
-            let add_result = workspace_service.add_workspace(folder_path.clone()).await;
-            let mut selected_path = None;
-            let mut error_message = None;
-
-            match add_result {
-                Ok(workspace) => {
-                    selected_path = Some(workspace.path);
-                }
-                Err(err) => {
-                    let message = err.to_string();
-                    if message.contains("Workspace already exists") {
-                        selected_path = Some(folder_path.clone());
-                    } else {
-                        error_message = Some(message);
-                    }
-                }
-            }
-
-            _ = this.update_in(window, |this, _, cx| {
-                this.startup_state.workspace_loading = false;
-
-                if let Some(path) = selected_path {
-                    this.startup_state.workspace_selected = true;
-                    this.startup_state.workspace_path = Some(path.clone());
-                    this.startup_state.workspace_error = None;
-                    this.startup_state.workspace_checked = true;
-                    AppState::global_mut(cx).set_current_working_dir(path);
-                    this.startup_state.advance_step_if_needed();
-                } else {
-                    this.startup_state.workspace_error = error_message;
-                }
-
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn apply_proxy_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.startup_state.proxy_apply_in_progress {
-            return;
-        }
-
-        let agent_config_service = match AppState::global(cx).agent_config_service() {
-            Some(service) => service.clone(),
-            None => {
-                self.startup_state.proxy_apply_error =
-                    Some(t!("startup.proxy.error.service_unavailable").to_string());
-                cx.notify();
-                return;
-            }
-        };
-
-        let http_input = self.startup_state.proxy_http_input.clone();
-        let https_input = self.startup_state.proxy_https_input.clone();
-        let all_input = self.startup_state.proxy_all_input.clone();
-        let enabled = self.startup_state.proxy_enabled;
-
-        let http_proxy_url = http_input
-            .as_ref()
-            .map(|input| input.read(cx).value())
-            .unwrap_or_default();
-        let https_proxy_url = https_input
-            .as_ref()
-            .map(|input| input.read(cx).value())
-            .unwrap_or_default();
-        let all_proxy_url = all_input
-            .as_ref()
-            .map(|input| input.read(cx).value())
-            .unwrap_or_default();
-
-        self.startup_state.proxy_apply_in_progress = true;
-        self.startup_state.proxy_apply_error = None;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            let proxy_config = crate::core::config::ProxyConfig {
-                enabled,
-                http_proxy_url: http_proxy_url.to_string(),
-                https_proxy_url: https_proxy_url.to_string(),
-                all_proxy_url: all_proxy_url.to_string(),
-                proxy_type: String::new(),
-                host: String::new(),
-                port: 0,
-                username: String::new(),
-                password: String::new(),
-            };
-
-            let result = agent_config_service.update_proxy_config(proxy_config).await;
-
-            _ = this.update_in(window, |this, _, cx| {
-                this.startup_state.proxy_apply_in_progress = false;
-                if let Err(err) = result {
-                    this.startup_state.proxy_apply_error = Some(err.to_string());
-                } else {
-                    this.startup_state.proxy_applied = true;
-                    this.startup_state.proxy_apply_error = None;
-                    this.startup_state.advance_step_if_needed();
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    pub(super) fn render_startup(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        // 获取步骤图标
+    pub(in crate::workspace) fn render_startup(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let intro_icon = if self.startup_state.intro_completed {
             IconName::CircleCheck
         } else {
@@ -781,7 +61,6 @@ impl DockWorkspace {
             IconName::Globe
         };
 
-        // 渲染步骤条
         let stepper = Stepper::new("startup-stepper")
             .w_full()
             .bg(cx.theme().background)
@@ -873,7 +152,6 @@ impl DockWorkspace {
                 cx.notify();
             }));
 
-        // 渲染当前步骤内容
         let content = match self.startup_state.step {
             0 => self.render_preferences_step(cx),
             1 => self.render_nodejs_step(cx),
@@ -892,14 +170,13 @@ impl DockWorkspace {
             .flex()
             .items_center()
             .justify_center()
-            .p_8() // 添加外边距，防止内容贴边
+            .p_8()
             .child(
                 v_flex()
                     .w_full()
-                    .max_w(px(960.)) // 最大宽度 960px
+                    .max_w(px(960.))
                     .gap_8()
                     .child(
-                        // 标题
                         div()
                             .text_size(px(36.))
                             .font_weight(FontWeight::BOLD)
@@ -909,7 +186,6 @@ impl DockWorkspace {
                     )
                     .child(stepper)
                     .child(
-                        // 内容卡片
                         div()
                             .w_full()
                             .min_h(px(400.))
@@ -1145,7 +421,6 @@ impl DockWorkspace {
                 );
             }
             NodeJsStatus::Unavailable { message, hint } => {
-                // Auto-show custom input when detection fails
                 self.startup_state.nodejs_show_custom_input = true;
 
                 content = content.child(
@@ -1175,7 +450,6 @@ impl DockWorkspace {
             }
         }
 
-        // Show custom path input section when toggled or detection failed
         if self.startup_state.nodejs_show_custom_input {
             let custom_path_input = self.startup_state.nodejs_custom_path_input.clone();
             let is_validating = self.startup_state.nodejs_custom_path_validating;
@@ -1290,7 +564,6 @@ impl DockWorkspace {
         let mut content = v_flex()
             .gap_6()
             .child(
-                // 关闭按钮
                 div().absolute().top_0().right_0().child(
                     Button::new("startup-close")
                         .ghost()
@@ -1346,14 +619,12 @@ impl DockWorkspace {
         } else {
             let disabled = self.startup_state.agent_apply_in_progress;
 
-            // Agent 列表
             let mut list = v_flex().w_full().gap_0();
 
             for (idx, choice) in self.startup_state.agent_choices.iter().enumerate() {
                 let name = choice.name.clone();
                 let checked = choice.enabled;
 
-                // Agent 图标映射
                 let icon = get_agent_icon(&name);
 
                 list = list.child(
@@ -1425,7 +696,6 @@ impl DockWorkspace {
                 );
             }
 
-            // Scrollable container with track_scroll for stable scrolling
             let scroll_handle = &self.startup_state.agent_list_scroll_handle;
             let scrollable_list = div()
                 .id("agent-list-scroll-container")
@@ -1480,7 +750,6 @@ impl DockWorkspace {
             .filter(|c| c.enabled)
             .count();
 
-        // 底部操作栏
         let actions = h_flex()
             .mt_6()
             .pt_6()
@@ -1757,7 +1026,6 @@ impl DockWorkspace {
             t!("startup.workspace.action.pick").to_string()
         };
 
-        // 底部操作栏
         let actions = h_flex()
             .mt_6()
             .pt_6()
@@ -1766,7 +1034,6 @@ impl DockWorkspace {
             .justify_between()
             .items_center()
             .child(
-                // 左侧按钮
                 Button::new("startup-workspace-pick")
                     .label(pick_label)
                     .outline()
@@ -1776,7 +1043,6 @@ impl DockWorkspace {
                     })),
             )
             .child(
-                // 右侧按钮组
                 h_flex()
                     .gap_3()
                     .when(self.startup_state.workspace_selected, |this| {
@@ -1786,11 +1052,9 @@ impl DockWorkspace {
                                 .primary()
                                 .disabled(self.startup_state.workspace_loading)
                                 .on_click(cx.listener(|this, _ev, window, cx| {
-                                    // 确保所有状态都已完成
                                     this.startup_state.workspace_selected = true;
                                     this.startup_state.workspace_checked = true;
 
-                                    // 强制刷新整个窗口以触发主工作区显示
                                     window.refresh();
                                     cx.notify();
                                 })),

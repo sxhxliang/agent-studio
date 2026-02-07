@@ -396,7 +396,7 @@ impl TaskPanel {
     }
 
     fn subscribe_to_workspace_updates(entity: &Entity<Self>, cx: &mut App) {
-        let event_hub = AppState::global(cx).event_hub.clone();
+        let event_hub = AppState::global(cx).event_hub().clone();
         let workspace_service = match AppState::global(cx).workspace_service() {
             Some(service) => service.clone(),
             None => {

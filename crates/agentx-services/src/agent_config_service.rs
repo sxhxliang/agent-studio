@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::core::agent::AgentManager;
-use crate::core::config::{AgentProcessConfig, Config};
-use crate::core::event_bus::{AgentConfigEvent, EventHub};
-use crate::core::services::AgentService;
+use crate::AgentService;
+use agentx_agent::AgentManager;
+use agentx_event_bus::{AgentConfigEvent, EventHub};
+use agentx_types::{AgentProcessConfig, Config};
 use anyhow::{Context, Result, anyhow};
 
 /// Agent Configuration Service
@@ -78,7 +78,7 @@ impl AgentConfigService {
     }
 
     /// Get proxy configuration (sync)
-    pub fn proxy_config(&self) -> crate::core::config::ProxyConfig {
+    pub fn proxy_config(&self) -> agentx_types::config::ProxyConfig {
         self.config.blocking_read().proxy.clone()
     }
 
@@ -98,7 +98,7 @@ impl AgentConfigService {
     }
 
     /// List all configured models
-    pub async fn list_models(&self) -> Vec<(String, crate::core::config::ModelConfig)> {
+    pub async fn list_models(&self) -> Vec<(String, agentx_types::config::ModelConfig)> {
         let config = self.config.read().await;
         let mut models: Vec<_> = config
             .models
@@ -110,7 +110,7 @@ impl AgentConfigService {
     }
 
     /// List all configured MCP servers
-    pub async fn list_mcp_servers(&self) -> Vec<(String, crate::core::config::McpServerConfig)> {
+    pub async fn list_mcp_servers(&self) -> Vec<(String, agentx_types::config::McpServerConfig)> {
         let config = self.config.read().await;
         let mut mcp_servers: Vec<_> = config
             .mcp_servers
@@ -122,7 +122,7 @@ impl AgentConfigService {
     }
 
     /// List all configured commands
-    pub async fn list_commands(&self) -> Vec<(String, crate::core::config::CommandConfig)> {
+    pub async fn list_commands(&self) -> Vec<(String, agentx_types::config::CommandConfig)> {
         let config = self.config.read().await;
         let mut commands: Vec<_> = config
             .commands
@@ -317,7 +317,10 @@ impl AgentConfigService {
     }
 
     /// Update proxy configuration
-    pub async fn update_proxy_config(&self, proxy: crate::core::config::ProxyConfig) -> Result<()> {
+    pub async fn update_proxy_config(
+        &self,
+        proxy: agentx_types::config::ProxyConfig,
+    ) -> Result<()> {
         let updated_config = {
             let mut config = self.config.write().await;
             config.proxy = proxy;
@@ -340,7 +343,7 @@ impl AgentConfigService {
     pub async fn add_model(
         &self,
         name: String,
-        config: crate::core::config::ModelConfig,
+        config: agentx_types::config::ModelConfig,
     ) -> Result<()> {
         // Check for duplicate
         {
@@ -374,7 +377,7 @@ impl AgentConfigService {
     pub async fn update_model(
         &self,
         name: &str,
-        config: crate::core::config::ModelConfig,
+        config: agentx_types::config::ModelConfig,
     ) -> Result<()> {
         // Check if model exists
         {
@@ -441,7 +444,7 @@ impl AgentConfigService {
     pub async fn add_mcp_server(
         &self,
         name: String,
-        config: crate::core::config::McpServerConfig,
+        config: agentx_types::config::McpServerConfig,
     ) -> Result<()> {
         // Check for duplicate
         {
@@ -477,7 +480,7 @@ impl AgentConfigService {
     pub async fn update_mcp_server(
         &self,
         name: &str,
-        config: crate::core::config::McpServerConfig,
+        config: agentx_types::config::McpServerConfig,
     ) -> Result<()> {
         // Check if MCP server exists
         {
@@ -544,7 +547,7 @@ impl AgentConfigService {
     pub async fn add_command(
         &self,
         name: String,
-        config: crate::core::config::CommandConfig,
+        config: agentx_types::config::CommandConfig,
     ) -> Result<()> {
         // Check for duplicate
         {
@@ -578,7 +581,7 @@ impl AgentConfigService {
     pub async fn update_command(
         &self,
         name: &str,
-        config: crate::core::config::CommandConfig,
+        config: agentx_types::config::CommandConfig,
     ) -> Result<()> {
         // Check if command exists
         {
@@ -760,7 +763,7 @@ impl AgentConfigService {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::config::ProxyConfig;
+    use agentx_types::ProxyConfig;
 
     use super::*;
     use std::collections::HashMap;
@@ -825,7 +828,7 @@ mod tests {
         let config_path = std::env::temp_dir().join("test-config.json");
 
         // Mock agent manager for testing
-        let agent_manager = Arc::new(crate::core::agent::AgentManager::new(
+        let agent_manager = Arc::new(agentx_agent::AgentManager::new(
             HashMap::new(),
             Arc::new(Default::default()),
             event_hub.clone(),

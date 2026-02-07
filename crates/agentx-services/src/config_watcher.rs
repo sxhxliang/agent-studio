@@ -11,12 +11,12 @@ use std::{
 
 use anyhow::{Context, Result};
 use notify::{
-    event::{EventKind, ModifyKind},
     Event, RecommendedWatcher, RecursiveMode, Watcher,
+    event::{EventKind, ModifyKind},
 };
 use tokio::sync::mpsc;
 
-use crate::core::services::AgentConfigService;
+use crate::AgentConfigService;
 
 /// Configuration file watcher service
 pub struct ConfigWatcher {
@@ -77,14 +77,12 @@ impl ConfigWatcher {
 
     /// Run the file watcher
     fn run_watcher(path: &Path, tx: mpsc::Sender<Event>) -> Result<()> {
-        let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| {
-            match res {
-                Ok(event) => {
-                    let _ = tx.blocking_send(event);
-                }
-                Err(e) => {
-                    log::error!("Watch error: {:?}", e);
-                }
+        let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| match res {
+            Ok(event) => {
+                let _ = tx.blocking_send(event);
+            }
+            Err(e) => {
+                log::error!("Watch error: {:?}", e);
             }
         })
         .context("Failed to create file watcher")?;

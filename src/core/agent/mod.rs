@@ -1,5 +1,2 @@
-// Agent client modules
-mod client;
-
-// Re-export agent types
-pub use client::{AgentHandle, AgentManager, PermissionStore};
+// Re-export from agentx-agent crate
+pub use agentx_agent::{AgentHandle, AgentManager, PermissionStore};

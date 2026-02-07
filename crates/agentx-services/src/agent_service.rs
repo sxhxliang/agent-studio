@@ -15,8 +15,9 @@ use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::core::agent::{AgentHandle, AgentManager};
-use crate::core::event_bus::{EventHub, WorkspaceUpdateEvent};
+use agentx_agent::{AgentHandle, AgentManager};
+use agentx_event_bus::{EventHub, WorkspaceUpdateEvent};
+use agentx_types::SessionStatus;
 
 /// Agent service - manages agents and their sessions
 pub struct AgentService {
@@ -41,18 +42,6 @@ pub struct AgentSessionInfo {
     pub new_session_response: Option<acp::NewSessionResponse>,
     /// Available commands for this session (slash commands, etc.)
     pub available_commands: Vec<AvailableCommand>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub enum SessionStatus {
-    #[default]
-    Active,
-    Idle,
-    InProgress,
-    Pending,
-    Completed,
-    Closed,
-    Failed,
 }
 
 impl AgentService {

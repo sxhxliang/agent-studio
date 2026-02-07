@@ -1,0 +1,324 @@
+use std::sync::Arc;
+
+use agent_client_protocol::{ContentBlock, ContentChunk, SessionId};
+use gpui::{
+    App, AppContext, Context, ElementId, Entity, IntoElement, ParentElement, Render, RenderOnce,
+    SharedString, Styled, Window, div, prelude::FluentBuilder as _, px,
+};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, text::TextView, v_flex};
+use serde::{Deserialize, Serialize};
+
+pub type AgentIconProvider = Arc<dyn Fn(&str) -> Icon + Send + Sync>;
+
+#[derive(Clone)]
+pub struct AgentMessageOptions {
+    pub icon_provider: AgentIconProvider,
+}
+
+impl Default for AgentMessageOptions {
+    fn default() -> Self {
+        Self {
+            icon_provider: Arc::new(|_| Icon::new(IconName::Bot)),
+        }
+    }
+}
+
+/// Extended metadata for agent messages.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessageMeta {
+    /// Agent name (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Whether the message is complete
+    #[serde(default)]
+    pub is_complete: bool,
+}
+
+/// Agent message data structure based on ACP's ContentChunk
+#[derive(Clone, Debug)]
+pub struct AgentMessageData {
+    /// Session ID
+    pub session_id: SessionId,
+    /// Message content chunks (supports streaming)
+    pub chunks: Vec<ContentChunk>,
+    /// Extended metadata (agent_name, is_complete, etc.)
+    pub meta: AgentMessageMeta,
+    /// Cached full text to avoid reconstruction on every render
+    cached_text: SharedString,
+}
+
+impl AgentMessageData {
+    pub fn new(session_id: impl Into<SessionId>) -> Self {
+        Self {
+            session_id: session_id.into(),
+            chunks: Vec::new(),
+            meta: AgentMessageMeta::default(),
+            cached_text: SharedString::default(),
+        }
+    }
+
+    pub fn with_agent_name(mut self, name: impl Into<String>) -> Self {
+        self.meta.agent_name = Some(name.into());
+        self
+    }
+
+    pub fn with_chunks(mut self, chunks: Vec<ContentChunk>) -> Self {
+        self.chunks = chunks;
+        self.update_cache();
+        self
+    }
+
+    pub fn add_chunk(mut self, chunk: ContentChunk) -> Self {
+        self.chunks.push(chunk);
+        self.update_cache();
+        self
+    }
+
+    /// Add a text chunk
+    pub fn add_text(mut self, text: impl Into<String>) -> Self {
+        self.chunks
+            .push(ContentChunk::new(ContentBlock::from(text.into())));
+        self.update_cache();
+        self
+    }
+
+    /// Append a chunk in place and update cache
+    pub fn push_chunk(&mut self, chunk: ContentChunk) {
+        self.chunks.push(chunk);
+        self.update_cache();
+    }
+
+    /// Append text in place and update cache
+    pub fn push_text(&mut self, text: &str) {
+        match self.chunks.last_mut().map(|chunk| &mut chunk.content) {
+            Some(ContentBlock::Text(text_content)) => text_content.text.push_str(text),
+            _ => self
+                .chunks
+                .push(ContentChunk::new(ContentBlock::from(text))),
+        }
+        self.update_cache();
+    }
+
+    pub fn complete(mut self) -> Self {
+        self.meta.is_complete = true;
+        self
+    }
+
+    fn update_cache(&mut self) {
+        let mut total_len = 0usize;
+        for chunk in &self.chunks {
+            if let ContentBlock::Text(text_content) = &chunk.content {
+                total_len = total_len.saturating_add(text_content.text.len());
+            }
+        }
+
+        if total_len == 0 {
+            self.cached_text = SharedString::default();
+            return;
+        }
+
+        let mut text = String::with_capacity(total_len);
+        for chunk in &self.chunks {
+            if let ContentBlock::Text(text_content) = &chunk.content {
+                text.push_str(&text_content.text);
+            }
+        }
+
+        self.cached_text = text.into();
+    }
+
+    /// Get combined text from all text chunks
+    pub fn full_text(&self) -> SharedString {
+        self.cached_text.clone()
+    }
+
+    /// Check if the message is complete
+    pub fn is_complete(&self) -> bool {
+        self.meta.is_complete
+    }
+
+    /// Get agent name
+    pub fn agent_name(&self) -> Option<&str> {
+        self.meta.agent_name.as_deref()
+    }
+}
+
+/// Agent message component
+#[derive(IntoElement)]
+pub struct AgentMessage {
+    id: ElementId,
+    data: AgentMessageData,
+    options: AgentMessageOptions,
+}
+
+impl AgentMessage {
+    pub fn new(id: impl Into<ElementId>, data: AgentMessageData) -> Self {
+        Self::with_options(id, data, AgentMessageOptions::default())
+    }
+
+    pub fn with_options(
+        id: impl Into<ElementId>,
+        data: AgentMessageData,
+        options: AgentMessageOptions,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            data,
+            options,
+        }
+    }
+
+    pub fn icon_provider(mut self, icon_provider: AgentIconProvider) -> Self {
+        self.options.icon_provider = icon_provider;
+        self
+    }
+}
+
+impl RenderOnce for AgentMessage {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let agent_name = self.data.agent_name().unwrap_or("Agent");
+        let full_text = self.data.full_text();
+        let markdown_id = SharedString::from(format!("{}-markdown", self.id));
+
+        // Get icon based on agent name
+        let icon = (self.options.icon_provider)(agent_name);
+
+        v_flex()
+            .gap_3()
+            .w_full()
+            // Agent icon and message content
+            .child(
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .child(icon.size(px(16.)).mt_1().text_color(cx.theme().foreground))
+                    // Message content with markdown rendering
+                    .child(
+                        div()
+                            .w_full()
+                            .child(
+                                TextView::markdown(markdown_id, full_text)
+                                    .text_sm()
+                                    .text_color(cx.theme().foreground)
+                                    .selectable(true)
+                                    .pr_3(),
+                            )
+                            .pr_3(),
+                    ),
+            )
+    }
+}
+
+/// A stateful wrapper for AgentMessage that can be used as a GPUI view
+pub struct AgentMessageView {
+    data: Entity<AgentMessageData>,
+    options: AgentMessageOptions,
+}
+
+impl AgentMessageView {
+    pub fn new(data: AgentMessageData, window: &mut Window, cx: &mut App) -> Entity<Self> {
+        Self::with_options(data, AgentMessageOptions::default(), window, cx)
+    }
+
+    pub fn with_options(
+        data: AgentMessageData,
+        options: AgentMessageOptions,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        cx.new(|cx| {
+            let data_entity = cx.new(|_| data);
+            Self {
+                data: data_entity,
+                options,
+            }
+        })
+    }
+
+    fn update_message(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut AgentMessageData)) {
+        self.data.update(cx, move |data, cx| {
+            f(data);
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    /// Update the message data completely
+    pub fn update_data(&mut self, data: AgentMessageData, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| *d = data);
+    }
+
+    /// Add a content chunk (for streaming)
+    pub fn add_chunk(&mut self, chunk: ContentChunk, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| d.push_chunk(chunk));
+    }
+
+    /// Append text to the last chunk or create a new one
+    pub fn append_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
+        let text = text.into();
+        self.update_message(cx, |d| d.push_text(&text));
+    }
+
+    /// Mark the message as complete
+    pub fn mark_complete(&mut self, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| d.meta.is_complete = true);
+    }
+
+    /// Set agent name
+    pub fn set_agent_name(&mut self, name: impl Into<String>, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| d.meta.agent_name = Some(name.into()));
+    }
+
+    /// Clear all chunks
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.update_message(cx, |d| {
+            d.chunks.clear();
+            d.meta.is_complete = false;
+            d.update_cache();
+        });
+    }
+
+    /// Get the full text content
+    pub fn get_text(&self, cx: &App) -> SharedString {
+        self.data.read(cx).full_text()
+    }
+
+    /// Check if the message is complete
+    pub fn is_complete(&self, cx: &App) -> bool {
+        self.data.read(cx).is_complete()
+    }
+
+    pub fn set_icon_provider(&mut self, provider: AgentIconProvider, cx: &mut Context<Self>) {
+        self.options.icon_provider = provider;
+        cx.notify();
+    }
+}
+
+impl Render for AgentMessageView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let data = self.data.read(cx).clone();
+        AgentMessage::with_options("agent-message", data, self.options.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_message_data_caches_full_text() {
+        let mut data = AgentMessageData::new("session-1").add_text("Hello");
+        assert_eq!(data.full_text().as_ref(), "Hello");
+
+        data.push_text(" world");
+        assert_eq!(data.full_text().as_ref(), "Hello world");
+    }
+
+    #[test]
+    fn agent_message_data_handles_non_text_chunks() {
+        let mut data = AgentMessageData::new("session-1");
+        data.push_chunk(ContentChunk::new(ContentBlock::from("Text")));
+        assert_eq!(data.full_text().as_ref(), "Text");
+    }
+}

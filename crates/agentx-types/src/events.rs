@@ -4,11 +4,8 @@ use agent_client_protocol as acp;
 use agent_client_protocol::SessionUpdate;
 use chrono::{DateTime, Utc};
 
-use crate::app::actions::AddCodeSelection;
-use crate::core::config::{
-    AgentProcessConfig, CommandConfig, Config, McpServerConfig, ModelConfig,
-};
-use crate::core::services::SessionStatus;
+use crate::config::{AgentProcessConfig, CommandConfig, Config, McpServerConfig, ModelConfig};
+use crate::session::SessionStatus;
 
 /// Events published when agent configuration changes
 #[derive(Clone, Debug)]
@@ -114,8 +111,19 @@ pub enum WorkspaceUpdateEvent {
     },
 }
 
+/// Pure data struct for code selection (no GPUI dependency)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeSelectionData {
+    pub file_path: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub content: String,
+}
+
 /// Event published when code is selected in the editor
 #[derive(Clone, Debug)]
 pub struct CodeSelectionEvent {
-    pub selection: AddCodeSelection,
+    pub selection: CodeSelectionData,
 }

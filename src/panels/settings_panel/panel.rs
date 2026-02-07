@@ -140,7 +140,7 @@ impl SettingsPanel {
         }
 
         // Subscribe to EventHub for dynamic updates
-        let event_hub = AppState::global(cx).event_hub.clone();
+        let event_hub = AppState::global(cx).event_hub().clone();
         let weak_entity = cx.entity().downgrade();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 

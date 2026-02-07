@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::core::event_bus::{EventHub, WorkspaceUpdateEvent};
-use crate::core::services::SessionStatus;
-use crate::schemas::workspace_schema::{Workspace, WorkspaceConfig, WorkspaceTask};
+use agentx_event_bus::{EventHub, WorkspaceUpdateEvent};
+use agentx_types::SessionStatus;
+use agentx_types::schemas::workspace::{Workspace, WorkspaceConfig, WorkspaceTask};
 
 /// Service for managing workspaces and tasks
 ///

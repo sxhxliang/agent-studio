@@ -1,13 +1,8 @@
-use gpui::{App, Context, Entity};
-
-use super::core::{EventBusContainer, EventBusStats, SubscriptionId};
-use super::events::{
-    AgentConfigEvent, CodeSelectionEvent, PermissionRequestEvent, SessionUpdateEvent,
-    WorkspaceUpdateEvent,
+use crate::core::{EventBusContainer, EventBusStats, SubscriptionId};
+use agentx_types::{
+    AgentConfigEvent, CodeSelectionEvent, Config, PermissionRequestEvent, SessionStatus,
+    SessionUpdateEvent, WorkspaceUpdateEvent,
 };
-use crate::app::actions::AddCodeSelection;
-use crate::core::config::Config;
-use crate::core::services::SessionStatus;
 
 #[derive(Clone, Debug)]
 pub enum AppEvent {
@@ -497,77 +492,10 @@ impl Default for EventHub {
     }
 }
 
-/// Helper function to subscribe a panel entity to code selection events.
-/// This reduces boilerplate by encapsulating the channel + background task pattern.
-///
-/// # Arguments
-/// * `entity` - The panel entity that will receive code selections
-/// * `event_hub` - The global EventHub
-/// * `panel_name` - Name for logging (e.g., "WelcomePanel", "ConversationPanel")
-/// * `on_selection` - Callback to handle the code selection (receives mutable reference to panel)
-/// * `cx` - GPUI App context
-///
-/// # Example
-/// ```rust,ignore
-/// // Pseudocode; requires a GPUI Entity and App context.
-/// subscribe_entity_to_code_selections(
-///     &entity,
-///     event_hub,
-///     "MyPanel",
-///     |panel, selection, cx| {
-///         panel.code_selections.push(selection);
-///         cx.notify();
-///     },
-///     cx
-/// );
-/// ```
-pub fn subscribe_entity_to_code_selections<T, F>(
-    entity: &Entity<T>,
-    event_hub: EventHub,
-    panel_name: &'static str,
-    on_selection: F,
-    cx: &mut App,
-) where
-    T: 'static,
-    F: Fn(&mut T, AddCodeSelection, &mut Context<T>) + 'static,
-{
-    let weak_entity = entity.downgrade();
-
-    // Create unbounded channel for cross-thread communication.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<CodeSelectionEvent>();
-
-    log::info!("[{}] Subscribing to code selection events", panel_name);
-    event_hub.subscribe_code_selections(move |event| {
-        log::debug!(
-            "[{}] Received selection: {}:{}~{}",
-            panel_name,
-            event.selection.file_path,
-            event.selection.start_line,
-            event.selection.end_line
-        );
-        let _ = tx.send(event.clone());
-    });
-
-    // Spawn background task.
-    cx.spawn(async move |cx| {
-        while let Some(event) = rx.recv().await {
-            if let Some(entity) = weak_entity.upgrade() {
-                let _ = cx.update(|cx| {
-                    entity.update(cx, |panel, cx| {
-                        on_selection(panel, event.selection.clone(), cx);
-                    });
-                });
-            } else {
-                break;
-            }
-        }
-    })
-    .detach();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentx_types::events::CodeSelectionData;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -584,7 +512,7 @@ mod tests {
         });
 
         hub.publish_code_selection(CodeSelectionEvent {
-            selection: AddCodeSelection {
+            selection: CodeSelectionData {
                 file_path: "test.rs".to_string(),
                 start_line: 1,
                 start_column: 1,

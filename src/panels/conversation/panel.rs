@@ -365,8 +365,7 @@ impl ConversationPanel {
         cx: &mut App,
     ) {
         let weak_entity = entity.downgrade();
-        let event_hub = AppState::global(cx).event_hub.clone();
-
+        let event_hub = AppState::global(cx).event_hub().clone();
         // Create unbounded channel for cross-thread communication
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<
             crate::core::event_bus::PermissionRequestEvent,
@@ -469,10 +468,10 @@ impl ConversationPanel {
     pub fn subscribe_to_code_selections(entity: &Entity<Self>, cx: &mut App) {
         crate::core::event_bus::subscribe_entity_to_code_selections(
             entity,
-            AppState::global(cx).event_hub.clone(),
+            AppState::global(cx).event_hub().clone(),
             "ConversationPanel",
             |panel, selection, cx| {
-                panel.code_selections.push(selection);
+                panel.code_selections.push(selection.into());
                 cx.notify();
             },
             cx,
@@ -486,8 +485,7 @@ impl ConversationPanel {
         cx: &mut App,
     ) {
         let weak_entity = entity.downgrade();
-        let event_hub = AppState::global(cx).event_hub.clone();
-
+        let event_hub = AppState::global(cx).event_hub().clone();
         // Create unbounded channel for cross-thread communication
         let (tx, mut rx) =
             tokio::sync::mpsc::unbounded_channel::<crate::core::event_bus::WorkspaceUpdateEvent>();

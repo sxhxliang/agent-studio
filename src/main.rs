@@ -32,7 +32,7 @@ fn main() {
         }
 
         // Get EventHub from global AppState
-        let event_hub = agentx::AppState::global(cx).event_hub.clone();
+        let event_hub = agentx::AppState::global(cx).event_hub().clone();
 
         // Open GUI window immediately (non-blocking)
         open_new(cx, |_, _, _| {

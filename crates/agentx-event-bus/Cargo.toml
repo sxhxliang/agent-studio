@@ -1,0 +1,14 @@
+[package]
+name = "agentx-event-bus"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+agentx-types.workspace = true
+log.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[lints]
+workspace = true

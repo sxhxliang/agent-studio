@@ -1,18 +1,14 @@
 //! Service layer for business logic
 //!
-//! This module provides a service layer that separates business logic from UI components.
-//! The services handle agent operations, session management, and message distribution.
+//! Re-exports from agentx-services crate.
 
-mod agent_config_service;
-mod agent_service;
-mod ai_service;
-mod message_service;
-mod persistence_service;
-mod workspace_service;
-
-pub use agent_config_service::AgentConfigService;
-pub use agent_service::{AgentService, AgentSessionInfo, SessionStatus};
-pub use ai_service::{AiService, CommentStyle};
-pub use message_service::MessageService;
-pub use persistence_service::PersistenceService;
-pub use workspace_service::WorkspaceService;
+pub use agentx_services::AgentConfigService;
+pub use agentx_services::AgentService;
+pub use agentx_services::AgentSessionInfo;
+pub use agentx_services::AiService;
+pub use agentx_services::CommentStyle;
+pub use agentx_services::ConfigWatcher;
+pub use agentx_services::MessageService;
+pub use agentx_services::PersistenceService;
+pub use agentx_services::SessionStatus;
+pub use agentx_services::WorkspaceService;

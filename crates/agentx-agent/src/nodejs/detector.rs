@@ -378,7 +378,8 @@ pub async fn verify_nodejs_executable(path: &Path) -> Result<String> {
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             Err(error::permission_denied_error(path.display().to_string()))
         }
-        Ok(Err(e)) => Err(e).with_context(|| format!("Failed to execute {}", path.display())),
+        Ok(Err(e)) => Err(anyhow::Error::from(e))
+            .with_context(|| format!("Failed to execute {}", path.display())),
         Err(_) => Err(anyhow::anyhow!(
             "Timed out running '{} --version' after {:?}",
             path.display(),

@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::core::config::ModelConfig;
+use agentx_types::ModelConfig;
 
 /// Global Tokio runtime for HTTP requests
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();

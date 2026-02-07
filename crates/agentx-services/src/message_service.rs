@@ -14,8 +14,8 @@ use agent_client_protocol::{
 };
 use anyhow::{Result, anyhow};
 
-use crate::core::event_bus::{EventHub, SessionUpdateEvent, WorkspaceUpdateEvent};
-use crate::core::services::SessionStatus;
+use agentx_event_bus::{EventHub, SessionUpdateEvent, WorkspaceUpdateEvent};
+use agentx_types::SessionStatus;
 
 use super::agent_service::AgentService;
 use super::persistence_service::{PersistedMessage, PersistenceService};

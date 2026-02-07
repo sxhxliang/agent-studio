@@ -23,8 +23,8 @@ use tokio::{
     task::LocalSet,
 };
 
-use crate::core::config::{AgentProcessConfig, ProxyConfig};
-use crate::core::event_bus::{EventHub, PermissionRequestEvent, SessionUpdateEvent};
+use agentx_event_bus::{EventHub, PermissionRequestEvent, SessionUpdateEvent};
+use agentx_types::{AgentProcessConfig, ProxyConfig};
 
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -37,8 +37,8 @@ pub struct AgentManager {
 }
 
 impl AgentManager {
-    #[cfg(test)]
-    pub(crate) fn new(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new(
         configs: HashMap<String, AgentProcessConfig>,
         permission_store: Arc<PermissionStore>,
         event_hub: EventHub,
@@ -549,7 +549,7 @@ async fn agent_event_loop(
             agent_name
         );
 
-        use crate::core::nodejs::NodeJsChecker;
+        use crate::nodejs::NodeJsChecker;
         use std::path::PathBuf;
 
         let custom_path = config.nodejs_path.as_ref().map(PathBuf::from);

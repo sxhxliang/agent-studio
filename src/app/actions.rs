@@ -265,6 +265,32 @@ pub struct AddCodeSelection {
     pub content: String,
 }
 
+impl From<agentx_types::events::CodeSelectionData> for AddCodeSelection {
+    fn from(data: agentx_types::events::CodeSelectionData) -> Self {
+        Self {
+            file_path: data.file_path,
+            start_line: data.start_line,
+            start_column: data.start_column,
+            end_line: data.end_line,
+            end_column: data.end_column,
+            content: data.content,
+        }
+    }
+}
+
+impl From<AddCodeSelection> for agentx_types::events::CodeSelectionData {
+    fn from(action: AddCodeSelection) -> Self {
+        Self {
+            file_path: action.file_path,
+            start_line: action.start_line,
+            start_column: action.start_column,
+            end_line: action.end_line,
+            end_column: action.end_column,
+            content: action.content,
+        }
+    }
+}
+
 // 通用应用级操作 - 包含各种应用级别的命令和操作
 actions!(
     agent_studio,
