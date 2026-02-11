@@ -7,8 +7,8 @@
 
 use gpui::{
     App, AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, prelude::FluentBuilder, px,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, Selectable, Sizable, StyledExt,
@@ -66,6 +66,7 @@ pub struct TaskPanel {
     focus_handle: FocusHandle,
     workspaces: Vec<WorkspaceGroup>,
     selected_task_id: Option<String>,
+    context_menu_task_id: Option<String>,
     view_mode: ViewMode,
     _subscriptions: Vec<Subscription>,
     /// Search input state
@@ -130,6 +131,7 @@ impl TaskPanel {
             focus_handle: cx.focus_handle(),
             workspaces: Vec::new(),
             selected_task_id: None,
+            context_menu_task_id: None,
             view_mode: ViewMode::Tree,
             _subscriptions: vec![search_subscription],
             search_input,
@@ -540,6 +542,16 @@ impl TaskPanel {
             .flat_map(|w| w.tasks.iter())
             .next()
             .map(|t| t.id.clone());
+
+        let context_is_valid = self.context_menu_task_id.as_ref().is_some_and(|id| {
+            self.workspaces
+                .iter()
+                .flat_map(|w| w.tasks.iter())
+                .any(|t| &t.id == id)
+        });
+        if !context_is_valid {
+            self.context_menu_task_id = None;
+        }
     }
 
     fn update_task_status_by_session_id(
@@ -721,6 +733,12 @@ impl TaskPanel {
 
     fn select_task(&mut self, task_id: String, cx: &mut Context<Self>) {
         self.selected_task_id = Some(task_id);
+        cx.notify();
+    }
+
+    fn select_task_for_context_menu(&mut self, task_id: String, cx: &mut Context<Self>) {
+        self.selected_task_id = Some(task_id.clone());
+        self.context_menu_task_id = Some(task_id);
         cx.notify();
     }
 
@@ -1216,7 +1234,7 @@ impl TaskPanel {
                     .children(
                         sorted_tasks
                             .iter()
-                            .map(|task| self.render_task_item(task, entity.clone(), cx)),
+                            .map(|task| self.render_task_item(task, cx)),
                     )
             })
     }
@@ -1260,12 +1278,7 @@ impl TaskPanel {
             )
     }
 
-    fn render_task_item(
-        &self,
-        task: &Rc<WorkspaceTask>,
-        entity: Entity<Self>,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
+    fn render_task_item(&self, task: &Rc<WorkspaceTask>, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let task_id = task.id.clone();
         let is_selected = self.selected_task_id.as_ref() == Some(&task_id);
@@ -1296,6 +1309,15 @@ impl TaskPanel {
                     this.handle_task_click(task_id.clone(), event.click_count(), window, cx);
                 }
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let task_id = task_id.clone();
+                    move |this, _, _, cx| {
+                        this.select_task_for_context_menu(task_id.clone(), cx);
+                    }
+                }),
+            )
             // First row: status icon + task name + relative time
             .child(
                 h_flex()
@@ -1361,20 +1383,6 @@ impl TaskPanel {
                     )
                     .child(self.render_status_badge(&task.status, cx)),
             )
-            // Right-click context menu
-            .context_menu(move |menu, _, _| {
-                let task_id = task_id.clone();
-                let entity = entity.clone();
-                menu.item(
-                    PopupMenuItem::new(t!("task_panel.task.delete").to_string())
-                        .icon(Icon::new(crate::assets::Icon::Trash2))
-                        .on_click(move |_, _, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.remove_task(task_id.clone(), cx);
-                            });
-                        }),
-                )
-            })
     }
 
     // ========================================================================
@@ -1385,7 +1393,6 @@ impl TaskPanel {
         use chrono::{Duration, Local};
 
         let filtered_workspaces = self.get_filtered_workspaces(cx);
-        let entity = cx.entity().clone();
 
         let mut all_tasks: Vec<Rc<WorkspaceTask>> = filtered_workspaces
             .iter()
@@ -1419,7 +1426,6 @@ impl TaskPanel {
                 this.child(self.render_time_group(
                     t!("task_panel.group.today").to_string(),
                     &today,
-                    entity.clone(),
                     cx,
                 ))
             })
@@ -1427,7 +1433,6 @@ impl TaskPanel {
                 this.child(self.render_time_group(
                     t!("task_panel.group.yesterday").to_string(),
                     &yesterday,
-                    entity.clone(),
                     cx,
                 ))
             })
@@ -1435,7 +1440,6 @@ impl TaskPanel {
                 this.child(self.render_time_group(
                     t!("task_panel.group.older").to_string(),
                     &older,
-                    entity.clone(),
                     cx,
                 ))
             })
@@ -1445,7 +1449,6 @@ impl TaskPanel {
         &self,
         label: String,
         tasks: &[&Rc<WorkspaceTask>],
-        entity: Entity<Self>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -1470,14 +1473,13 @@ impl TaskPanel {
             .children(
                 tasks
                     .iter()
-                    .map(|task| self.render_timeline_task_item(task, entity.clone(), cx)),
+                    .map(|task| self.render_timeline_task_item(task, cx)),
             )
     }
 
     fn render_timeline_task_item(
         &self,
         task: &Rc<WorkspaceTask>,
-        entity: Entity<Self>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -1511,6 +1513,15 @@ impl TaskPanel {
                     this.handle_task_click(task_id.clone(), event.click_count(), window, cx);
                 }
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let task_id = task_id.clone();
+                    move |this, _, _, cx| {
+                        this.select_task_for_context_menu(task_id.clone(), cx);
+                    }
+                }),
+            )
             .child(
                 h_flex()
                     .w_full()
@@ -1561,20 +1572,6 @@ impl TaskPanel {
                     )
                     .child(self.render_status_badge(&task.status, cx)),
             )
-            // Right-click context menu
-            .context_menu(move |menu, _, _| {
-                let task_id = task_id.clone();
-                let entity = entity.clone();
-                menu.item(
-                    PopupMenuItem::new(t!("task_panel.task.delete").to_string())
-                        .icon(Icon::new(crate::assets::Icon::Trash2))
-                        .on_click(move |_, _, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.remove_task(task_id.clone(), cx);
-                            });
-                        }),
-                )
-            })
     }
 
     // ========================================================================
@@ -1693,15 +1690,38 @@ impl Focusable for TaskPanel {
 
 impl Render for TaskPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity = cx.entity().clone();
+
         v_flex()
             .id("task-panel")
             .track_focus(&self.focus_handle)
             .size_full()
             .child(self.render_header(cx))
-            .child(match self.view_mode {
-                ViewMode::Tree => self.render_tree_view(cx).into_any_element(),
-                ViewMode::Timeline => self.render_timeline_view(cx).into_any_element(),
-            })
+            .child(
+                v_flex()
+                    .id("task-panel-content")
+                    .flex_1()
+                    .min_h_0()
+                    .child(match self.view_mode {
+                        ViewMode::Tree => self.render_tree_view(cx).into_any_element(),
+                        ViewMode::Timeline => self.render_timeline_view(cx).into_any_element(),
+                    })
+                    .context_menu(move |menu, _, cx| {
+                        let Some(task_id) = entity.read(cx).context_menu_task_id.clone() else {
+                            return menu;
+                        };
+                        let entity = entity.clone();
+                        menu.item(
+                            PopupMenuItem::new(t!("task_panel.task.delete").to_string())
+                                .icon(Icon::new(crate::assets::Icon::Trash2))
+                                .on_click(move |_, _, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.remove_task(task_id.clone(), cx);
+                                    });
+                                }),
+                        )
+                    }),
+            )
             .child(self.render_footer(cx))
     }
 }
