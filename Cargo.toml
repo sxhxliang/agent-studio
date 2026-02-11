@@ -53,7 +53,7 @@ type_complexity = "allow"
 
 [package]
 name = "agentx"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "An Agent Studio - A full-featured desktop AI agent studio built with GPUI"
 license = "Apache-2.0"
