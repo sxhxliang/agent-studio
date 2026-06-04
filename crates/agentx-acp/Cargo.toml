@@ -1,0 +1,24 @@
+[package]
+name = "agentx-acp"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Driven adapter. Depends on agentx-domain (port + mapped types) and agentx-bus
+# (to emit agent events). Must not depend on agentx-app or agentx-ui.
+# ACP schema types stop here and never leak inward to the domain.
+[dependencies]
+agentx-domain.workspace = true
+agentx-bus.workspace = true
+agent-client-protocol = { workspace = true, features = ["unstable"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "process", "io-util", "sync", "time", "macros"] }
+async-trait.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+which.workspace = true
+
+[lints]
+workspace = true

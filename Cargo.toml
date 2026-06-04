@@ -1,21 +1,39 @@
 [workspace]
 members = [
     ".",
+    # Legacy crates (kept building until the rewrite reaches cutover)
     "crates/agentx-types",
     "crates/agentx-event-bus",
     "crates/agentx-agent",
     "crates/agentx-services",
     "crates/agentx-acp-ui",
     "crates/git-worktree-manager",
+
+    # Hexagonal architecture (rewrite). Dependency rule: arrows point inward to the domain.
+    "crates/agentx-domain", # core: entities, value objects, port traits (zero framework deps)
+    "crates/agentx-bus",    # infra: typed async event bus
+    "crates/agentx-store",  # driven adapter: persistence (sessions/config/layout)
+    "crates/agentx-acp",    # driven adapter: ACP protocol + agent subprocess supervision
+    "crates/agentx-app",    # application: use-cases orchestrating the domain via ports
+    "crates/agentx-ui",     # driving adapter: GPUI panels, view-models, dock, shell
 ]
 resolver = "2"
 
 [workspace.dependencies]
-# Internal crates
+# Internal crates (legacy)
 agentx-types = { path = "crates/agentx-types" }
 agentx-event-bus = { path = "crates/agentx-event-bus" }
 agentx-agent = { path = "crates/agentx-agent" }
 agentx-services = { path = "crates/agentx-services" }
+
+# Internal crates (hexagonal rewrite)
+agentx-domain = { path = "crates/agentx-domain" }
+agentx-bus = { path = "crates/agentx-bus" }
+agentx-store = { path = "crates/agentx-store" }
+agentx-acp = { path = "crates/agentx-acp" }
+agentx-app = { path = "crates/agentx-app" }
+agentx-ui = { path = "crates/agentx-ui" }
+agentx-acp-ui = { path = "crates/agentx-acp-ui" }
 
 # Agent communication
 agent-client-protocol = { version = "0.13.1", features = ["unstable"] }
@@ -41,6 +59,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Error handling and logging
 anyhow = "1"
 log = "0.4"
+thiserror = "2"
 
 # Utilities
 uuid = { version = "1.11", features = ["v4"] }

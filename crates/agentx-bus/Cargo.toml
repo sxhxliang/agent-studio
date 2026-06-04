@@ -1,0 +1,14 @@
+[package]
+name = "agentx-bus"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Standalone infrastructure: channels only. Generic over the event type;
+# event definitions themselves live in agentx-domain.
+[dependencies]
+tokio = { workspace = true, features = ["sync", "rt"] }
+
+[lints]
+workspace = true

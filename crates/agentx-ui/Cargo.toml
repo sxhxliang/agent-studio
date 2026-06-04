@@ -1,0 +1,23 @@
+[package]
+name = "agentx-ui"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Driving adapter (GPUI). Depends on the application + domain + bus and the pure
+# presentational ACP widgets. It must NOT depend on the driven adapters
+# (agentx-acp, agentx-store) — it only knows use-cases and the domain.
+[dependencies]
+agentx-domain.workspace = true
+agentx-app.workspace = true
+agentx-bus.workspace = true
+agentx-acp-ui.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

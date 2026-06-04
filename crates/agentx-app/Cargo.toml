@@ -1,0 +1,19 @@
+[package]
+name = "agentx-app"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Application layer. Depends on agentx-domain + agentx-bus only.
+# It depends on PORTS (traits), never on concrete adapter crates.
+[dependencies]
+agentx-domain.workspace = true
+agentx-bus.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+async-trait.workspace = true
+anyhow.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

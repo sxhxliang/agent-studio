@@ -1,0 +1,18 @@
+[package]
+name = "agentx-domain"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Dependency rule: the domain core depends on NO framework.
+# Only pure-data crates are allowed here (no gpui / tokio / agent-client-protocol / I/O).
+[dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

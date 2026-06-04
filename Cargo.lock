@@ -218,6 +218,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentx-acp"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "agentx-bus",
+ "agentx-domain",
+ "anyhow",
+ "async-trait",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
+ "which 7.0.3",
+]
+
+[[package]]
 name = "agentx-acp-ui"
 version = "0.1.0"
 dependencies = [
@@ -246,6 +262,36 @@ dependencies = [
  "tokio",
  "tokio-util",
  "which 7.0.3",
+]
+
+[[package]]
+name = "agentx-app"
+version = "0.1.0"
+dependencies = [
+ "agentx-bus",
+ "agentx-domain",
+ "anyhow",
+ "async-trait",
+ "log",
+ "tokio",
+]
+
+[[package]]
+name = "agentx-bus"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "agentx-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]
@@ -278,6 +324,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentx-store"
+version = "0.1.0"
+dependencies = [
+ "agentx-domain",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dirs 6.0.0",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "agentx-types"
 version = "0.1.0"
 dependencies = [
@@ -289,6 +350,21 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "agentx-ui"
+version = "0.1.0"
+dependencies = [
+ "agentx-acp-ui",
+ "agentx-app",
+ "agentx-bus",
+ "agentx-domain",
+ "gpui",
+ "gpui-component",
+ "log",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
