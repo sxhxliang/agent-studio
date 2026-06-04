@@ -8,7 +8,10 @@ publish = false
 # Standalone infrastructure: channels only. Generic over the event type;
 # event definitions themselves live in agentx-domain.
 [dependencies]
-tokio = { workspace = true, features = ["sync", "rt"] }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 [lints]
 workspace = true

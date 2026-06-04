@@ -9,3 +9,6 @@
 //! Depends on `agentx-domain` (the port and the types it maps to) and
 //! `agentx-bus` (to emit agent events). It must not depend on `agentx-app` or
 //! `agentx-ui`. ACP schema types stop here; they never leak inward.
+
+mod accumulator;
+mod mapping;

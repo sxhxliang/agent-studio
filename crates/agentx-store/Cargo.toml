@@ -18,5 +18,9 @@ anyhow.workspace = true
 dirs.workspace = true
 log.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "fs", "io-util"] }
+tempfile = "3"
+
 [lints]
 workspace = true
