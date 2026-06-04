@@ -13,6 +13,10 @@ serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+# async-trait keeps the port traits object-safe so the app can hold `Arc<dyn Port>`.
+# It is a desugaring macro only — it pulls in no async runtime, so the domain
+# stays framework-free.
+async-trait.workspace = true
 
 [lints]
 workspace = true
