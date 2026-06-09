@@ -19,5 +19,16 @@ log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# The composition root (examples/window.rs) wires the real driven adapters. They
+# live here as dev-dependencies so the library itself never depends on them.
+[dev-dependencies]
+agentx-acp.workspace = true
+agentx-store.workspace = true
+gpui_platform.workspace = true
+gpui-component-assets = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
+anyhow.workspace = true
+env_logger = "0.11"
+tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
+
 [lints]
 workspace = true
