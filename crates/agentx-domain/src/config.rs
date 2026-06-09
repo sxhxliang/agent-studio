@@ -57,8 +57,13 @@ pub struct ModelConfig {
 }
 
 /// An MCP (Model Context Protocol) server made available to agents.
+///
+/// `name` is the server's identifier (the key it is stored under in
+/// [`Config::mcp_servers`]); the ACP adapter forwards it to the agent so it can
+/// label the launched server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct McpServerConfig {
+    pub name: String,
     pub enabled: bool,
     pub command: String,
     pub args: Vec<String>,

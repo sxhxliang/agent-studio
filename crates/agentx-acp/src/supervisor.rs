@@ -28,14 +28,23 @@ use agentx_domain::{
 
 use crate::worker::{AgentWorker, PermissionStore};
 
+/// Per-session routing: which agent owns the session, plus the id of its model
+/// selector config option (if the agent advertised one), so `set_model` can
+/// target the right option later.
+struct Route {
+    agent: AgentId,
+    model_config_id: Option<String>,
+}
+
 /// Supervises the live agent subprocesses and routes domain calls to them.
 pub struct AcpSupervisor {
     bus: EventBus,
     permissions: Arc<PermissionStore>,
     agents: RwLock<HashMap<AgentId, AgentWorker>>,
-    /// Which agent owns each session, so session-scoped calls (prompt, cancel)
-    /// reach the right worker without the caller naming the agent.
-    sessions: Mutex<HashMap<SessionId, AgentId>>,
+    /// Routing for each open session, so session-scoped calls (prompt, cancel,
+    /// set_mode, set_model) reach the right worker without the caller naming the
+    /// agent.
+    sessions: Mutex<HashMap<SessionId, Route>>,
     /// Applied to every agent started after it is set.
     proxy: Mutex<ProxyConfig>,
 }
@@ -66,9 +75,29 @@ impl AcpSupervisor {
             .lock()
             .expect("sessions poisoned")
             .get(session)
-            .cloned()
+            .map(|route| route.agent.clone())
             .ok_or_else(|| AgentError::SessionNotFound(session.clone()))?;
         self.worker(&agent)
+    }
+
+    /// Record which agent owns a freshly opened session and its model selector.
+    fn route_session(&self, agent: &AgentId, start_session: SessionId, model_config_id: Option<String>) {
+        self.sessions.lock().expect("sessions poisoned").insert(
+            start_session,
+            Route {
+                agent: agent.clone(),
+                model_config_id,
+            },
+        );
+    }
+
+    /// The model selector config id captured when the session opened, if any.
+    fn model_config_for(&self, session: &SessionId) -> Option<String> {
+        self.sessions
+            .lock()
+            .expect("sessions poisoned")
+            .get(session)
+            .and_then(|route| route.model_config_id.clone())
     }
 }
 
@@ -89,39 +118,44 @@ impl AgentGateway for AcpSupervisor {
         &self,
         agent: &AgentId,
         cwd: &Path,
-        _mcp_servers: &[McpServerConfig],
+        mcp_servers: &[McpServerConfig],
     ) -> Result<SessionInit, AgentError> {
         let worker = self.worker(agent)?;
-        let init = worker.create_session(cwd.to_path_buf()).await?;
-        self.sessions
-            .lock()
-            .expect("sessions poisoned")
-            .insert(init.session_id.clone(), agent.clone());
-        Ok(init)
+        let start = worker
+            .create_session(cwd.to_path_buf(), mcp_servers.to_vec())
+            .await?;
+        self.route_session(agent, start.init.session_id.clone(), start.model_config_id);
+        Ok(start.init)
     }
 
     async fn resume_session(
         &self,
-        _agent: &AgentId,
-        _session: &SessionId,
-        _cwd: &Path,
-        _mcp_servers: &[McpServerConfig],
+        agent: &AgentId,
+        session: &SessionId,
+        cwd: &Path,
+        mcp_servers: &[McpServerConfig],
     ) -> Result<SessionInit, AgentError> {
-        Err(AgentError::Protocol(
-            "resume_session is not supported yet".into(),
-        ))
+        let worker = self.worker(agent)?;
+        let start = worker
+            .resume_session(session.clone(), cwd.to_path_buf(), mcp_servers.to_vec())
+            .await?;
+        self.route_session(agent, start.init.session_id.clone(), start.model_config_id);
+        Ok(start.init)
     }
 
     async fn load_session(
         &self,
-        _agent: &AgentId,
-        _session: &SessionId,
-        _cwd: &Path,
-        _mcp_servers: &[McpServerConfig],
+        agent: &AgentId,
+        session: &SessionId,
+        cwd: &Path,
+        mcp_servers: &[McpServerConfig],
     ) -> Result<SessionInit, AgentError> {
-        Err(AgentError::Protocol(
-            "load_session is not supported yet".into(),
-        ))
+        let worker = self.worker(agent)?;
+        let start = worker
+            .load_session(session.clone(), cwd.to_path_buf(), mcp_servers.to_vec())
+            .await?;
+        self.route_session(agent, start.init.session_id.clone(), start.model_config_id);
+        Ok(start.init)
     }
 
     async fn prompt(
@@ -140,12 +174,19 @@ impl AgentGateway for AcpSupervisor {
             .await
     }
 
-    async fn set_mode(&self, _session: &SessionId, _mode_id: &str) -> Result<(), AgentError> {
-        Err(AgentError::Protocol("set_mode is not supported yet".into()))
+    async fn set_mode(&self, session: &SessionId, mode_id: &str) -> Result<(), AgentError> {
+        self.worker_for_session(session)?
+            .set_mode(session.clone(), mode_id.to_string())
+            .await
     }
 
-    async fn set_model(&self, _session: &SessionId, _model_id: &str) -> Result<(), AgentError> {
-        Err(AgentError::Protocol("set_model is not supported yet".into()))
+    async fn set_model(&self, session: &SessionId, model_id: &str) -> Result<(), AgentError> {
+        let config_id = self.model_config_for(session).ok_or_else(|| {
+            AgentError::Protocol("the session's agent has no model selector".into())
+        })?;
+        self.worker_for_session(session)?
+            .set_model(session.clone(), config_id, model_id.to_string())
+            .await
     }
 
     async fn resolve_permission(
@@ -210,7 +251,7 @@ impl AgentRegistry for AcpSupervisor {
         self.sessions
             .lock()
             .expect("sessions poisoned")
-            .retain(|_, owner| owner != agent);
+            .retain(|_, route| route.agent != *agent);
         self.bus.publish(DomainEvent::AgentStatusChanged {
             agent: agent.clone(),
             status: AgentStatus::Unavailable {

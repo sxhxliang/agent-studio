@@ -156,7 +156,16 @@ impl From<ConfigDto> for Config {
         Config {
             agents: map_values(dto.agent_servers),
             models: map_values(dto.models),
-            mcp_servers: map_values(dto.mcp_servers),
+            // An MCP server's name is its map key, so inject it as we build.
+            mcp_servers: dto
+                .mcp_servers
+                .into_iter()
+                .map(|(name, server)| {
+                    let mut server = McpServerConfig::from(server);
+                    server.name = name.clone();
+                    (name, server)
+                })
+                .collect(),
             commands: map_values(dto.commands),
             system_prompts: dto.system_prompts,
             proxy: dto.proxy.into(),
@@ -191,6 +200,8 @@ impl From<ModelDto> for ModelConfig {
 impl From<McpDto> for McpServerConfig {
     fn from(dto: McpDto) -> Self {
         McpServerConfig {
+            // The name is the map key; it is injected when the map is built.
+            name: String::new(),
             enabled: dto.enabled,
             command: dto.command,
             args: dto.args,
@@ -337,6 +348,8 @@ mod tests {
         // `mcpServers` alias is honored, and the missing `enabled` defaults to true.
         assert!(config.mcp_servers.contains_key("fs"));
         assert!(config.mcp_servers["fs"].enabled);
+        // The server's name is taken from its map key.
+        assert_eq!(config.mcp_servers["fs"].name, "fs");
         assert!(config.proxy.enabled);
         // Absent field falls back to the domain default.
         assert_eq!(config.tool_call_preview_max_lines, 10);

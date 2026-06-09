@@ -33,12 +33,15 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use agentx_bus::EventBus;
 use agentx_domain::{
-    AgentConfig, AgentError, AgentId, AgentStatus, ContentBlock, DomainEvent, PermissionId,
-    PermissionOutcome, ProxyConfig, SessionEvent, SessionId, SessionInit, StopReason,
+    AgentConfig, AgentError, AgentId, AgentStatus, ContentBlock, DomainEvent, McpServerConfig,
+    PermissionId, PermissionOutcome, ProxyConfig, SessionEvent, SessionId, SessionInit, StopReason,
 };
 
 use crate::accumulator::StreamAccumulator;
-use crate::mapping::{content_blocks_to_acp, permission_outcome_to_acp, stop_reason_to_domain};
+use crate::mapping::{
+    content_blocks_to_acp, mcp_servers_to_acp, model_config_id, permission_outcome_to_acp,
+    session_init_from, stop_reason_to_domain,
+};
 
 /// Permission requests the agent has raised and is blocked on, keyed by a fresh
 /// id and shared across all worker threads via the supervisor.
@@ -145,9 +148,84 @@ impl AgentWorker {
         self.status.lock().expect("status poisoned").clone()
     }
 
-    pub(crate) async fn create_session(&self, cwd: PathBuf) -> Result<SessionInit, AgentError> {
+    pub(crate) async fn create_session(
+        &self,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<SessionStart, AgentError> {
         let (respond, result) = oneshot::channel();
-        self.dispatch(Command::CreateSession { cwd, respond }).await?;
+        self.dispatch(Command::CreateSession {
+            cwd,
+            mcp_servers,
+            respond,
+        })
+        .await?;
+        Self::recv(result).await?
+    }
+
+    pub(crate) async fn resume_session(
+        &self,
+        session: SessionId,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<SessionStart, AgentError> {
+        let (respond, result) = oneshot::channel();
+        self.dispatch(Command::ResumeSession {
+            session,
+            cwd,
+            mcp_servers,
+            respond,
+        })
+        .await?;
+        Self::recv(result).await?
+    }
+
+    pub(crate) async fn load_session(
+        &self,
+        session: SessionId,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServerConfig>,
+    ) -> Result<SessionStart, AgentError> {
+        let (respond, result) = oneshot::channel();
+        self.dispatch(Command::LoadSession {
+            session,
+            cwd,
+            mcp_servers,
+            respond,
+        })
+        .await?;
+        Self::recv(result).await?
+    }
+
+    pub(crate) async fn set_mode(
+        &self,
+        session: SessionId,
+        mode_id: String,
+    ) -> Result<(), AgentError> {
+        let (respond, result) = oneshot::channel();
+        self.dispatch(Command::SetMode {
+            session,
+            mode_id,
+            respond,
+        })
+        .await?;
+        Self::recv(result).await?
+    }
+
+    pub(crate) async fn set_model(
+        &self,
+        session: SessionId,
+        config_id: String,
+        value: String,
+    ) -> Result<(), AgentError> {
+        let (respond, result) = oneshot::channel();
+        self.dispatch(Command::SetModel {
+            session,
+            config_id,
+            value,
+            respond,
+        })
+        .await?;
         Self::recv(result).await?
     }
 
@@ -190,13 +268,34 @@ impl AgentWorker {
     }
 }
 
+/// What an opened session yields the supervisor: the domain [`SessionInit`] plus
+/// the id of the model selector config option (if the agent advertises one), so
+/// a later `set_model` can target it.
+pub(crate) struct SessionStart {
+    pub(crate) init: SessionInit,
+    pub(crate) model_config_id: Option<String>,
+}
+
 /// A domain-typed instruction for the actor. Streamed output is *not* a reply
 /// here — it flows out on the bus — so each command's oneshot carries only the
 /// turn's final result.
 enum Command {
     CreateSession {
         cwd: PathBuf,
-        respond: oneshot::Sender<Result<SessionInit, AgentError>>,
+        mcp_servers: Vec<McpServerConfig>,
+        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
+    },
+    ResumeSession {
+        session: SessionId,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServerConfig>,
+        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
+    },
+    LoadSession {
+        session: SessionId,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServerConfig>,
+        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
     },
     Prompt {
         session: SessionId,
@@ -205,6 +304,17 @@ enum Command {
     },
     Cancel {
         session: SessionId,
+        respond: oneshot::Sender<Result<(), AgentError>>,
+    },
+    SetMode {
+        session: SessionId,
+        mode_id: String,
+        respond: oneshot::Sender<Result<(), AgentError>>,
+    },
+    SetModel {
+        session: SessionId,
+        config_id: String,
+        value: String,
         respond: oneshot::Sender<Result<(), AgentError>>,
     },
     Shutdown,
@@ -327,13 +437,61 @@ async fn event_loop(
 
                 while let Some(command) = commands_rx.recv().await {
                     match command {
-                        Command::CreateSession { cwd, respond } => {
+                        Command::CreateSession {
+                            cwd,
+                            mcp_servers,
+                            respond,
+                        } => {
+                            let request = acp::NewSessionRequest::new(cwd)
+                                .mcp_servers(mcp_servers_to_acp(&mcp_servers));
                             let result = conn
-                                .send_request(acp::NewSessionRequest::new(cwd))
+                                .send_request(request)
                                 .block_task()
                                 .await
-                                .map(|response| session_init(response.session_id))
-                                .map_err(|error| AgentError::Protocol(error.to_string()));
+                                .map(|response| {
+                                    session_start(
+                                        SessionId::from(response.session_id.to_string()),
+                                        response.modes,
+                                        response.config_options,
+                                    )
+                                })
+                                .map_err(protocol_error);
+                            let _ = respond.send(result);
+                        }
+                        Command::ResumeSession {
+                            session,
+                            cwd,
+                            mcp_servers,
+                            respond,
+                        } => {
+                            let request = acp::ResumeSessionRequest::new(session.to_string(), cwd)
+                                .mcp_servers(mcp_servers_to_acp(&mcp_servers));
+                            let result = conn
+                                .send_request(request)
+                                .block_task()
+                                .await
+                                .map(|response| {
+                                    session_start(session, response.modes, response.config_options)
+                                })
+                                .map_err(protocol_error);
+                            let _ = respond.send(result);
+                        }
+                        Command::LoadSession {
+                            session,
+                            cwd,
+                            mcp_servers,
+                            respond,
+                        } => {
+                            let request = acp::LoadSessionRequest::new(session.to_string(), cwd)
+                                .mcp_servers(mcp_servers_to_acp(&mcp_servers));
+                            let result = conn
+                                .send_request(request)
+                                .block_task()
+                                .await
+                                .map(|response| {
+                                    session_start(session, response.modes, response.config_options)
+                                })
+                                .map_err(protocol_error);
                             let _ = respond.send(result);
                         }
                         Command::Prompt {
@@ -373,6 +531,40 @@ async fn event_loop(
                             let result = conn
                                 .send_notification(acp::CancelNotification::new(session.to_string()))
                                 .map_err(|error| AgentError::Protocol(error.to_string()));
+                            let _ = respond.send(result);
+                        }
+                        Command::SetMode {
+                            session,
+                            mode_id,
+                            respond,
+                        } => {
+                            let request =
+                                acp::SetSessionModeRequest::new(session.to_string(), mode_id);
+                            let result = conn
+                                .send_request(request)
+                                .block_task()
+                                .await
+                                .map(|_| ())
+                                .map_err(protocol_error);
+                            let _ = respond.send(result);
+                        }
+                        Command::SetModel {
+                            session,
+                            config_id,
+                            value,
+                            respond,
+                        } => {
+                            let request = acp::SetSessionConfigOptionRequest::new(
+                                session.to_string(),
+                                config_id,
+                                acp::SessionConfigOptionValue::value_id(value),
+                            );
+                            let result = conn
+                                .send_request(request)
+                                .block_task()
+                                .await
+                                .map(|_| ())
+                                .map_err(protocol_error);
                             let _ = respond.send(result);
                         }
                         Command::Shutdown => break,
@@ -430,17 +622,22 @@ fn spawn_child(
         .with_context(|| format!("spawn agent `{agent}`"))
 }
 
-/// M4a builds a session with only its id; modes/models/commands are wired when
-/// the UI that surfaces them lands.
-fn session_init(session_id: acp::SessionId) -> SessionInit {
-    SessionInit {
-        session_id: SessionId::from(session_id.to_string()),
-        modes: Vec::new(),
-        current_mode: None,
-        models: Vec::new(),
-        current_model: None,
-        commands: Vec::new(),
+/// Assemble a [`SessionStart`] from an ACP session response, capturing the model
+/// selector's config id (if any) so a later `set_model` can target it.
+fn session_start(
+    session_id: SessionId,
+    modes: Option<acp::SessionModeState>,
+    config_options: Option<Vec<acp::SessionConfigOption>>,
+) -> SessionStart {
+    let model_cfg = model_config_id(config_options.as_deref());
+    SessionStart {
+        init: session_init_from(session_id, modes, config_options),
+        model_config_id: model_cfg,
     }
+}
+
+fn protocol_error(error: acp_runtime::Error) -> AgentError {
+    AgentError::Protocol(error.to_string())
 }
 
 fn publish_events(bus: &EventBus, session: &SessionId, events: Vec<SessionEvent>) {

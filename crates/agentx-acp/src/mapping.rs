@@ -17,8 +17,9 @@
 
 use agent_client_protocol::schema as acp;
 use agentx_domain::{
-    ContentBlock, PermissionOutcome, Plan, PlanEntry, PlanEntryStatus, PlanPriority,
-    ResourceContents, StopReason, ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
+    ContentBlock, McpServerConfig, PermissionOutcome, Plan, PlanEntry, PlanEntryStatus,
+    PlanPriority, ResourceContents, SessionId, SessionInit, SessionMode, SessionModel, StopReason,
+    ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -239,6 +240,119 @@ pub(crate) fn permission_outcome_to_acp(
     acp::RequestPermissionResponse::new(outcome)
 }
 
+// ---------------------------------------------------------------------------
+// MCP servers
+// ---------------------------------------------------------------------------
+
+/// Outbound: the enabled MCP servers to advertise when opening a session.
+/// Disabled entries are dropped; each enabled one becomes a stdio server.
+pub(crate) fn mcp_servers_to_acp(servers: &[McpServerConfig]) -> Vec<acp::McpServer> {
+    servers
+        .iter()
+        .filter(|server| server.enabled)
+        .map(mcp_server_to_acp)
+        .collect()
+}
+
+fn mcp_server_to_acp(server: &McpServerConfig) -> acp::McpServer {
+    let env = server
+        .env
+        .iter()
+        .map(|(name, value)| acp::EnvVariable::new(name.clone(), value.clone()))
+        .collect();
+    acp::McpServer::Stdio(
+        acp::McpServerStdio::new(server.name.clone(), server.command.clone())
+            .args(server.args.clone())
+            .env(env),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Session capabilities (modes, models)
+// ---------------------------------------------------------------------------
+
+/// Inbound: assemble the [`SessionInit`] returned from an ACP session response.
+/// Modes come from the agent's mode state; models from the `Model`-category
+/// config option. Slash commands are deliberately empty — ACP delivers those
+/// later via a notification, a stream the domain does not model yet.
+pub(crate) fn session_init_from(
+    session_id: SessionId,
+    modes: Option<acp::SessionModeState>,
+    config_options: Option<Vec<acp::SessionConfigOption>>,
+) -> SessionInit {
+    let (modes, current_mode) = match modes {
+        Some(state) => (
+            state
+                .available_modes
+                .into_iter()
+                .map(|mode| SessionMode {
+                    id: mode.id.to_string(),
+                    name: mode.name,
+                })
+                .collect(),
+            Some(state.current_mode_id.to_string()),
+        ),
+        None => (Vec::new(), None),
+    };
+    let (models, current_model) = models_from(config_options.as_deref());
+    SessionInit {
+        session_id,
+        modes,
+        current_mode,
+        models,
+        current_model,
+        commands: Vec::new(),
+    }
+}
+
+/// The id of the session's model selector, if it advertises one — the supervisor
+/// keeps it so a later `set_model` can target the right config option.
+pub(crate) fn model_config_id(config_options: Option<&[acp::SessionConfigOption]>) -> Option<String> {
+    Some(model_select(config_options?)?.0.id.to_string())
+}
+
+/// Find the `Model`-category select option and its select payload.
+fn model_select(
+    options: &[acp::SessionConfigOption],
+) -> Option<(&acp::SessionConfigOption, &acp::SessionConfigSelect)> {
+    options.iter().find_map(|option| {
+        if option.category != Some(acp::SessionConfigOptionCategory::Model) {
+            return None;
+        }
+        match &option.kind {
+            acp::SessionConfigKind::Select(select) => Some((option, select)),
+            _ => None,
+        }
+    })
+}
+
+fn models_from(
+    config_options: Option<&[acp::SessionConfigOption]>,
+) -> (Vec<SessionModel>, Option<String>) {
+    let Some((_, select)) = config_options.and_then(model_select) else {
+        return (Vec::new(), None);
+    };
+    let models = match &select.options {
+        acp::SessionConfigSelectOptions::Ungrouped(list) => {
+            list.iter().map(model_from_option).collect()
+        }
+        acp::SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .map(model_from_option)
+            .collect(),
+        _ => Vec::new(),
+    };
+    (models, Some(select.current_value.to_string()))
+}
+
+fn model_from_option(option: &acp::SessionConfigSelectOption) -> SessionModel {
+    SessionModel {
+        id: option.value.to_string(),
+        name: option.name.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,5 +544,91 @@ mod tests {
             response.outcome,
             acp::RequestPermissionOutcome::Cancelled
         ));
+    }
+
+    // ---- mcp servers ----
+
+    #[test]
+    fn only_enabled_servers_map_to_stdio() {
+        use std::collections::HashMap;
+        let servers = vec![
+            McpServerConfig {
+                name: "fs".into(),
+                enabled: true,
+                command: "npx".into(),
+                args: vec!["server".into()],
+                env: HashMap::from([("API_KEY".to_string(), "secret".to_string())]),
+            },
+            McpServerConfig {
+                name: "disabled".into(),
+                enabled: false,
+                command: "nope".into(),
+                args: vec![],
+                env: HashMap::new(),
+            },
+        ];
+        let mapped = mcp_servers_to_acp(&servers);
+        assert_eq!(mapped.len(), 1);
+        let acp::McpServer::Stdio(stdio) = &mapped[0] else {
+            panic!("expected a stdio server");
+        };
+        assert_eq!(stdio.name, "fs");
+        assert_eq!(stdio.command, std::path::PathBuf::from("npx"));
+        assert_eq!(stdio.args, vec!["server".to_string()]);
+        assert_eq!(stdio.env.len(), 1);
+        assert_eq!(stdio.env[0].name, "API_KEY");
+        assert_eq!(stdio.env[0].value, "secret");
+    }
+
+    // ---- session capabilities ----
+
+    fn model_option() -> acp::SessionConfigOption {
+        acp::SessionConfigOption::select(
+            "model-config",
+            "Model",
+            "gpt-5",
+            vec![
+                acp::SessionConfigSelectOption::new("gpt-5", "GPT-5"),
+                acp::SessionConfigSelectOption::new("o3", "o3"),
+            ],
+        )
+        .category(acp::SessionConfigOptionCategory::Model)
+    }
+
+    #[test]
+    fn session_init_maps_modes_and_models() {
+        let modes = acp::SessionModeState::new(
+            "code",
+            vec![
+                acp::SessionMode::new("code", "Code"),
+                acp::SessionMode::new("ask", "Ask"),
+            ],
+        );
+        let init =
+            session_init_from(SessionId::from("s1"), Some(modes), Some(vec![model_option()]));
+        assert_eq!(init.session_id, SessionId::from("s1"));
+        assert_eq!(init.modes.len(), 2);
+        assert_eq!(init.current_mode, Some("code".to_string()));
+        assert_eq!(init.models.len(), 2);
+        assert_eq!(init.current_model, Some("gpt-5".to_string()));
+        // Slash commands arrive via a notification, not the session response.
+        assert!(init.commands.is_empty());
+    }
+
+    #[test]
+    fn session_init_is_empty_without_caps() {
+        let init = session_init_from(SessionId::from("s1"), None, None);
+        assert!(init.modes.is_empty());
+        assert_eq!(init.current_mode, None);
+        assert!(init.models.is_empty());
+        assert_eq!(init.current_model, None);
+    }
+
+    #[test]
+    fn model_config_id_finds_only_the_model_selector() {
+        let options = vec![model_option()];
+        assert_eq!(model_config_id(Some(&options)), Some("model-config".to_string()));
+        assert_eq!(model_config_id(Some(&[])), None);
+        assert_eq!(model_config_id(None), None);
     }
 }
