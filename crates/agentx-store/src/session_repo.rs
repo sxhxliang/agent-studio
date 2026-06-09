@@ -1,9 +1,10 @@
 //! Filesystem implementation of [`SessionRepository`].
 
+use std::fs;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use tokio::io::AsyncWriteExt;
 
 use agentx_domain::{PersistedEvent, SessionId, SessionRepository, StoreError};
 
@@ -15,6 +16,12 @@ use crate::{io_err, serde_err};
 /// Append-only by design: the ACP adapter accumulates streamed chunks into
 /// complete [`agentx_domain::SessionEvent`]s before they reach this repository,
 /// so there is no buffering or batching to do here.
+///
+/// I/O is blocking `std::fs`: session files are tiny, and using plain blocking
+/// calls lets these async methods be awaited from any executor — notably GPUI's,
+/// which is not a Tokio runtime. Callers that must not block (e.g. the streaming
+/// persistence loop) run it off the UI thread; tests and one-off reads await it
+/// directly.
 pub struct FsSessionRepository {
     root: PathBuf,
 }
@@ -32,25 +39,20 @@ impl FsSessionRepository {
 #[async_trait]
 impl SessionRepository for FsSessionRepository {
     async fn append(&self, session: &SessionId, event: PersistedEvent) -> Result<(), StoreError> {
-        tokio::fs::create_dir_all(&self.root)
-            .await
-            .map_err(io_err)?;
+        fs::create_dir_all(&self.root).map_err(io_err)?;
         let mut line = serde_json::to_string(&event).map_err(serde_err)?;
         line.push('\n');
-        let mut file = tokio::fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(self.file(session))
-            .await
             .map_err(io_err)?;
-        file.write_all(line.as_bytes()).await.map_err(io_err)?;
+        file.write_all(line.as_bytes()).map_err(io_err)?;
         Ok(())
     }
 
     async fn load(&self, session: &SessionId) -> Result<Vec<PersistedEvent>, StoreError> {
-        let data = tokio::fs::read_to_string(self.file(session))
-            .await
-            .map_err(io_err)?;
+        let data = fs::read_to_string(self.file(session)).map_err(io_err)?;
         let mut events = Vec::new();
         for line in data.lines() {
             if line.trim().is_empty() {
@@ -62,7 +64,7 @@ impl SessionRepository for FsSessionRepository {
     }
 
     async fn delete(&self, session: &SessionId) -> Result<(), StoreError> {
-        match tokio::fs::remove_file(self.file(session)).await {
+        match fs::remove_file(self.file(session)) {
             Ok(()) => Ok(()),
             // Deleting an absent session is a no-op.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -72,14 +74,14 @@ impl SessionRepository for FsSessionRepository {
 
     async fn list(&self) -> Result<Vec<SessionId>, StoreError> {
         let mut sessions = Vec::new();
-        let mut entries = match tokio::fs::read_dir(&self.root).await {
+        let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
             // A store that has never been written to lists as empty.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(sessions),
             Err(error) => return Err(io_err(error)),
         };
-        while let Some(entry) = entries.next_entry().await.map_err(io_err)? {
-            let path = entry.path();
+        for entry in entries {
+            let path = entry.map_err(io_err)?.path();
             if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     sessions.push(SessionId::from(stem));
@@ -90,7 +92,7 @@ impl SessionRepository for FsSessionRepository {
     }
 
     async fn exists(&self, session: &SessionId) -> bool {
-        tokio::fs::metadata(self.file(session)).await.is_ok()
+        self.file(session).exists()
     }
 
     async fn flush(&self, _session: &SessionId) -> Result<(), StoreError> {

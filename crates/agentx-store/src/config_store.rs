@@ -32,18 +32,18 @@ impl FsConfigStore {
 #[async_trait]
 impl ConfigStore for FsConfigStore {
     async fn load(&self) -> Result<Config, StoreError> {
-        let data = tokio::fs::read_to_string(&self.path).await.map_err(io_err)?;
+        let data = std::fs::read_to_string(&self.path).map_err(io_err)?;
         let dto: ConfigDto = serde_json::from_str(&data).map_err(serde_err)?;
         Ok(dto.into())
     }
 
     async fn save(&self, config: &Config) -> Result<(), StoreError> {
         if let Some(parent) = self.path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(io_err)?;
+            std::fs::create_dir_all(parent).map_err(io_err)?;
         }
         let dto = ConfigDto::from(config);
         let data = serde_json::to_string_pretty(&dto).map_err(serde_err)?;
-        tokio::fs::write(&self.path, data).await.map_err(io_err)?;
+        std::fs::write(&self.path, data).map_err(io_err)?;
         Ok(())
     }
 }

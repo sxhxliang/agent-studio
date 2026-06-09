@@ -363,12 +363,18 @@ dependencies = [
 name = "agentx-ui"
 version = "0.1.0"
 dependencies = [
+ "agentx-acp",
  "agentx-acp-ui",
  "agentx-app",
  "agentx-bus",
  "agentx-domain",
+ "agentx-store",
+ "anyhow",
+ "env_logger",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
  "log",
  "serde",
  "serde_json",
