@@ -213,6 +213,59 @@ impl ChatView {
         .detach();
     }
 
+    /// Start a fresh session and switch the live view to it.
+    fn start_new_session(&mut self, cx: &mut Context<Self>) {
+        let agent = self.agent.clone();
+        let service = self.service.clone();
+        let cwd = self.cwd.clone();
+        cx.spawn(async move |this, cx| {
+            let result = service.new_session(&agent, &cwd, &[]).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        match result {
+                            Ok(init) => {
+                                this.session = init.session_id;
+                                this.live = Vec::new();
+                                this.viewed = None;
+                                this.modes = init.modes;
+                                this.current_mode = init.current_mode;
+                                this.models = init.models;
+                                this.current_model = init.current_model;
+                                this.commands = init.commands;
+                                this.note("· new session");
+                                this.refresh_sessions(cx);
+                            }
+                            Err(error) => this.note(format!("new session failed › {error}")),
+                        }
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Delete a session's persisted history and drop it from the sidebar.
+    fn remove_session(&mut self, id: SessionId, cx: &mut Context<Self>) {
+        let service = self.service.clone();
+        cx.spawn(async move |this, cx| {
+            let _ = service.delete_session(&id).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.sessions.retain(|s| *s != id);
+                        if this.viewed.as_ref().is_some_and(|v| v.id == id) {
+                            this.viewed = None;
+                        }
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Reconnect the agent to the session being browsed and make it the live
     /// session, so the user can continue it. Agents that don't support
     /// resumption surface an error note instead.
@@ -695,15 +748,29 @@ impl ChatView {
             if viewing_live { live_button.primary() } else { live_button.ghost() }.into_any_element(),
         );
         for id in &self.sessions {
-            let session = id.clone();
+            let select_id = id.clone();
+            let delete_id = id.clone();
             let selected = self.viewed.as_ref().is_some_and(|v| v.id == *id);
             let label: String = id.as_str().chars().take(8).collect();
-            let button = Button::new(SharedString::from(format!("session-{id}")))
+            let open = Button::new(SharedString::from(format!("session-{id}")))
                 .label(label)
                 .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.view_session(session.clone(), cx);
+                    this.view_session(select_id.clone(), cx);
                 }));
-            items.push(if selected { button.primary() } else { button.ghost() }.into_any_element());
+            let open = if selected { open.primary() } else { open.ghost() };
+            let delete = Button::new(SharedString::from(format!("delete-{id}")))
+                .ghost()
+                .label("✕")
+                .on_click(cx.listener(move |this, _event, _window, cx| {
+                    this.remove_session(delete_id.clone(), cx);
+                }));
+            items.push(
+                h_flex()
+                    .gap_1()
+                    .child(div().flex_1().child(open))
+                    .child(delete)
+                    .into_any_element(),
+            );
         }
 
         v_flex()
@@ -713,7 +780,20 @@ impl ChatView {
             .gap_1()
             .border_r_1()
             .border_color(theme.border)
-            .child(div().text_sm().text_color(theme.muted_foreground).child("Sessions"))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().text_color(theme.muted_foreground).child("Sessions"))
+                    .child(
+                        Button::new("new-session")
+                            .ghost()
+                            .label("+ new")
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.start_new_session(cx);
+                            })),
+                    ),
+            )
             .child(
                 div()
                     .id("session-list")

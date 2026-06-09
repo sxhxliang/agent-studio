@@ -85,6 +85,30 @@ impl SessionService {
         Ok(id)
     }
 
+    /// Start a fresh session, bypassing the per-agent reuse that
+    /// [`get_or_create_session`](Self::get_or_create_session) does. Becomes the
+    /// agent's current session.
+    pub async fn new_session(
+        &self,
+        agent: &AgentId,
+        cwd: &Path,
+        mcp_servers: &[McpServerConfig],
+    ) -> Result<SessionInit, AgentError> {
+        let init = self.gateway.create_session(agent, cwd, mcp_servers).await?;
+        let mut registry = self.sessions.lock().await;
+        let id = init.session_id.clone();
+        let session = Session::new(id.clone(), agent.clone(), cwd.to_path_buf(), Utc::now());
+        registry.by_agent.insert(agent.clone(), id.clone());
+        registry.by_id.insert(
+            id,
+            Live {
+                session,
+                init: init.clone(),
+            },
+        );
+        Ok(init)
+    }
+
     /// Resume a previously-created session: reconnect the agent to it and make
     /// it the live session (registered like a freshly-created one), so prompts
     /// continue the conversation. The agent may not support resumption, in which
