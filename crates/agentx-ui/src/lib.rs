@@ -25,19 +25,28 @@ use std::sync::Arc;
 
 use gpui::*;
 use gpui_component::{
-    ActiveTheme as _, Root,
+    ActiveTheme as _, Root, Theme,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    text::TextView,
     v_flex,
 };
 
 use agentx_app::SessionService;
 use agentx_bus::Receiver;
 use agentx_domain::{
-    AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, SessionEvent,
-    SessionId, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand,
+    AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, Plan, SessionEvent,
+    SessionId, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand, ToolCall,
+    ToolCallContent,
 };
+
+/// One row in the conversation: either a rich timeline event or a terse
+/// system note (status changes, command/permission updates, errors).
+enum Entry {
+    Event(SessionEvent),
+    Note(SharedString),
+}
 
 /// A single-session chat window over [`SessionService`].
 ///
@@ -56,7 +65,7 @@ pub struct ChatView {
     /// Slash commands the agent advertises; updated via a notification.
     commands: Vec<SlashCommand>,
     input: Entity<InputState>,
-    lines: Vec<SharedString>,
+    timeline: Vec<Entry>,
     /// Permission requests awaiting the user's allow/deny decision.
     pending: Vec<PermissionRequest>,
     scroll: ScrollHandle,
@@ -125,7 +134,7 @@ impl ChatView {
             current_model,
             commands,
             input,
-            lines: Vec::new(),
+            timeline: Vec::new(),
             pending: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
@@ -159,7 +168,7 @@ impl ChatView {
                     view.update(cx, |this, cx| {
                         this.busy = false;
                         if let Err(error) = result {
-                            this.lines.push(format!("error › {error}").into());
+                            this.note(format!("error › {error}"));
                             this.scroll.scroll_to_bottom();
                         }
                         cx.notify();
@@ -185,7 +194,7 @@ impl ChatView {
                 if let Some(view) = this.upgrade() {
                     view.update(cx, |this, cx| {
                         if let Err(error) = result {
-                            this.lines.push(format!("set mode error › {error}").into());
+                            this.note(format!("set mode error › {error}"));
                         }
                         cx.notify();
                     });
@@ -210,7 +219,7 @@ impl ChatView {
                 if let Some(view) = this.upgrade() {
                     view.update(cx, |this, cx| {
                         if let Err(error) = result {
-                            this.lines.push(format!("set model error › {error}").into());
+                            this.note(format!("set model error › {error}"));
                         }
                         cx.notify();
                     });
@@ -301,6 +310,11 @@ impl ChatView {
         });
     }
 
+    /// Append a terse system note to the timeline.
+    fn note(&mut self, text: impl Into<SharedString>) {
+        self.timeline.push(Entry::Note(text.into()));
+    }
+
     fn record(&mut self, event: DomainEvent) {
         match event {
             DomainEvent::SessionStatusChanged { status, .. } => {
@@ -310,17 +324,16 @@ impl ChatView {
                 ) {
                     self.busy = false;
                 }
-                self.lines.push(format!("· {status:?}").into());
+                self.note(format!("· {status:?}"));
             }
             DomainEvent::SessionAppended { event, .. } => {
-                self.lines.push(render_event(&event).into());
+                self.timeline.push(Entry::Event(event));
             }
             DomainEvent::AgentStatusChanged { agent, status } => {
-                self.lines.push(format!("· agent {agent}: {status:?}").into());
+                self.note(format!("· agent {agent}: {status:?}"));
             }
             DomainEvent::PermissionRequested { request } => {
-                self.lines
-                    .push(format!("⚠ permission requested: {}", request.tool_call.title).into());
+                self.note(format!("⚠ permission requested: {}", request.tool_call.title));
                 self.pending.push(request);
             }
             DomainEvent::SessionCommandsChanged { commands, .. } => {
@@ -330,7 +343,7 @@ impl ChatView {
                         .map(|command| format!("/{}", command.name))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    self.lines.push(format!("· commands: {names}").into());
+                    self.note(format!("· commands: {names}"));
                 }
                 self.commands = commands;
             }
@@ -352,7 +365,7 @@ impl ChatView {
             PermissionOutcome::Selected { .. } => "allowed",
             PermissionOutcome::Cancelled => "denied",
         };
-        self.lines.push(format!("· permission {decision}").into());
+        self.note(format!("· permission {decision}"));
         cx.notify();
 
         let service = self.service.clone();
@@ -362,7 +375,7 @@ impl ChatView {
                 if let Some(view) = this.upgrade() {
                     view.update(cx, |this, cx| {
                         if let Err(error) = result {
-                            this.lines.push(format!("permission error › {error}").into());
+                            this.note(format!("permission error › {error}"));
                         }
                         cx.notify();
                     });
@@ -420,6 +433,24 @@ impl ChatView {
         }
         cards
     }
+
+    /// Render the conversation timeline: rich elements for events, muted lines
+    /// for system notes.
+    fn render_timeline(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = cx.theme();
+        self.timeline
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| match entry {
+                Entry::Note(text) => div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(text.clone())
+                    .into_any_element(),
+                Entry::Event(event) => render_event(index, event, theme),
+            })
+            .collect()
+    }
 }
 
 impl Render for ChatView {
@@ -432,6 +463,7 @@ impl Render for ChatView {
         );
         let permissions = self.permission_cards(cx);
         let selectors = self.render_selectors(cx);
+        let timeline = self.render_timeline(cx);
 
         v_flex()
             .size_full()
@@ -446,11 +478,7 @@ impl Render for ChatView {
                     .w_full()
                     .track_scroll(&self.scroll)
                     .overflow_y_scroll()
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .children(self.lines.iter().map(|line| div().child(line.clone()))),
-                    ),
+                    .child(v_flex().gap_3().children(timeline)),
             )
             .child(v_flex().gap_2().children(permissions))
             .child(
@@ -495,15 +523,90 @@ pub fn open_chat_window(
     });
 }
 
-fn render_event(event: &SessionEvent) -> String {
+/// Render one timeline event. Agent/user messages render as Markdown; tool
+/// calls and plans as bordered cards; thoughts and the stop marker as muted text.
+fn render_event(index: usize, event: &SessionEvent, theme: &Theme) -> AnyElement {
     match event {
-        SessionEvent::UserMessage { content } => format!("you › {}", plain_text(content)),
-        SessionEvent::AgentMessage { content } => format!("agent › {}", plain_text(content)),
-        SessionEvent::AgentThought { text } => format!("thinking › {text}"),
-        SessionEvent::ToolCall(call) => format!("tool › {} [{:?}]", call.title, call.status),
-        SessionEvent::Plan(plan) => format!("plan › {} entries", plan.entries.len()),
-        SessionEvent::Stopped { reason } => format!("— end ({reason:?})"),
+        SessionEvent::UserMessage { content } => v_flex()
+            .w_full()
+            .gap_1()
+            .child(div().text_xs().text_color(theme.muted_foreground).child("you"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme.foreground)
+                    .child(plain_text(content)),
+            )
+            .into_any_element(),
+        SessionEvent::AgentMessage { content } => v_flex()
+            .w_full()
+            .gap_1()
+            .child(div().text_xs().text_color(theme.muted_foreground).child("agent"))
+            .child(
+                TextView::markdown(
+                    SharedString::from(format!("agent-{index}")),
+                    plain_text(content),
+                )
+                .text_sm()
+                .text_color(theme.foreground)
+                .selectable(true),
+            )
+            .into_any_element(),
+        SessionEvent::AgentThought { text } => div()
+            .text_sm()
+            .text_color(theme.muted_foreground)
+            .child(format!("💭 {text}"))
+            .into_any_element(),
+        SessionEvent::ToolCall(call) => render_tool_call(call, theme),
+        SessionEvent::Plan(plan) => render_plan(plan, theme),
+        SessionEvent::Stopped { reason } => div()
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(format!("— end ({reason:?})"))
+            .into_any_element(),
     }
+}
+
+fn render_tool_call(call: &ToolCall, theme: &Theme) -> AnyElement {
+    let mut card = v_flex()
+        .w_full()
+        .gap_1()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border)
+        .child(div().text_sm().text_color(theme.foreground).child(format!(
+            "{:?} · {} [{:?}]",
+            call.kind, call.title, call.status
+        )));
+    for content in &call.content {
+        let text = match content {
+            ToolCallContent::Text(text) => text.clone(),
+            ToolCallContent::Diff { path, new_text, .. } => format!("{path}\n{new_text}"),
+        };
+        card = card.child(div().text_xs().text_color(theme.muted_foreground).child(text));
+    }
+    card.into_any_element()
+}
+
+fn render_plan(plan: &Plan, theme: &Theme) -> AnyElement {
+    let mut list = v_flex()
+        .w_full()
+        .gap_1()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(theme.border)
+        .child(div().text_sm().text_color(theme.foreground).child("Plan"));
+    for entry in &plan.entries {
+        list = list.child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(format!("[{:?}] {}", entry.status, entry.content)),
+        );
+    }
+    list.into_any_element()
 }
 
 fn plain_text(content: &[ContentBlock]) -> String {
