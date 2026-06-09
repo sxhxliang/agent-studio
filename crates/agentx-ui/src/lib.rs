@@ -7,10 +7,10 @@
 //!
 //! ## Dependency rule
 //! Depends on `agentx-app` + `agentx-domain` (use-cases and types), `agentx-bus`
-//! (to observe events), `agentx-acp-ui` (pure presentational ACP widgets), and
-//! `gpui`. It must NOT depend on the driven adapters (`agentx-acp`,
-//! `agentx-store`) — it only knows the application's use-cases and the domain.
-//! Views hold no business logic and never reach for a global service locator.
+//! (to observe events), and `gpui`. It must NOT depend on the driven adapters
+//! (`agentx-acp`, `agentx-store`) — it only knows the application's use-cases and
+//! the domain. Views hold no business logic and never reach for a global service
+//! locator. The composition root (`agentx-shell`) wires the adapters in.
 //!
 //! ## M4b/M5b — the first window
 //! [`ChatView`] is the minimal proof that the GPUI shell can drive the rewritten
@@ -48,6 +48,12 @@ enum Entry {
     Note(SharedString),
 }
 
+/// A past session loaded read-only from disk for browsing in the sidebar.
+struct ViewedSession {
+    id: SessionId,
+    entries: Vec<Entry>,
+}
+
 /// A single-session chat window over [`SessionService`].
 ///
 /// It owns only view state plus the use-case handle it drives; it never touches
@@ -65,7 +71,12 @@ pub struct ChatView {
     /// Slash commands the agent advertises; updated via a notification.
     commands: Vec<SlashCommand>,
     input: Entity<InputState>,
-    timeline: Vec<Entry>,
+    /// The live session's timeline, accumulated from the bus.
+    live: Vec<Entry>,
+    /// Sibling sessions on disk, for the sidebar (excludes the live one).
+    sessions: Vec<SessionId>,
+    /// A past session being browsed read-only; `None` means the live session.
+    viewed: Option<ViewedSession>,
     /// Permission requests awaiting the user's allow/deny decision.
     pending: Vec<PermissionRequest>,
     scroll: ScrollHandle,
@@ -124,7 +135,7 @@ impl ChatView {
         })
         .detach();
 
-        Self {
+        let view = Self {
             service,
             agent,
             session: session_id,
@@ -134,12 +145,62 @@ impl ChatView {
             current_model,
             commands,
             input,
-            timeline: Vec::new(),
+            live: Vec::new(),
+            sessions: Vec::new(),
+            viewed: None,
             pending: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
             _subscriptions: subscriptions,
+        };
+        view.refresh_sessions(cx);
+        view
+    }
+
+    /// Reload the sibling session list (everything on disk except the live one).
+    fn refresh_sessions(&self, cx: &mut Context<Self>) {
+        let service = self.service.clone();
+        let live = self.session.clone();
+        cx.spawn(async move |this, cx| {
+            let sessions = service.list_sessions().await.unwrap_or_default();
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.sessions = sessions.into_iter().filter(|id| *id != live).collect();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Browse a session: the live one returns to the live view, any other loads
+    /// its persisted history read-only.
+    fn view_session(&mut self, id: SessionId, cx: &mut Context<Self>) {
+        if id == self.session {
+            self.viewed = None;
+            cx.notify();
+            return;
         }
+        let service = self.service.clone();
+        cx.spawn(async move |this, cx| {
+            let history = service.history(&id).await.unwrap_or_default();
+            let entries = history
+                .into_iter()
+                .map(|event| Entry::Event(event.event))
+                .collect();
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.viewed = Some(ViewedSession { id, entries });
+                        this.scroll.scroll_to_bottom();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
     }
 
     /// Send the current input as a prompt, then clear it. The reply streams back
@@ -312,7 +373,7 @@ impl ChatView {
 
     /// Append a terse system note to the timeline.
     fn note(&mut self, text: impl Into<SharedString>) {
-        self.timeline.push(Entry::Note(text.into()));
+        self.live.push(Entry::Note(text.into()));
     }
 
     fn record(&mut self, event: DomainEvent) {
@@ -327,7 +388,7 @@ impl ChatView {
                 self.note(format!("· {status:?}"));
             }
             DomainEvent::SessionAppended { event, .. } => {
-                self.timeline.push(Entry::Event(event));
+                self.live.push(Entry::Event(event));
             }
             DomainEvent::AgentStatusChanged { agent, status } => {
                 self.note(format!("· agent {agent}: {status:?}"));
@@ -434,11 +495,11 @@ impl ChatView {
         cards
     }
 
-    /// Render the conversation timeline: rich elements for events, muted lines
-    /// for system notes.
-    fn render_timeline(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// Render a list of timeline entries: rich elements for events, muted lines
+    /// for system notes. Shared by the live timeline and the read-only history.
+    fn render_entries(&self, entries: &[Entry], cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme();
-        self.timeline
+        entries
             .iter()
             .enumerate()
             .map(|(index, entry)| match entry {
@@ -451,49 +512,136 @@ impl ChatView {
             })
             .collect()
     }
+
+    /// The sidebar: the live session plus each sibling session on disk. Clicking
+    /// one browses it; clicking the live one returns to the live view.
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let viewing_live = self.viewed.is_none();
+
+        let mut items: Vec<AnyElement> = Vec::new();
+        let live_button = Button::new("session-live")
+            .label("● live")
+            .on_click(cx.listener(|this, _event, _window, cx| {
+                let id = this.session.clone();
+                this.view_session(id, cx);
+            }));
+        items.push(
+            if viewing_live { live_button.primary() } else { live_button.ghost() }.into_any_element(),
+        );
+        for id in &self.sessions {
+            let session = id.clone();
+            let selected = self.viewed.as_ref().is_some_and(|v| v.id == *id);
+            let label: String = id.as_str().chars().take(8).collect();
+            let button = Button::new(SharedString::from(format!("session-{id}")))
+                .label(label)
+                .on_click(cx.listener(move |this, _event, _window, cx| {
+                    this.view_session(session.clone(), cx);
+                }));
+            items.push(if selected { button.primary() } else { button.ghost() }.into_any_element());
+        }
+
+        v_flex()
+            .w(px(180.0))
+            .h_full()
+            .p_2()
+            .gap_1()
+            .border_r_1()
+            .border_color(theme.border)
+            .child(div().text_sm().text_color(theme.muted_foreground).child("Sessions"))
+            .child(
+                div()
+                    .id("session-list")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .child(v_flex().gap_1().children(items)),
+            )
+            .into_any_element()
+    }
 }
 
 impl Render for ChatView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = format!(
-            "{}  ·  {}{}",
-            self.agent,
-            self.session,
-            if self.busy { "  ·  working…" } else { "" }
-        );
-        let permissions = self.permission_cards(cx);
-        let selectors = self.render_selectors(cx);
-        let timeline = self.render_timeline(cx);
+        let sidebar = self.render_sidebar(cx);
 
-        v_flex()
-            .size_full()
-            .p_4()
-            .gap_3()
-            .child(div().text_sm().child(header))
-            .child(v_flex().gap_2().children(selectors))
-            .child(
-                div()
-                    .id("chat-events")
+        let main = match &self.viewed {
+            // Browsing a past session: read-only history + a way back.
+            Some(viewed) => {
+                let label: String = viewed.id.as_str().chars().take(8).collect();
+                let entries = self.render_entries(&viewed.entries, cx);
+                v_flex()
                     .flex_1()
-                    .w_full()
-                    .track_scroll(&self.scroll)
-                    .overflow_y_scroll()
-                    .child(v_flex().gap_3().children(timeline)),
-            )
-            .child(v_flex().gap_2().children(permissions))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().flex_1().child(Input::new(&self.input)))
+                    .h_full()
+                    .p_4()
+                    .gap_3()
                     .child(
-                        Button::new("send")
-                            .primary()
-                            .label("Send")
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                this.submit(window, cx)
-                            })),
-                    ),
-            )
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().text_sm().child(format!("history · {label} (read-only)")))
+                            .child(
+                                Button::new("back-to-live")
+                                    .label("← live")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.viewed = None;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("history-events")
+                            .flex_1()
+                            .w_full()
+                            .overflow_y_scroll()
+                            .child(v_flex().gap_3().children(entries)),
+                    )
+            }
+            // The live session: selectors, streaming timeline, permissions, input.
+            None => {
+                let header = format!(
+                    "{}  ·  {}{}",
+                    self.agent,
+                    self.session,
+                    if self.busy { "  ·  working…" } else { "" }
+                );
+                let permissions = self.permission_cards(cx);
+                let selectors = self.render_selectors(cx);
+                let timeline = self.render_entries(&self.live, cx);
+                v_flex()
+                    .flex_1()
+                    .h_full()
+                    .p_4()
+                    .gap_3()
+                    .child(div().text_sm().child(header))
+                    .child(v_flex().gap_2().children(selectors))
+                    .child(
+                        div()
+                            .id("chat-events")
+                            .flex_1()
+                            .w_full()
+                            .track_scroll(&self.scroll)
+                            .overflow_y_scroll()
+                            .child(v_flex().gap_3().children(timeline)),
+                    )
+                    .child(v_flex().gap_2().children(permissions))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().flex_1().child(Input::new(&self.input)))
+                            .child(
+                                Button::new("send")
+                                    .primary()
+                                    .label("Send")
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        this.submit(window, cx)
+                                    })),
+                            ),
+                    )
+            }
+        };
+
+        h_flex().size_full().child(sidebar).child(main)
     }
 }
 

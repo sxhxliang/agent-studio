@@ -8,26 +8,15 @@ publish = false
 # Driving adapter (GPUI). Depends on the application + domain + bus and the pure
 # presentational ACP widgets. It must NOT depend on the driven adapters
 # (agentx-acp, agentx-store) — it only knows use-cases and the domain.
+# Driving adapter (GPUI). Depends on the application + domain + bus only. It must
+# NOT depend on the driven adapters (agentx-acp, agentx-store) — it only knows
+# use-cases and the domain. The composition root (agentx-shell) wires adapters.
 [dependencies]
 agentx-domain.workspace = true
 agentx-app.workspace = true
 agentx-bus.workspace = true
-agentx-acp-ui.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
-log.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-
-# The composition root (examples/window.rs) wires the real driven adapters. They
-# live here as dev-dependencies so the library itself never depends on them.
-[dev-dependencies]
-agentx-acp.workspace = true
-agentx-store.workspace = true
-gpui_platform.workspace = true
-gpui-component-assets = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
-anyhow.workspace = true
-env_logger = "0.11"
 
 [lints]
 workspace = true

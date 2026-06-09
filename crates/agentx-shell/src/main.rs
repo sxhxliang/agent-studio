@@ -1,22 +1,19 @@
-//! Windowed composition root for the rewrite.
+//! The rewrite's entry point — the composition root.
 //!
-//! Wires the real adapters into the application's [`SessionService`] and opens a
-//! [`agentx_ui::ChatView`] against a live agent from your `config.json`:
+//! Wires the driven adapters into the application's [`SessionService`] and opens
+//! the [`agentx_ui::ChatView`] against a live agent from your `config.json`:
 //!
 //! ```text
-//! cargo run -p agentx-ui --example window -- <agent>
+//! cargo run -p agentx-shell -- <agent>
 //! ```
 //!
 //! No Tokio runtime is created here. The store adapters use blocking `std::fs`,
-//! so config loads and timeline reads can happen on GPUI's own executor; the
+//! so config loads and timeline reads happen on GPUI's own executor; the
 //! [`PersistenceProjector`] drains the bus on GPUI's background executor so the
 //! per-event file appends never block the UI thread. Each agent runs its own
 //! current-thread Tokio runtime inside `agentx-acp` for its subprocess I/O.
 //! Every bus consumer (projector + view) subscribes before the agent starts, so
 //! no session-setup events are missed.
-//!
-//! Not yet here: a session list / resume UI (each run creates a fresh session,
-//! which is persisted but not reloaded).
 
 use std::sync::Arc;
 
@@ -33,7 +30,7 @@ use agentx_store::{FsConfigStore, FsSessionRepository, paths};
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let agent = AgentId::from(std::env::args().nth(1).context("usage: window <agent>")?);
+    let agent = AgentId::from(std::env::args().nth(1).context("usage: agentx-shell <agent>")?);
     let data_dir = paths::data_dir();
     let config_path = paths::config_path(&data_dir);
     let sessions_dir = paths::sessions_dir(&data_dir);

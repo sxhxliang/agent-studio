@@ -16,6 +16,7 @@ members = [
     "crates/agentx-acp",    # driven adapter: ACP protocol + agent subprocess supervision
     "crates/agentx-app",    # application: use-cases orchestrating the domain via ports
     "crates/agentx-ui",     # driving adapter: GPUI panels, view-models, dock, shell
+    "crates/agentx-shell",  # composition root: the rewrite's binary entry point
 ]
 resolver = "2"
 

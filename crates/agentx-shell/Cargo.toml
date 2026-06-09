@@ -1,0 +1,31 @@
+[package]
+name = "agentx-shell"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Composition root for the rewrite: the one crate that wires the driving UI to
+# the driven adapters, so it is allowed to depend on everything. This is the
+# rewrite's entry point — eventually it replaces the legacy `src/main.rs`.
+[[bin]]
+name = "agentx-shell"
+path = "src/main.rs"
+
+[dependencies]
+agentx-domain.workspace = true
+agentx-bus.workspace = true
+agentx-app.workspace = true
+agentx-ui.workspace = true
+agentx-acp.workspace = true
+agentx-store.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
+anyhow.workspace = true
+log.workspace = true
+env_logger = "0.11"
+
+[lints]
+workspace = true
