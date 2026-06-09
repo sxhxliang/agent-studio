@@ -17,8 +17,9 @@
 
 use agent_client_protocol::schema as acp;
 use agentx_domain::{
-    ContentBlock, McpServerConfig, PermissionOutcome, Plan, PlanEntry, PlanEntryStatus,
-    PlanPriority, ResourceContents, SessionId, SessionInit, SessionMode, SessionModel, StopReason,
+    ContentBlock, McpServerConfig, PermissionId, PermissionOption, PermissionOptionKind,
+    PermissionOutcome, PermissionRequest, Plan, PlanEntry, PlanEntryStatus, PlanPriority,
+    ResourceContents, SessionId, SessionInit, SessionMode, SessionModel, SlashCommand, StopReason,
     ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
 };
 
@@ -240,6 +241,64 @@ pub(crate) fn permission_outcome_to_acp(
     acp::RequestPermissionResponse::new(outcome)
 }
 
+/// Inbound: an ACP permission request to the domain model the UI renders. `id`
+/// is the freshly-minted handle the user's decision will be resolved by.
+pub(crate) fn permission_request_to_domain(
+    id: PermissionId,
+    request: acp::RequestPermissionRequest,
+) -> PermissionRequest {
+    PermissionRequest {
+        session: SessionId::from(request.session_id.to_string()),
+        id,
+        tool_call: tool_call_update_to_domain(request.tool_call),
+        options: permission_options_to_domain(request.options),
+    }
+}
+
+/// Inbound: the tool-call context attached to a permission request. Unlike a
+/// streamed update this is rendered standalone, so absent fields fall back to
+/// defaults rather than dropping the call.
+fn tool_call_update_to_domain(update: acp::ToolCallUpdate) -> ToolCall {
+    let fields = update.fields;
+    ToolCall {
+        id: update.tool_call_id.to_string(),
+        title: fields.title.unwrap_or_default(),
+        kind: fields.kind.map(tool_kind_to_domain).unwrap_or_default(),
+        status: fields
+            .status
+            .map(tool_call_status_to_domain)
+            .unwrap_or_default(),
+        content: fields
+            .content
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(tool_call_content_to_domain)
+            .collect(),
+    }
+}
+
+fn permission_options_to_domain(options: Vec<acp::PermissionOption>) -> Vec<PermissionOption> {
+    options
+        .into_iter()
+        .map(|option| PermissionOption {
+            id: option.option_id.to_string(),
+            label: option.name,
+            kind: permission_option_kind_to_domain(option.kind),
+        })
+        .collect()
+}
+
+fn permission_option_kind_to_domain(kind: acp::PermissionOptionKind) -> PermissionOptionKind {
+    match kind {
+        acp::PermissionOptionKind::AllowOnce => PermissionOptionKind::AllowOnce,
+        acp::PermissionOptionKind::AllowAlways => PermissionOptionKind::AllowAlways,
+        acp::PermissionOptionKind::RejectOnce => PermissionOptionKind::RejectOnce,
+        acp::PermissionOptionKind::RejectAlways => PermissionOptionKind::RejectAlways,
+        // Unknown future kinds default to a one-time reject — the safe choice.
+        _ => PermissionOptionKind::RejectOnce,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MCP servers
 // ---------------------------------------------------------------------------
@@ -351,6 +410,26 @@ fn model_from_option(option: &acp::SessionConfigSelectOption) -> SessionModel {
         id: option.value.to_string(),
         name: option.name.clone(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Slash commands
+// ---------------------------------------------------------------------------
+
+/// Inbound: the agent's advertised slash commands. Arrives as a notification
+/// mid-session, so it becomes a [`DomainEvent::SessionCommandsChanged`] rather
+/// than part of the session-creation result.
+pub(crate) fn available_commands_to_domain(
+    update: acp::AvailableCommandsUpdate,
+) -> Vec<SlashCommand> {
+    update
+        .available_commands
+        .into_iter()
+        .map(|command| SlashCommand {
+            name: command.name,
+            description: command.description,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -630,5 +709,49 @@ mod tests {
         assert_eq!(model_config_id(Some(&options)), Some("model-config".to_string()));
         assert_eq!(model_config_id(Some(&[])), None);
         assert_eq!(model_config_id(None), None);
+    }
+
+    // ---- permission requests ----
+
+    #[test]
+    fn permission_request_maps_tool_call_and_options() {
+        let request = acp::RequestPermissionRequest::new(
+            "s1",
+            acp::ToolCallUpdate::new(
+                "call-1",
+                acp::ToolCallUpdateFields::new().title("Edit main.rs"),
+            ),
+            vec![
+                acp::PermissionOption::new(
+                    "allow",
+                    "Allow once",
+                    acp::PermissionOptionKind::AllowOnce,
+                ),
+                acp::PermissionOption::new("reject", "Reject", acp::PermissionOptionKind::RejectOnce),
+            ],
+        );
+        let domain = permission_request_to_domain(PermissionId::from("p1"), request);
+        assert_eq!(domain.id, PermissionId::from("p1"));
+        assert_eq!(domain.session, SessionId::from("s1"));
+        assert_eq!(domain.tool_call.title, "Edit main.rs");
+        assert_eq!(domain.options.len(), 2);
+        assert_eq!(domain.options[0].label, "Allow once");
+        assert_eq!(domain.options[0].kind, PermissionOptionKind::AllowOnce);
+        assert_eq!(domain.options[1].kind, PermissionOptionKind::RejectOnce);
+    }
+
+    // ---- slash commands ----
+
+    #[test]
+    fn available_commands_map_name_and_description() {
+        let update = acp::AvailableCommandsUpdate::new(vec![
+            acp::AvailableCommand::new("plan", "Create a plan"),
+            acp::AvailableCommand::new("test", "Run the tests"),
+        ]);
+        let commands = available_commands_to_domain(update);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].name, "plan");
+        assert_eq!(commands[0].description, "Create a plan");
+        assert_eq!(commands[1].name, "test");
     }
 }

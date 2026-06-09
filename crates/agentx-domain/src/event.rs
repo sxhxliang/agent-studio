@@ -11,10 +11,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::agent::{AgentStatus, StopReason};
-use crate::id::{AgentId, PermissionId, SessionId};
+use crate::id::{AgentId, SessionId};
 use crate::message::ContentBlock;
+use crate::permission::PermissionRequest;
 use crate::plan::Plan;
-use crate::session::SessionStatus;
+use crate::session::{SessionStatus, SlashCommand};
 use crate::tool_call::ToolCall;
 
 /// One semantic event in a session's timeline.
@@ -57,9 +58,19 @@ pub enum DomainEvent {
         session: SessionId,
         event: SessionEvent,
     },
+    /// An agent is asking the user to allow or reject a tool call. Carries the
+    /// full request so the UI can render the options without a second lookup;
+    /// the user's decision goes back via
+    /// [`AgentGateway::resolve_permission`](crate::ports::AgentGateway::resolve_permission).
     PermissionRequested {
-        permission: PermissionId,
+        request: PermissionRequest,
+    },
+    /// The agent updated the slash commands available in a session. Delivered as
+    /// a notification mid-session (not in the session-creation response), so it
+    /// is its own event rather than part of [`SessionInit`](crate::session::SessionInit).
+    SessionCommandsChanged {
         session: SessionId,
+        commands: Vec<SlashCommand>,
     },
     ConfigChanged,
 }

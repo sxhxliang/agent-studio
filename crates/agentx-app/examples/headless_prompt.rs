@@ -134,14 +134,26 @@ fn spawn_event_printer(bus: EventBus, supervisor: Arc<AcpSupervisor>) {
                 DomainEvent::AgentStatusChanged { agent, status } => {
                     println!("  agent {agent}: {status:?}")
                 }
-                DomainEvent::PermissionRequested {
-                    permission,
-                    session,
-                } => {
-                    println!("  permission {permission} requested — auto-cancelling");
+                DomainEvent::PermissionRequested { request } => {
+                    println!(
+                        "  permission {} requested ({}) — auto-cancelling",
+                        request.id, request.tool_call.title
+                    );
                     let _ = supervisor
-                        .resolve_permission(&session, permission.as_str(), PermissionOutcome::Cancelled)
+                        .resolve_permission(
+                            &request.session,
+                            request.id.as_str(),
+                            PermissionOutcome::Cancelled,
+                        )
                         .await;
+                }
+                DomainEvent::SessionCommandsChanged { commands, .. } => {
+                    let names = commands
+                        .iter()
+                        .map(|command| format!("/{}", command.name))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    println!("  commands: {names}");
                 }
                 DomainEvent::ConfigChanged => {}
             }

@@ -82,8 +82,13 @@ fn main() -> Result<()> {
                         return;
                     }
                 };
+                let Some(init) = service.session_init(&session).await else {
+                    log::error!("session capabilities unavailable");
+                    let _ = cx.update(|cx| cx.quit());
+                    return;
+                };
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_chat_window(service.clone(), bus.clone(), agent.clone(), session, cx);
+                    agentx_ui::open_chat_window(service.clone(), bus.clone(), agent.clone(), init, cx);
                 });
             })
             .detach();

@@ -39,8 +39,8 @@ use agentx_domain::{
 
 use crate::accumulator::StreamAccumulator;
 use crate::mapping::{
-    content_blocks_to_acp, mcp_servers_to_acp, model_config_id, permission_outcome_to_acp,
-    session_init_from, stop_reason_to_domain,
+    available_commands_to_domain, content_blocks_to_acp, mcp_servers_to_acp, model_config_id,
+    permission_outcome_to_acp, permission_request_to_domain, session_init_from, stop_reason_to_domain,
 };
 
 /// Permission requests the agent has raised and is blocked on, keyed by a fresh
@@ -389,11 +389,9 @@ async fn event_loop(
                             responder: Responder<acp::RequestPermissionResponse>,
                             _conn|
                             -> acp_runtime::Result<()> {
-                    let session = SessionId::from(request.session_id.to_string());
                     let permission = permissions.park(responder);
                     bus.publish(DomainEvent::PermissionRequested {
-                        permission,
-                        session,
+                        request: permission_request_to_domain(permission, request),
                     });
                     Ok(())
                 }
@@ -406,13 +404,25 @@ async fn event_loop(
                 let bus = bus.clone();
                 async move |notification: acp::SessionNotification, _conn| -> acp_runtime::Result<()> {
                     let session = SessionId::from(notification.session_id.to_string());
-                    let events = accumulators
-                        .lock()
-                        .expect("accumulators poisoned")
-                        .entry(session.clone())
-                        .or_default()
-                        .push(notification.update);
-                    publish_events(&bus, &session, events);
+                    match notification.update {
+                        // Available commands are session state, not a timeline
+                        // event, so they bypass the accumulator entirely.
+                        acp::SessionUpdate::AvailableCommandsUpdate(update) => {
+                            bus.publish(DomainEvent::SessionCommandsChanged {
+                                session,
+                                commands: available_commands_to_domain(update),
+                            });
+                        }
+                        update => {
+                            let events = accumulators
+                                .lock()
+                                .expect("accumulators poisoned")
+                                .entry(session.clone())
+                                .or_default()
+                                .push(update);
+                            publish_events(&bus, &session, events);
+                        }
+                    }
                     Ok(())
                 }
             },

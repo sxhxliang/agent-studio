@@ -9,8 +9,9 @@ use tokio::sync::Mutex;
 
 use agentx_bus::EventBus;
 use agentx_domain::{
-    AgentError, AgentGateway, AgentId, ContentBlock, DomainEvent, McpServerConfig, PersistedEvent,
-    Session, SessionEvent, SessionId, SessionRepository, SessionStatus, StopReason, StoreError,
+    AgentError, AgentGateway, AgentId, ContentBlock, DomainEvent, McpServerConfig,
+    PermissionOutcome, PersistedEvent, Session, SessionEvent, SessionId, SessionInit,
+    SessionRepository, SessionStatus, StopReason, StoreError,
 };
 
 /// Orchestrates the session lifecycle and the send-a-message use-case.
@@ -31,7 +32,14 @@ struct Registry {
     /// The current session per agent, so repeated sends reuse one session.
     by_agent: HashMap<AgentId, SessionId>,
     /// Live session state, by id.
-    by_id: HashMap<SessionId, Session>,
+    by_id: HashMap<SessionId, Live>,
+}
+
+/// A live session: its lifecycle state plus the capabilities it was created
+/// with (modes/models/commands), which the UI reads to build its selectors.
+struct Live {
+    session: Session,
+    init: SessionInit,
 }
 
 impl SessionService {
@@ -73,7 +81,7 @@ impl SessionService {
         );
         let id = session.id.clone();
         registry.by_agent.insert(agent.clone(), id.clone());
-        registry.by_id.insert(id.clone(), session);
+        registry.by_id.insert(id.clone(), Live { session, init });
         Ok(id)
     }
 
@@ -107,6 +115,41 @@ impl SessionService {
                 Err(error)
             }
         }
+    }
+
+    /// The capabilities (modes, models, commands) the session was created with,
+    /// if it is still live. The UI reads these to populate its selectors.
+    pub async fn session_init(&self, session: &SessionId) -> Option<SessionInit> {
+        self.sessions
+            .lock()
+            .await
+            .by_id
+            .get(session)
+            .map(|live| live.init.clone())
+    }
+
+    /// Switch the session's mode (e.g. "ask" → "code").
+    pub async fn set_mode(&self, session: &SessionId, mode_id: &str) -> Result<(), AgentError> {
+        self.gateway.set_mode(session, mode_id).await
+    }
+
+    /// Switch the session's model.
+    pub async fn set_model(&self, session: &SessionId, model_id: &str) -> Result<(), AgentError> {
+        self.gateway.set_model(session, model_id).await
+    }
+
+    /// Forward the user's decision on a permission request the agent raised
+    /// mid-turn. The request itself arrives as
+    /// [`DomainEvent::PermissionRequested`]; this carries the answer back.
+    pub async fn resolve_permission(
+        &self,
+        session: &SessionId,
+        permission_id: &str,
+        outcome: PermissionOutcome,
+    ) -> Result<(), AgentError> {
+        self.gateway
+            .resolve_permission(session, permission_id, outcome)
+            .await
     }
 
     /// The persisted timeline of a session.
@@ -143,9 +186,10 @@ impl SessionService {
             // An invalid transition is a real lifecycle bug, surfaced as a
             // protocol error rather than silently ignored.
             entry
+                .session
                 .transition(next, Utc::now())
                 .map_err(|e| AgentError::Protocol(e.to_string()))?;
-            entry.status
+            entry.session.status
         };
         self.bus.publish(DomainEvent::SessionStatusChanged {
             session: session.clone(),
@@ -327,5 +371,24 @@ mod tests {
 
         let events = service.history(&session).await.unwrap();
         assert_eq!(events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn session_init_is_cached_and_returned_by_id() {
+        let gateway = Arc::new(FakeAgentGateway::new().with_session_id("s1"));
+        let service = SessionService::new(
+            gateway,
+            EventBus::new(),
+            Arc::new(FakeSessionRepository::new()),
+        );
+        let session = service
+            .get_or_create_session(&AgentId::from("claude"), Path::new("."), &[])
+            .await
+            .unwrap();
+
+        let init = service.session_init(&session).await.expect("caps are cached");
+        assert_eq!(init.session_id, session);
+        // An unknown session has no cached capabilities.
+        assert!(service.session_init(&SessionId::from("ghost")).await.is_none());
     }
 }

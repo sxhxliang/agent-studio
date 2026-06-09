@@ -12,13 +12,14 @@
 //! `agentx-store`) — it only knows the application's use-cases and the domain.
 //! Views hold no business logic and never reach for a global service locator.
 //!
-//! ## M4b — the first window
+//! ## M4b/M5b — the first window
 //! [`ChatView`] is the minimal proof that the GPUI shell can drive the rewritten
-//! stack: it sends a prompt through [`SessionService`] and renders the
-//! [`DomainEvent`]s that stream back over the [`EventBus`]. It deliberately has
-//! no dock, no persistence, and no permission UI — those arrive in later
-//! milestones. The composition root that injects the adapters lives in
-//! `examples/window.rs`, so this library stays free of any adapter dependency.
+//! stack: it sends a prompt through [`SessionService`], renders the
+//! [`DomainEvent`]s that stream back over the [`EventBus`], and lets the user
+//! allow/deny the permission requests an agent raises mid-turn. It deliberately
+//! has no dock and no persistence — those arrive in later milestones. The
+//! composition root that injects the adapters lives in `examples/window.rs`, so
+//! this library stays free of any adapter dependency.
 
 use std::sync::Arc;
 
@@ -33,7 +34,10 @@ use gpui_component::{
 
 use agentx_app::SessionService;
 use agentx_bus::EventBus;
-use agentx_domain::{AgentId, ContentBlock, DomainEvent, SessionEvent, SessionId, SessionStatus};
+use agentx_domain::{
+    AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, SessionEvent,
+    SessionId, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand,
+};
 
 /// A single-session chat window over [`SessionService`].
 ///
@@ -44,8 +48,17 @@ pub struct ChatView {
     service: Arc<SessionService>,
     agent: AgentId,
     session: SessionId,
+    /// Modes/models the agent advertised for this session, with the current pick.
+    modes: Vec<SessionMode>,
+    current_mode: Option<String>,
+    models: Vec<SessionModel>,
+    current_model: Option<String>,
+    /// Slash commands the agent advertises; updated via a notification.
+    commands: Vec<SlashCommand>,
     input: Entity<InputState>,
     lines: Vec<SharedString>,
+    /// Permission requests awaiting the user's allow/deny decision.
+    pending: Vec<PermissionRequest>,
     scroll: ScrollHandle,
     busy: bool,
     _subscriptions: Vec<Subscription>,
@@ -56,10 +69,19 @@ impl ChatView {
         service: Arc<SessionService>,
         bus: EventBus,
         agent: AgentId,
-        session: SessionId,
+        init: SessionInit,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let SessionInit {
+            session_id,
+            modes,
+            current_mode,
+            models,
+            current_model,
+            commands,
+        } = init;
+
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Type a message, press Enter to send…")
         });
@@ -95,9 +117,15 @@ impl ChatView {
         Self {
             service,
             agent,
-            session,
+            session: session_id,
+            modes,
+            current_mode,
+            models,
+            current_model,
+            commands,
             input,
             lines: Vec::new(),
+            pending: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
             _subscriptions: subscriptions,
@@ -141,6 +169,137 @@ impl ChatView {
         .detach();
     }
 
+    /// Switch the session's mode, updating the local selection optimistically.
+    fn choose_mode(&mut self, mode_id: String, cx: &mut Context<Self>) {
+        if self.current_mode.as_deref() == Some(mode_id.as_str()) {
+            return;
+        }
+        self.current_mode = Some(mode_id.clone());
+        cx.notify();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        cx.spawn(async move |this, cx| {
+            let result = service.set_mode(&session, &mode_id).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        if let Err(error) = result {
+                            this.lines.push(format!("set mode error › {error}").into());
+                        }
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Switch the session's model, updating the local selection optimistically.
+    fn choose_model(&mut self, model_id: String, cx: &mut Context<Self>) {
+        if self.current_model.as_deref() == Some(model_id.as_str()) {
+            return;
+        }
+        self.current_model = Some(model_id.clone());
+        cx.notify();
+        let service = self.service.clone();
+        let session = self.session.clone();
+        cx.spawn(async move |this, cx| {
+            let result = service.set_model(&session, &model_id).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        if let Err(error) = result {
+                            this.lines.push(format!("set model error › {error}").into());
+                        }
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// A Mode row and a Model row of buttons (the current pick is highlighted).
+    /// Empty when the agent advertises no modes/models.
+    fn render_selectors(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut rows = Vec::new();
+        if !self.modes.is_empty() {
+            let mut buttons = Vec::new();
+            for mode in &self.modes {
+                let mode_id = mode.id.clone();
+                let selected = self.current_mode.as_deref() == Some(mode.id.as_str());
+                let button = Button::new(SharedString::from(format!("mode-{}", mode.id)))
+                    .label(mode.name.clone())
+                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                        this.choose_mode(mode_id.clone(), cx);
+                    }));
+                let button = if selected { button.primary() } else { button.ghost() };
+                buttons.push(button.into_any_element());
+            }
+            rows.push(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().child("Mode"))
+                    .children(buttons)
+                    .into_any_element(),
+            );
+        }
+        if !self.models.is_empty() {
+            let mut buttons = Vec::new();
+            for model in &self.models {
+                let model_id = model.id.clone();
+                let selected = self.current_model.as_deref() == Some(model.id.as_str());
+                let button = Button::new(SharedString::from(format!("model-{}", model.id)))
+                    .label(model.name.clone())
+                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                        this.choose_model(model_id.clone(), cx);
+                    }));
+                let button = if selected { button.primary() } else { button.ghost() };
+                buttons.push(button.into_any_element());
+            }
+            rows.push(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().child("Model"))
+                    .children(buttons)
+                    .into_any_element(),
+            );
+        }
+        if !self.commands.is_empty() {
+            let mut buttons = Vec::new();
+            for command in &self.commands {
+                let name = command.name.clone();
+                buttons.push(
+                    Button::new(SharedString::from(format!("cmd-{}", command.name)))
+                        .label(format!("/{}", command.name))
+                        .ghost()
+                        .on_click(cx.listener(move |this, _event, window, cx| {
+                            this.insert_command(name.clone(), window, cx);
+                        }))
+                        .into_any_element(),
+                );
+            }
+            rows.push(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().child("Commands"))
+                    .children(buttons)
+                    .into_any_element(),
+            );
+        }
+        rows
+    }
+
+    /// Insert a slash command into the input for the user to complete and send.
+    fn insert_command(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |state, cx| {
+            state.insert(&format!("/{name} "), window, cx);
+        });
+    }
+
     fn record(&mut self, event: DomainEvent) {
         match event {
             DomainEvent::SessionStatusChanged { status, .. } => {
@@ -158,14 +317,107 @@ impl ChatView {
             DomainEvent::AgentStatusChanged { agent, status } => {
                 self.lines.push(format!("· agent {agent}: {status:?}").into());
             }
-            DomainEvent::PermissionRequested { permission, .. } => {
-                self.lines.push(
-                    format!("⚠ permission requested ({permission}); approval UI arrives in M5")
-                        .into(),
-                );
+            DomainEvent::PermissionRequested { request } => {
+                self.lines
+                    .push(format!("⚠ permission requested: {}", request.tool_call.title).into());
+                self.pending.push(request);
+            }
+            DomainEvent::SessionCommandsChanged { commands, .. } => {
+                if !commands.is_empty() {
+                    let names = commands
+                        .iter()
+                        .map(|command| format!("/{}", command.name))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    self.lines.push(format!("· commands: {names}").into());
+                }
+                self.commands = commands;
             }
             DomainEvent::ConfigChanged => {}
         }
+    }
+
+    /// Answer a pending permission request and forward the decision to the agent.
+    fn resolve(&mut self, permission_id: String, outcome: PermissionOutcome, cx: &mut Context<Self>) {
+        let Some(pos) = self
+            .pending
+            .iter()
+            .position(|request| request.id.as_str() == permission_id.as_str())
+        else {
+            return;
+        };
+        let session = self.pending.remove(pos).session;
+        let decision = match &outcome {
+            PermissionOutcome::Selected { .. } => "allowed",
+            PermissionOutcome::Cancelled => "denied",
+        };
+        self.lines.push(format!("· permission {decision}").into());
+        cx.notify();
+
+        let service = self.service.clone();
+        cx.spawn(async move |this, cx| {
+            let result = service.resolve_permission(&session, &permission_id, outcome).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        if let Err(error) = result {
+                            this.lines.push(format!("permission error › {error}").into());
+                        }
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Build an interactive card per pending permission request: the tool's
+    /// title, a button for each option the agent offered, and a Deny.
+    fn permission_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut cards = Vec::new();
+        for request in &self.pending {
+            let permission_id = request.id.to_string();
+            let mut buttons = Vec::new();
+            for option in &request.options {
+                let permission_id = permission_id.clone();
+                let option_id = option.id.clone();
+                buttons.push(
+                    Button::new(SharedString::from(format!("perm-{permission_id}-{option_id}")))
+                        .label(option.label.clone())
+                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                            this.resolve(
+                                permission_id.clone(),
+                                PermissionOutcome::Selected {
+                                    option_id: option_id.clone(),
+                                },
+                                cx,
+                            );
+                        }))
+                        .into_any_element(),
+                );
+            }
+            let deny_id = permission_id.clone();
+            buttons.push(
+                Button::new(SharedString::from(format!("perm-{permission_id}-deny")))
+                    .label("Deny")
+                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                        this.resolve(deny_id.clone(), PermissionOutcome::Cancelled, cx);
+                    }))
+                    .into_any_element(),
+            );
+            cards.push(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(format!("⚠ permission: {}", request.tool_call.title)),
+                    )
+                    .child(h_flex().gap_2().children(buttons))
+                    .into_any_element(),
+            );
+        }
+        cards
     }
 }
 
@@ -177,12 +429,15 @@ impl Render for ChatView {
             self.session,
             if self.busy { "  ·  working…" } else { "" }
         );
+        let permissions = self.permission_cards(cx);
+        let selectors = self.render_selectors(cx);
 
         v_flex()
             .size_full()
             .p_4()
             .gap_3()
             .child(div().text_sm().child(header))
+            .child(v_flex().gap_2().children(selectors))
             .child(
                 div()
                     .id("chat-events")
@@ -196,6 +451,7 @@ impl Render for ChatView {
                             .children(self.lines.iter().map(|line| div().child(line.clone()))),
                     ),
             )
+            .child(v_flex().gap_2().children(permissions))
             .child(
                 h_flex()
                     .gap_2()
@@ -215,12 +471,13 @@ impl Render for ChatView {
 /// Open a window hosting a [`ChatView`] for an already-created session.
 ///
 /// The session must exist before this is called — the composition root starts
-/// the agent and creates the session, then opens the window.
+/// the agent and creates the session, then opens the window with its
+/// [`SessionInit`] (so the selectors are populated up front).
 pub fn open_chat_window(
     service: Arc<SessionService>,
     bus: EventBus,
     agent: AgentId,
-    session: SessionId,
+    init: SessionInit,
     cx: &mut App,
 ) {
     let bounds = Bounds::centered(None, size(px(900.0), px(680.0)), cx);
@@ -230,7 +487,7 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let view = cx.new(|cx| ChatView::new(service, bus, agent, session, window, cx));
+        let view = cx.new(|cx| ChatView::new(service, bus, agent, init, window, cx));
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     });
