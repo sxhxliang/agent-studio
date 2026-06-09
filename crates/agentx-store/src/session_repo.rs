@@ -73,22 +73,29 @@ impl SessionRepository for FsSessionRepository {
     }
 
     async fn list(&self) -> Result<Vec<SessionId>, StoreError> {
-        let mut sessions = Vec::new();
         let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
             // A store that has never been written to lists as empty.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(sessions),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(io_err(error)),
         };
+        let mut sessions: Vec<(SessionId, std::time::SystemTime)> = Vec::new();
         for entry in entries {
-            let path = entry.map_err(io_err)?.path();
+            let entry = entry.map_err(io_err)?;
+            let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    sessions.push(SessionId::from(stem));
+                    let modified = entry
+                        .metadata()
+                        .and_then(|meta| meta.modified())
+                        .unwrap_or(std::time::UNIX_EPOCH);
+                    sessions.push((SessionId::from(stem), modified));
                 }
             }
         }
-        Ok(sessions)
+        // Most-recently-modified first.
+        sessions.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+        Ok(sessions.into_iter().map(|(id, _)| id).collect())
     }
 
     async fn exists(&self, session: &SessionId) -> bool {
