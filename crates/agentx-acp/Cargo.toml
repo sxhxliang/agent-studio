@@ -13,6 +13,7 @@ agentx-domain.workspace = true
 agentx-bus.workspace = true
 agent-client-protocol = { workspace = true, features = ["unstable"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "process", "io-util", "sync", "time", "macros"] }
+tokio-util.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
 log.workspace = true

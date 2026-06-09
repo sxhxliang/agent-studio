@@ -13,7 +13,17 @@ agentx-bus.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 async-trait.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
 log.workspace = true
+
+# The library depends only on the domain + bus (ports, not adapters). The
+# headless example below is the composition root, so it pulls in real adapters
+# as dev-dependencies — keeping the library's dependency surface pure.
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time", "sync"] }
+agentx-acp.workspace = true
+agentx-store.workspace = true
+env_logger = "0.11"
 
 [lints]
 workspace = true

@@ -17,8 +17,8 @@
 
 use agent_client_protocol::schema as acp;
 use agentx_domain::{
-    ContentBlock, Plan, PlanEntry, PlanEntryStatus, PlanPriority, ResourceContents, StopReason,
-    ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
+    ContentBlock, PermissionOutcome, Plan, PlanEntry, PlanEntryStatus, PlanPriority,
+    ResourceContents, StopReason, ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -220,6 +220,25 @@ pub(crate) fn stop_reason_to_domain(reason: acp::StopReason) -> StopReason {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Permission outcome
+// ---------------------------------------------------------------------------
+
+/// Outbound: the user's domain decision becomes the ACP permission response the
+/// agent is waiting on. `Cancelled` is also the outcome ACP mandates when a turn
+/// is cancelled with pending permission requests.
+pub(crate) fn permission_outcome_to_acp(
+    outcome: PermissionOutcome,
+) -> acp::RequestPermissionResponse {
+    let outcome = match outcome {
+        PermissionOutcome::Selected { option_id } => {
+            acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(option_id))
+        }
+        PermissionOutcome::Cancelled => acp::RequestPermissionOutcome::Cancelled,
+    };
+    acp::RequestPermissionResponse::new(outcome)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,5 +406,29 @@ mod tests {
             stop_reason_to_domain(acp::StopReason::Cancelled),
             StopReason::Cancelled
         );
+    }
+
+    // ---- permission outcome ----
+
+    #[test]
+    fn selected_outcome_carries_the_option_id() {
+        let response = permission_outcome_to_acp(PermissionOutcome::Selected {
+            option_id: "allow-once".into(),
+        });
+        match response.outcome {
+            acp::RequestPermissionOutcome::Selected(selected) => {
+                assert_eq!(selected.option_id.to_string(), "allow-once");
+            }
+            other => panic!("expected Selected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cancelled_outcome_maps_to_acp_cancelled() {
+        let response = permission_outcome_to_acp(PermissionOutcome::Cancelled);
+        assert!(matches!(
+            response.outcome,
+            acp::RequestPermissionOutcome::Cancelled
+        ));
     }
 }
