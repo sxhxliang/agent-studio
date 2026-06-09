@@ -85,6 +85,35 @@ impl SessionService {
         Ok(id)
     }
 
+    /// Resume a previously-created session: reconnect the agent to it and make
+    /// it the live session (registered like a freshly-created one), so prompts
+    /// continue the conversation. The agent may not support resumption, in which
+    /// case the gateway error propagates.
+    pub async fn resume_session(
+        &self,
+        agent: &AgentId,
+        session: &SessionId,
+        cwd: &Path,
+        mcp_servers: &[McpServerConfig],
+    ) -> Result<SessionInit, AgentError> {
+        let init = self
+            .gateway
+            .resume_session(agent, session, cwd, mcp_servers)
+            .await?;
+        let mut registry = self.sessions.lock().await;
+        let id = init.session_id.clone();
+        let live = Session::new(id.clone(), agent.clone(), cwd.to_path_buf(), Utc::now());
+        registry.by_agent.insert(agent.clone(), id.clone());
+        registry.by_id.insert(
+            id,
+            Live {
+                session: live,
+                init: init.clone(),
+            },
+        );
+        Ok(init)
+    }
+
     /// Send a user prompt and run the turn to completion.
     ///
     /// The user message and the stop reason are published as

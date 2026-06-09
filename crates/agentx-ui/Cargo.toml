@@ -17,6 +17,7 @@ agentx-app.workspace = true
 agentx-bus.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
+similar.workspace = true
 
 [lints]
 workspace = true

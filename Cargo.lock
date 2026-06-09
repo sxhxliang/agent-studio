@@ -387,6 +387,7 @@ dependencies = [
  "agentx-domain",
  "gpui",
  "gpui-component",
+ "similar",
 ]
 
 [[package]]

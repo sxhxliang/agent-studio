@@ -21,6 +21,8 @@
 //! composition root that injects the adapters lives in `examples/window.rs`, so
 //! this library stays free of any adapter dependency.
 
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::*;
@@ -32,6 +34,7 @@ use gpui_component::{
     text::TextView,
     v_flex,
 };
+use similar::{ChangeTag, TextDiff};
 
 use agentx_app::SessionService;
 use agentx_bus::Receiver;
@@ -63,6 +66,8 @@ pub struct ChatView {
     service: Arc<SessionService>,
     agent: AgentId,
     session: SessionId,
+    /// The working directory, needed to resume a session.
+    cwd: PathBuf,
     /// Modes/models the agent advertised for this session, with the current pick.
     modes: Vec<SessionMode>,
     current_mode: Option<String>,
@@ -77,6 +82,8 @@ pub struct ChatView {
     sessions: Vec<SessionId>,
     /// A past session being browsed read-only; `None` means the live session.
     viewed: Option<ViewedSession>,
+    /// Tool-call ids whose detail is expanded.
+    expanded: HashSet<String>,
     /// Permission requests awaiting the user's allow/deny decision.
     pending: Vec<PermissionRequest>,
     scroll: ScrollHandle,
@@ -89,6 +96,7 @@ impl ChatView {
         service: Arc<SessionService>,
         mut events: Receiver<DomainEvent>,
         agent: AgentId,
+        cwd: PathBuf,
         init: SessionInit,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -139,6 +147,7 @@ impl ChatView {
             service,
             agent,
             session: session_id,
+            cwd,
             modes,
             current_mode,
             models,
@@ -148,6 +157,7 @@ impl ChatView {
             live: Vec::new(),
             sessions: Vec::new(),
             viewed: None,
+            expanded: HashSet::new(),
             pending: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
@@ -195,6 +205,51 @@ impl ChatView {
                     view.update(cx, |this, cx| {
                         this.viewed = Some(ViewedSession { id, entries });
                         this.scroll.scroll_to_bottom();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Reconnect the agent to the session being browsed and make it the live
+    /// session, so the user can continue it. Agents that don't support
+    /// resumption surface an error note instead.
+    fn resume_viewed(&mut self, cx: &mut Context<Self>) {
+        let Some(viewed) = self.viewed.as_ref() else {
+            return;
+        };
+        let id = viewed.id.clone();
+        let agent = self.agent.clone();
+        let service = self.service.clone();
+        let cwd = self.cwd.clone();
+        cx.spawn(async move |this, cx| {
+            let result = service.resume_session(&agent, &id, &cwd, &[]).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        match result {
+                            Ok(init) => {
+                                let label: String =
+                                    init.session_id.as_str().chars().take(8).collect();
+                                let entries =
+                                    this.viewed.take().map(|v| v.entries).unwrap_or_default();
+                                this.session = init.session_id;
+                                this.live = entries;
+                                this.modes = init.modes;
+                                this.current_mode = init.current_mode;
+                                this.models = init.models;
+                                this.current_model = init.current_model;
+                                this.commands = init.commands;
+                                this.note(format!("· resumed {label}"));
+                                this.refresh_sessions(cx);
+                                this.scroll.scroll_to_bottom();
+                            }
+                            Err(error) => {
+                                this.note(format!("resume failed › {error}"));
+                            }
+                        }
                         cx.notify();
                     });
                 }
@@ -495,22 +550,132 @@ impl ChatView {
         cards
     }
 
+    /// Toggle whether a tool call's detail is expanded.
+    fn toggle_tool(&mut self, id: String, cx: &mut Context<Self>) {
+        if !self.expanded.remove(&id) {
+            self.expanded.insert(id);
+        }
+        cx.notify();
+    }
+
     /// Render a list of timeline entries: rich elements for events, muted lines
     /// for system notes. Shared by the live timeline and the read-only history.
     fn render_entries(&self, entries: &[Entry], cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let theme = cx.theme();
-        entries
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| match entry {
-                Entry::Note(text) => div()
+        let mut items = Vec::with_capacity(entries.len());
+        for (index, entry) in entries.iter().enumerate() {
+            items.push(match entry {
+                Entry::Note(text) => {
+                    let muted = cx.theme().muted_foreground;
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(text.clone())
+                        .into_any_element()
+                }
+                Entry::Event(event) => self.render_event(index, event, cx),
+            });
+        }
+        items
+    }
+
+    /// Render one timeline event. Agent/user messages render as Markdown; tool
+    /// calls as collapsible cards (with colored diffs); plans as cards; thoughts
+    /// and the stop marker as muted text.
+    fn render_event(
+        &self,
+        index: usize,
+        event: &SessionEvent,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match event {
+            SessionEvent::UserMessage { content } => {
+                let theme = cx.theme();
+                v_flex()
+                    .w_full()
+                    .gap_1()
+                    .child(div().text_xs().text_color(theme.muted_foreground).child("you"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.foreground)
+                            .child(plain_text(content)),
+                    )
+                    .into_any_element()
+            }
+            SessionEvent::AgentMessage { content } => {
+                let theme = cx.theme();
+                v_flex()
+                    .w_full()
+                    .gap_1()
+                    .child(div().text_xs().text_color(theme.muted_foreground).child("agent"))
+                    .child(
+                        TextView::markdown(
+                            SharedString::from(format!("agent-{index}")),
+                            plain_text(content),
+                        )
+                        .text_sm()
+                        .text_color(theme.foreground)
+                        .selectable(true),
+                    )
+                    .into_any_element()
+            }
+            SessionEvent::AgentThought { text } => {
+                let muted = cx.theme().muted_foreground;
+                div()
+                    .text_sm()
+                    .text_color(muted)
+                    .child(format!("💭 {text}"))
+                    .into_any_element()
+            }
+            SessionEvent::ToolCall(call) => self.render_tool_call(call, cx),
+            SessionEvent::Plan(plan) => {
+                let theme = cx.theme();
+                render_plan(plan, theme)
+            }
+            SessionEvent::Stopped { reason } => {
+                let muted = cx.theme().muted_foreground;
+                div()
                     .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(text.clone())
-                    .into_any_element(),
-                Entry::Event(event) => render_event(index, event, theme),
-            })
-            .collect()
+                    .text_color(muted)
+                    .child(format!("— end ({reason:?})"))
+                    .into_any_element()
+            }
+        }
+    }
+
+    /// A collapsible tool-call card: a clickable header, plus its content (text
+    /// output or a colored diff) when expanded.
+    fn render_tool_call(&self, call: &ToolCall, cx: &mut Context<Self>) -> AnyElement {
+        let foreground = cx.theme().foreground;
+        let muted = cx.theme().muted_foreground;
+        let border = cx.theme().border;
+        let expanded = self.expanded.contains(&call.id);
+        let indicator = if expanded { "▾" } else { "▸" };
+        let id = call.id.clone();
+        let header = Button::new(SharedString::from(format!("tool-{}", call.id)))
+            .ghost()
+            .label(format!(
+                "{indicator} {:?} · {} [{:?}]",
+                call.kind, call.title, call.status
+            ))
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                this.toggle_tool(id.clone(), cx);
+            }));
+
+        let mut card = v_flex()
+            .w_full()
+            .gap_1()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(border)
+            .child(header);
+        if expanded {
+            for content in &call.content {
+                card = card.child(render_tool_content(content, foreground, muted));
+            }
+        }
+        card.into_any_element()
     }
 
     /// The sidebar: the live session plus each sibling session on disk. Clicking
@@ -586,6 +751,13 @@ impl Render for ChatView {
                                         this.viewed = None;
                                         cx.notify();
                                     })),
+                            )
+                            .child(
+                                Button::new("resume-session")
+                                    .label("continue ⟳")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.resume_viewed(cx);
+                                    })),
                             ),
                     )
                     .child(
@@ -655,6 +827,7 @@ pub fn open_chat_window(
     service: Arc<SessionService>,
     events: Receiver<DomainEvent>,
     agent: AgentId,
+    cwd: PathBuf,
     init: SessionInit,
     cx: &mut App,
 ) {
@@ -665,76 +838,46 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let view = cx.new(|cx| ChatView::new(service, events, agent, init, window, cx));
+        let view = cx.new(|cx| ChatView::new(service, events, agent, cwd, init, window, cx));
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     });
 }
 
-/// Render one timeline event. Agent/user messages render as Markdown; tool
-/// calls and plans as bordered cards; thoughts and the stop marker as muted text.
-fn render_event(index: usize, event: &SessionEvent, theme: &Theme) -> AnyElement {
-    match event {
-        SessionEvent::UserMessage { content } => v_flex()
-            .w_full()
-            .gap_1()
-            .child(div().text_xs().text_color(theme.muted_foreground).child("you"))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.foreground)
-                    .child(plain_text(content)),
-            )
-            .into_any_element(),
-        SessionEvent::AgentMessage { content } => v_flex()
-            .w_full()
-            .gap_1()
-            .child(div().text_xs().text_color(theme.muted_foreground).child("agent"))
-            .child(
-                TextView::markdown(
-                    SharedString::from(format!("agent-{index}")),
-                    plain_text(content),
-                )
-                .text_sm()
-                .text_color(theme.foreground)
-                .selectable(true),
-            )
-            .into_any_element(),
-        SessionEvent::AgentThought { text } => div()
-            .text_sm()
-            .text_color(theme.muted_foreground)
-            .child(format!("💭 {text}"))
-            .into_any_element(),
-        SessionEvent::ToolCall(call) => render_tool_call(call, theme),
-        SessionEvent::Plan(plan) => render_plan(plan, theme),
-        SessionEvent::Stopped { reason } => div()
+/// One piece of a tool call's content: text output, or a colored line diff.
+fn render_tool_content(content: &ToolCallContent, foreground: Hsla, muted: Hsla) -> AnyElement {
+    match content {
+        ToolCallContent::Text(text) => div()
             .text_xs()
-            .text_color(theme.muted_foreground)
-            .child(format!("— end ({reason:?})"))
+            .text_color(muted)
+            .child(text.clone())
             .into_any_element(),
+        ToolCallContent::Diff {
+            path,
+            old_text,
+            new_text,
+        } => render_diff(path, old_text.as_deref().unwrap_or(""), new_text, foreground, muted),
     }
 }
 
-fn render_tool_call(call: &ToolCall, theme: &Theme) -> AnyElement {
-    let mut card = v_flex()
+/// A line diff between `old` and `new`: removals red, additions green, context
+/// muted.
+fn render_diff(path: &str, old: &str, new: &str, foreground: Hsla, muted: Hsla) -> AnyElement {
+    let removed: Hsla = rgb(0xC0392B).into();
+    let added: Hsla = rgb(0x27AE60).into();
+    let mut lines = v_flex()
         .w_full()
-        .gap_1()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(theme.border)
-        .child(div().text_sm().text_color(theme.foreground).child(format!(
-            "{:?} · {} [{:?}]",
-            call.kind, call.title, call.status
-        )));
-    for content in &call.content {
-        let text = match content {
-            ToolCallContent::Text(text) => text.clone(),
-            ToolCallContent::Diff { path, new_text, .. } => format!("{path}\n{new_text}"),
+        .child(div().text_xs().text_color(foreground).child(path.to_string()));
+    for change in TextDiff::from_lines(old, new).iter_all_changes() {
+        let (prefix, color) = match change.tag() {
+            ChangeTag::Delete => ("-", removed),
+            ChangeTag::Insert => ("+", added),
+            ChangeTag::Equal => (" ", muted),
         };
-        card = card.child(div().text_xs().text_color(theme.muted_foreground).child(text));
+        let text = format!("{prefix}{}", change.value().trim_end_matches('\n'));
+        lines = lines.child(div().text_xs().text_color(color).child(text));
     }
-    card.into_any_element()
+    lines.into_any_element()
 }
 
 fn render_plan(plan: &Plan, theme: &Theme) -> AnyElement {

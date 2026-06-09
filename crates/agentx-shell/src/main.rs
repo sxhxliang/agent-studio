@@ -112,7 +112,14 @@ fn main() -> Result<()> {
                     return;
                 };
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_chat_window(service.clone(), view_events, agent.clone(), init, cx);
+                    agentx_ui::open_chat_window(
+                        service.clone(),
+                        view_events,
+                        agent.clone(),
+                        cwd,
+                        init,
+                        cx,
+                    );
                 });
             })
             .detach();
