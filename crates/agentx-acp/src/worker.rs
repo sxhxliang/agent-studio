@@ -408,10 +408,9 @@ async fn event_loop(
                         // Available commands are session state, not a timeline
                         // event, so they bypass the accumulator entirely.
                         acp::SessionUpdate::AvailableCommandsUpdate(update) => {
-                            bus.publish(DomainEvent::SessionCommandsChanged {
-                                session,
-                                commands: available_commands_to_domain(update),
-                            });
+                            let commands = available_commands_to_domain(update);
+                            log::info!("agent advertised {} slash command(s)", commands.len());
+                            bus.publish(DomainEvent::SessionCommandsChanged { session, commands });
                         }
                         update => {
                             let events = accumulators

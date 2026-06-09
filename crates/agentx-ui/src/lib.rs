@@ -33,7 +33,7 @@ use gpui_component::{
 };
 
 use agentx_app::SessionService;
-use agentx_bus::EventBus;
+use agentx_bus::Receiver;
 use agentx_domain::{
     AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, SessionEvent,
     SessionId, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand,
@@ -67,7 +67,7 @@ pub struct ChatView {
 impl ChatView {
     fn new(
         service: Arc<SessionService>,
-        bus: EventBus,
+        mut events: Receiver<DomainEvent>,
         agent: AgentId,
         init: SessionInit,
         window: &mut Window,
@@ -96,11 +96,12 @@ impl ChatView {
             },
         )];
 
-        // Bridge the bus into the view: each domain event becomes a line. The
-        // task ends when the window (and thus the entity) goes away.
-        let mut rx = bus.subscribe::<DomainEvent>();
+        // Drain the bus into the view. The receiver is created by the caller
+        // *before* the agent starts, so events the agent emits during session
+        // setup (slash commands, status) are buffered and replayed here rather
+        // than lost — broadcast has no replay for late subscribers.
         cx.spawn(async move |this, cx| {
-            while let Ok(event) = rx.recv().await {
+            while let Ok(event) = events.recv().await {
                 let _ = cx.update(|cx| {
                     if let Some(view) = this.upgrade() {
                         view.update(cx, |this, cx| {
@@ -470,12 +471,13 @@ impl Render for ChatView {
 
 /// Open a window hosting a [`ChatView`] for an already-created session.
 ///
-/// The session must exist before this is called — the composition root starts
-/// the agent and creates the session, then opens the window with its
-/// [`SessionInit`] (so the selectors are populated up front).
+/// `events` must be a receiver subscribed *before* the agent was started, so the
+/// view replays the session-setup events (slash commands, status) instead of
+/// missing them. The composition root starts the agent, creates the session,
+/// then opens the window with its [`SessionInit`].
 pub fn open_chat_window(
     service: Arc<SessionService>,
-    bus: EventBus,
+    events: Receiver<DomainEvent>,
     agent: AgentId,
     init: SessionInit,
     cx: &mut App,
@@ -487,7 +489,7 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let view = cx.new(|cx| ChatView::new(service, bus, agent, init, window, cx));
+        let view = cx.new(|cx| ChatView::new(service, events, agent, init, window, cx));
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     });

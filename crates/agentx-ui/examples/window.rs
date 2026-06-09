@@ -22,7 +22,9 @@ use anyhow::{Context as _, Result, anyhow};
 use agentx_acp::AcpSupervisor;
 use agentx_app::SessionService;
 use agentx_bus::EventBus;
-use agentx_domain::{AgentGateway, AgentId, AgentRegistry, ConfigStore, SessionRepository};
+use agentx_domain::{
+    AgentGateway, AgentId, AgentRegistry, ConfigStore, DomainEvent, SessionRepository,
+};
 use agentx_store::{FsConfigStore, FsSessionRepository, paths};
 
 fn main() -> Result<()> {
@@ -56,6 +58,9 @@ fn main() -> Result<()> {
             gpui_component::init(cx);
 
             let bus = EventBus::new();
+            // Subscribe before anything is published, so the view replays the
+            // agent's session-setup events (slash commands, status) on open.
+            let events = bus.subscribe::<DomainEvent>();
             let supervisor = Arc::new(AcpSupervisor::new(bus.clone()));
             let repository: Arc<dyn SessionRepository> =
                 Arc::new(FsSessionRepository::new(paths::sessions_dir(&data_dir)));
@@ -88,7 +93,7 @@ fn main() -> Result<()> {
                     return;
                 };
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_chat_window(service.clone(), bus.clone(), agent.clone(), init, cx);
+                    agentx_ui::open_chat_window(service.clone(), events, agent.clone(), init, cx);
                 });
             })
             .detach();
