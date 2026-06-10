@@ -15,7 +15,7 @@ use crate::id::{AgentId, SessionId};
 use crate::message::ContentBlock;
 use crate::permission::PermissionRequest;
 use crate::plan::Plan;
-use crate::session::{SessionStatus, SlashCommand};
+use crate::session::{SessionConfigOption, SessionStatus, SlashCommand};
 use crate::tool_call::ToolCall;
 
 /// One semantic event in a session's timeline.
@@ -71,6 +71,13 @@ pub enum DomainEvent {
     SessionCommandsChanged {
         session: SessionId,
         commands: Vec<SlashCommand>,
+    },
+    /// The agent updated the session's config options (model/mode/…), either in
+    /// response to a `set_config_option` or unilaterally mid-session. Carries the
+    /// complete current set so the UI can refresh its selectors.
+    SessionConfigChanged {
+        session: SessionId,
+        options: Vec<SessionConfigOption>,
     },
     ConfigChanged,
 }

@@ -36,7 +36,8 @@ struct Registry {
 }
 
 /// A live session: its lifecycle state plus the capabilities it was created
-/// with (modes/models/commands), which the UI reads to build its selectors.
+/// with (config options/modes/commands), which the UI reads to build its
+/// selectors.
 struct Live {
     session: Session,
     init: SessionInit,
@@ -186,9 +187,14 @@ impl SessionService {
         self.gateway.set_mode(session, mode_id).await
     }
 
-    /// Switch the session's model.
-    pub async fn set_model(&self, session: &SessionId, model_id: &str) -> Result<(), AgentError> {
-        self.gateway.set_model(session, model_id).await
+    /// Change one of the session's config options (model / mode / …) by id.
+    pub async fn set_config_option(
+        &self,
+        session: &SessionId,
+        config_id: &str,
+        value: &str,
+    ) -> Result<(), AgentError> {
+        self.gateway.set_config_option(session, config_id, value).await
     }
 
     /// Forward the user's decision on a permission request the agent raised

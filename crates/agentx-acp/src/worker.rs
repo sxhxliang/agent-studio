@@ -39,8 +39,9 @@ use agentx_domain::{
 
 use crate::accumulator::StreamAccumulator;
 use crate::mapping::{
-    available_commands_to_domain, content_blocks_to_acp, mcp_servers_to_acp, model_config_id,
-    permission_outcome_to_acp, permission_request_to_domain, session_init_from, stop_reason_to_domain,
+    available_commands_to_domain, config_options_to_domain, content_blocks_to_acp,
+    mcp_servers_to_acp, permission_outcome_to_acp, permission_request_to_domain, session_init_from,
+    stop_reason_to_domain,
 };
 
 /// Permission requests the agent has raised and is blocked on, keyed by a fresh
@@ -152,7 +153,7 @@ impl AgentWorker {
         &self,
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-    ) -> Result<SessionStart, AgentError> {
+    ) -> Result<SessionInit, AgentError> {
         let (respond, result) = oneshot::channel();
         self.dispatch(Command::CreateSession {
             cwd,
@@ -168,7 +169,7 @@ impl AgentWorker {
         session: SessionId,
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-    ) -> Result<SessionStart, AgentError> {
+    ) -> Result<SessionInit, AgentError> {
         let (respond, result) = oneshot::channel();
         self.dispatch(Command::ResumeSession {
             session,
@@ -185,7 +186,7 @@ impl AgentWorker {
         session: SessionId,
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-    ) -> Result<SessionStart, AgentError> {
+    ) -> Result<SessionInit, AgentError> {
         let (respond, result) = oneshot::channel();
         self.dispatch(Command::LoadSession {
             session,
@@ -212,14 +213,14 @@ impl AgentWorker {
         Self::recv(result).await?
     }
 
-    pub(crate) async fn set_model(
+    pub(crate) async fn set_config_option(
         &self,
         session: SessionId,
         config_id: String,
         value: String,
     ) -> Result<(), AgentError> {
         let (respond, result) = oneshot::channel();
-        self.dispatch(Command::SetModel {
+        self.dispatch(Command::SetConfigOption {
             session,
             config_id,
             value,
@@ -268,14 +269,6 @@ impl AgentWorker {
     }
 }
 
-/// What an opened session yields the supervisor: the domain [`SessionInit`] plus
-/// the id of the model selector config option (if the agent advertises one), so
-/// a later `set_model` can target it.
-pub(crate) struct SessionStart {
-    pub(crate) init: SessionInit,
-    pub(crate) model_config_id: Option<String>,
-}
-
 /// A domain-typed instruction for the actor. Streamed output is *not* a reply
 /// here — it flows out on the bus — so each command's oneshot carries only the
 /// turn's final result.
@@ -283,19 +276,19 @@ enum Command {
     CreateSession {
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
+        respond: oneshot::Sender<Result<SessionInit, AgentError>>,
     },
     ResumeSession {
         session: SessionId,
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
+        respond: oneshot::Sender<Result<SessionInit, AgentError>>,
     },
     LoadSession {
         session: SessionId,
         cwd: PathBuf,
         mcp_servers: Vec<McpServerConfig>,
-        respond: oneshot::Sender<Result<SessionStart, AgentError>>,
+        respond: oneshot::Sender<Result<SessionInit, AgentError>>,
     },
     Prompt {
         session: SessionId,
@@ -311,7 +304,7 @@ enum Command {
         mode_id: String,
         respond: oneshot::Sender<Result<(), AgentError>>,
     },
-    SetModel {
+    SetConfigOption {
         session: SessionId,
         config_id: String,
         value: String,
@@ -412,6 +405,14 @@ async fn event_loop(
                             log::info!("agent advertised {} slash command(s)", commands.len());
                             bus.publish(DomainEvent::SessionCommandsChanged { session, commands });
                         }
+                        // Config options are likewise session state: the agent may
+                        // refresh the selector set mid-session.
+                        acp::SessionUpdate::ConfigOptionUpdate(update) => {
+                            bus.publish(DomainEvent::SessionConfigChanged {
+                                session,
+                                options: config_options_to_domain(update.config_options),
+                            });
+                        }
                         update => {
                             let events = accumulators
                                 .lock()
@@ -458,7 +459,7 @@ async fn event_loop(
                                 .block_task()
                                 .await
                                 .map(|response| {
-                                    session_start(
+                                    session_init_from(
                                         SessionId::from(response.session_id.to_string()),
                                         response.modes,
                                         response.config_options,
@@ -480,7 +481,7 @@ async fn event_loop(
                                 .block_task()
                                 .await
                                 .map(|response| {
-                                    session_start(session, response.modes, response.config_options)
+                                    session_init_from(session, response.modes, response.config_options)
                                 })
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
@@ -498,7 +499,7 @@ async fn event_loop(
                                 .block_task()
                                 .await
                                 .map(|response| {
-                                    session_start(session, response.modes, response.config_options)
+                                    session_init_from(session, response.modes, response.config_options)
                                 })
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
@@ -557,7 +558,7 @@ async fn event_loop(
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
                         }
-                        Command::SetModel {
+                        Command::SetConfigOption {
                             session,
                             config_id,
                             value,
@@ -572,7 +573,14 @@ async fn event_loop(
                                 .send_request(request)
                                 .block_task()
                                 .await
-                                .map(|_| ())
+                                .map(|response| {
+                                    // The agent echoes the full updated option set;
+                                    // republish it so the UI selectors refresh.
+                                    bus.publish(DomainEvent::SessionConfigChanged {
+                                        session: session.clone(),
+                                        options: config_options_to_domain(response.config_options),
+                                    });
+                                })
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
                         }
@@ -629,20 +637,6 @@ fn spawn_child(
     command
         .spawn()
         .with_context(|| format!("spawn agent `{agent}`"))
-}
-
-/// Assemble a [`SessionStart`] from an ACP session response, capturing the model
-/// selector's config id (if any) so a later `set_model` can target it.
-fn session_start(
-    session_id: SessionId,
-    modes: Option<acp::SessionModeState>,
-    config_options: Option<Vec<acp::SessionConfigOption>>,
-) -> SessionStart {
-    let model_cfg = model_config_id(config_options.as_deref());
-    SessionStart {
-        init: session_init_from(session_id, modes, config_options),
-        model_config_id: model_cfg,
-    }
 }
 
 fn protocol_error(error: acp_runtime::Error) -> AgentError {

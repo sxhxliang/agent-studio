@@ -61,7 +61,16 @@ pub trait AgentGateway: Send + Sync {
     async fn cancel(&self, session: &SessionId) -> Result<(), AgentError>;
 
     async fn set_mode(&self, session: &SessionId, mode_id: &str) -> Result<(), AgentError>;
-    async fn set_model(&self, session: &SessionId, model_id: &str) -> Result<(), AgentError>;
+
+    /// Change one of the session's config options (model/mode/thought-level/…)
+    /// by id. The agent's updated option set is published as
+    /// [`DomainEvent::SessionConfigChanged`](crate::event::DomainEvent).
+    async fn set_config_option(
+        &self,
+        session: &SessionId,
+        config_id: &str,
+        value: &str,
+    ) -> Result<(), AgentError>;
 
     async fn resolve_permission(
         &self,

@@ -7,6 +7,7 @@ use gpui::*;
 use gpui_component::{
     ActiveTheme as _, Root, Theme,
     button::{Button, ButtonVariants as _},
+    dock::{Panel, PanelEvent},
     h_flex,
     input::Input,
     text::TextView,
@@ -19,11 +20,44 @@ use agentx_domain::{PermissionOutcome, Plan, SessionEvent, ToolCall, ToolCallCon
 use super::{ChatView, Entry, plain_text};
 
 impl ChatView {
-    /// A Mode row, a Model row, and a Commands row of buttons (the current pick
-    /// is highlighted). Empty when the agent advertises none.
+    /// One row of buttons per advertised selector (config options preferred,
+    /// legacy modes as a fallback) plus a Commands row. The current pick in each
+    /// row is highlighted. Empty when the agent advertises none.
     fn render_selectors(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut rows = Vec::new();
-        if !self.modes.is_empty() {
+        if !self.config_options.is_empty() {
+            // ACP's unified selectors: one labelled row per option, a button per
+            // value. Changing one calls back into `choose_config_option`.
+            for option in &self.config_options {
+                let mut buttons = Vec::new();
+                for value in &option.values {
+                    let config_id = option.id.clone();
+                    let value_id = value.value.clone();
+                    let selected = option.current_value == value.value;
+                    let button =
+                        Button::new(SharedString::from(format!("cfg-{}-{}", option.id, value.value)))
+                            .label(value.name.clone())
+                            .on_click(cx.listener(move |this, _event, window, cx| {
+                                this.choose_config_option(
+                                    config_id.clone(),
+                                    value_id.clone(),
+                                    window,
+                                    cx,
+                                );
+                            }));
+                    let button = if selected { button.primary() } else { button.ghost() };
+                    buttons.push(button.into_any_element());
+                }
+                rows.push(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(div().text_sm().child(option.name.clone()))
+                        .children(buttons)
+                        .into_any_element(),
+                );
+            }
+        } else if !self.modes.is_empty() {
             let mut buttons = Vec::new();
             for mode in &self.modes {
                 let mode_id = mode.id.clone();
@@ -41,28 +75,6 @@ impl ChatView {
                     .gap_2()
                     .items_center()
                     .child(div().text_sm().child("Mode"))
-                    .children(buttons)
-                    .into_any_element(),
-            );
-        }
-        if !self.models.is_empty() {
-            let mut buttons = Vec::new();
-            for model in &self.models {
-                let model_id = model.id.clone();
-                let selected = self.current_model.as_deref() == Some(model.id.as_str());
-                let button = Button::new(SharedString::from(format!("model-{}", model.id)))
-                    .label(model.name.clone())
-                    .on_click(cx.listener(move |this, _event, window, cx| {
-                        this.choose_model(model_id.clone(), window, cx);
-                    }));
-                let button = if selected { button.primary() } else { button.ghost() };
-                buttons.push(button.into_any_element());
-            }
-            rows.push(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().text_sm().child("Model"))
                     .children(buttons)
                     .into_any_element(),
             );
@@ -96,6 +108,8 @@ impl ChatView {
     /// Build an interactive card per pending permission request: the tool's
     /// title, a button for each option the agent offered, and a Deny.
     fn permission_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let secondary = cx.theme().secondary;
+        let border = cx.theme().border;
         let mut cards = Vec::new();
         for request in &self.pending {
             let permission_id = request.id.to_string();
@@ -130,7 +144,13 @@ impl ChatView {
             );
             cards.push(
                 v_flex()
+                    .w_full()
                     .gap_1()
+                    .p_2()
+                    .rounded_md()
+                    .bg(secondary)
+                    .border_1()
+                    .border_color(border)
                     .child(
                         div()
                             .text_sm()
@@ -242,6 +262,7 @@ impl ChatView {
         let foreground = cx.theme().foreground;
         let muted = cx.theme().muted_foreground;
         let border = cx.theme().border;
+        let secondary = cx.theme().secondary;
         let expanded = self.expanded.contains(&call.id);
         let indicator = if expanded { "▾" } else { "▸" };
         let id = call.id.clone();
@@ -260,6 +281,7 @@ impl ChatView {
             .gap_1()
             .p_2()
             .rounded_md()
+            .bg(secondary)
             .border_1()
             .border_color(border)
             .child(header);
@@ -270,92 +292,17 @@ impl ChatView {
         }
         card.into_any_element()
     }
-
-    /// The sidebar: a "+ new" action, the live session, and each sibling session
-    /// (open / delete). Clicking the live one returns to the live view.
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let viewing_live = self.viewed.is_none();
-
-        let mut items: Vec<AnyElement> = Vec::new();
-        let live_button = Button::new("session-live")
-            .label("● live")
-            .on_click(cx.listener(|this, _event, _window, cx| {
-                let id = this.session.clone();
-                this.view_session(id, cx);
-            }));
-        items.push(
-            if viewing_live { live_button.primary() } else { live_button.ghost() }.into_any_element(),
-        );
-        for meta in &self.sessions {
-            let select_id = meta.id.clone();
-            let delete_id = meta.id.clone();
-            let selected = self.viewed.as_ref().is_some_and(|v| v.id == meta.id);
-            let open = Button::new(SharedString::from(format!("session-{}", meta.id)))
-                .label(meta.label.clone())
-                .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.view_session(select_id.clone(), cx);
-                }));
-            let open = if selected { open.primary() } else { open.ghost() };
-            let delete = Button::new(SharedString::from(format!("delete-{}", meta.id)))
-                .ghost()
-                .label("✕")
-                .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.remove_session(delete_id.clone(), cx);
-                }));
-            items.push(
-                h_flex()
-                    .gap_1()
-                    .child(div().flex_1().child(open))
-                    .child(delete)
-                    .into_any_element(),
-            );
-        }
-
-        v_flex()
-            .w(px(180.0))
-            .h_full()
-            .p_2()
-            .gap_1()
-            .border_r_1()
-            .border_color(theme.border)
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().text_sm().text_color(theme.muted_foreground).child("Sessions"))
-                    .child(
-                        Button::new("new-session")
-                            .ghost()
-                            .label("+ new")
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                this.start_new_session(window, cx);
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .id("session-list")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(v_flex().gap_1().children(items)),
-            )
-            .into_any_element()
-    }
 }
 
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sidebar = self.render_sidebar(cx);
-
         let main = match &self.viewed {
             // Browsing a past session: read-only history + a way back / continue.
             Some(viewed) => {
                 let label: String = viewed.id.as_str().chars().take(8).collect();
                 let entries = self.render_entries(&viewed.entries, cx);
                 v_flex()
-                    .flex_1()
-                    .h_full()
+                    .size_full()
                     .p_4()
                     .gap_3()
                     .child(
@@ -400,8 +347,7 @@ impl Render for ChatView {
                 let selectors = self.render_selectors(cx);
                 let timeline = self.render_entries(&self.live, cx);
                 v_flex()
-                    .flex_1()
-                    .h_full()
+                    .size_full()
                     .p_4()
                     .gap_3()
                     .child(div().text_sm().child(header))
@@ -432,11 +378,28 @@ impl Render for ChatView {
             }
         };
 
-        h_flex()
+        div()
             .size_full()
-            .child(sidebar)
             .child(main)
             .children(Root::render_notification_layer(window, cx))
+    }
+}
+
+impl EventEmitter<PanelEvent> for ChatView {}
+
+impl Focusable for ChatView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Panel for ChatView {
+    fn panel_name(&self) -> &'static str {
+        "ChatView"
+    }
+
+    fn title(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.agent.to_string()
     }
 }
 
@@ -482,6 +445,7 @@ fn render_plan(plan: &Plan, theme: &Theme) -> AnyElement {
         .gap_1()
         .p_2()
         .rounded_md()
+        .bg(theme.secondary)
         .border_1()
         .border_color(theme.border)
         .child(div().text_sm().text_color(theme.foreground).child("Plan"));

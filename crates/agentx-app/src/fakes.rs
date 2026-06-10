@@ -74,10 +74,9 @@ impl FakeAgentGateway {
             .unwrap_or_else(|| SessionId::from("fake-session"));
         SessionInit {
             session_id,
+            config_options: Vec::new(),
             modes: Vec::new(),
             current_mode: None,
-            models: Vec::new(),
-            current_model: None,
             commands: Vec::new(),
         }
     }
@@ -141,7 +140,12 @@ impl AgentGateway for FakeAgentGateway {
         Ok(())
     }
 
-    async fn set_model(&self, _session: &SessionId, _model_id: &str) -> Result<(), AgentError> {
+    async fn set_config_option(
+        &self,
+        _session: &SessionId,
+        _config_id: &str,
+        _value: &str,
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 

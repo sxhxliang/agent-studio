@@ -56,7 +56,8 @@ pub use permission::{
 pub use plan::{Plan, PlanEntry, PlanEntryStatus, PlanPriority};
 pub use ports::{AgentGateway, AgentRegistry, ConfigStore, SessionRepository};
 pub use session::{
-    InvalidTransition, Session, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand,
+    ConfigOptionValue, InvalidTransition, Session, SessionConfigOption, SessionInit, SessionMode,
+    SessionStatus, SlashCommand,
 };
 pub use tool_call::{ToolCall, ToolCallContent, ToolCallStatus, ToolKind};
 pub use workspace::{Task, Workspace};

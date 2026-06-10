@@ -18,5 +18,6 @@
 //! [`open_chat_window`].
 
 mod chat;
+mod workspace;
 
 pub use chat::{ChatView, open_chat_window};

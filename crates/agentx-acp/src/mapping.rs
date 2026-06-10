@@ -17,10 +17,10 @@
 
 use agent_client_protocol::schema as acp;
 use agentx_domain::{
-    ContentBlock, McpServerConfig, PermissionId, PermissionOption, PermissionOptionKind,
-    PermissionOutcome, PermissionRequest, Plan, PlanEntry, PlanEntryStatus, PlanPriority,
-    ResourceContents, SessionId, SessionInit, SessionMode, SessionModel, SlashCommand, StopReason,
-    ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
+    ConfigOptionValue, ContentBlock, McpServerConfig, PermissionId, PermissionOption,
+    PermissionOptionKind, PermissionOutcome, PermissionRequest, Plan, PlanEntry, PlanEntryStatus,
+    PlanPriority, ResourceContents, SessionConfigOption, SessionId, SessionInit, SessionMode,
+    SlashCommand, StopReason, ToolCall, ToolCallContent, ToolCallStatus, ToolKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -327,13 +327,14 @@ fn mcp_server_to_acp(server: &McpServerConfig) -> acp::McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// Session capabilities (modes, models)
+// Session capabilities (config options, modes)
 // ---------------------------------------------------------------------------
 
 /// Inbound: assemble the [`SessionInit`] returned from an ACP session response.
-/// Modes come from the agent's mode state; models from the `Model`-category
-/// config option. Slash commands are deliberately empty — ACP delivers those
-/// later via a notification, a stream the domain does not model yet.
+/// `config_options` is ACP's unified selector list (model / mode / thought-level
+/// / …); `modes` is the legacy mode state, kept as a fallback for agents that
+/// advertise modes but no config options. Slash commands are deliberately empty
+/// — ACP delivers those later via a notification.
 pub(crate) fn session_init_from(
     session_id: SessionId,
     modes: Option<acp::SessionModeState>,
@@ -353,63 +354,70 @@ pub(crate) fn session_init_from(
         ),
         None => (Vec::new(), None),
     };
-    let (models, current_model) = models_from(config_options.as_deref());
     SessionInit {
         session_id,
+        config_options: config_options_to_domain(config_options.unwrap_or_default()),
         modes,
         current_mode,
-        models,
-        current_model,
         commands: Vec::new(),
     }
 }
 
-/// The id of the session's model selector, if it advertises one — the supervisor
-/// keeps it so a later `set_model` can target the right config option.
-pub(crate) fn model_config_id(config_options: Option<&[acp::SessionConfigOption]>) -> Option<String> {
-    Some(model_select(config_options?)?.0.id.to_string())
+/// Inbound: ACP's advertised config options to the domain's selector list. Only
+/// `Select` options are modeled (the domain selectors are single-select); other
+/// kinds (e.g. boolean toggles) are dropped. Grouped and ungrouped value lists
+/// are flattened into one set of [`ConfigOptionValue`].
+pub(crate) fn config_options_to_domain(
+    options: Vec<acp::SessionConfigOption>,
+) -> Vec<SessionConfigOption> {
+    options
+        .into_iter()
+        .filter_map(|option| {
+            let acp::SessionConfigKind::Select(select) = option.kind else {
+                return None;
+            };
+            Some(SessionConfigOption {
+                id: option.id.to_string(),
+                name: option.name,
+                category: option.category.map(config_option_category_to_domain),
+                current_value: select.current_value.to_string(),
+                values: select_values_to_domain(select.options),
+            })
+        })
+        .collect()
 }
 
-/// Find the `Model`-category select option and its select payload.
-fn model_select(
-    options: &[acp::SessionConfigOption],
-) -> Option<(&acp::SessionConfigOption, &acp::SessionConfigSelect)> {
-    options.iter().find_map(|option| {
-        if option.category != Some(acp::SessionConfigOptionCategory::Model) {
-            return None;
-        }
-        match &option.kind {
-            acp::SessionConfigKind::Select(select) => Some((option, select)),
-            _ => None,
-        }
-    })
-}
-
-fn models_from(
-    config_options: Option<&[acp::SessionConfigOption]>,
-) -> (Vec<SessionModel>, Option<String>) {
-    let Some((_, select)) = config_options.and_then(model_select) else {
-        return (Vec::new(), None);
-    };
-    let models = match &select.options {
+fn select_values_to_domain(options: acp::SessionConfigSelectOptions) -> Vec<ConfigOptionValue> {
+    match options {
         acp::SessionConfigSelectOptions::Ungrouped(list) => {
-            list.iter().map(model_from_option).collect()
+            list.iter().map(config_value_from_option).collect()
         }
         acp::SessionConfigSelectOptions::Grouped(groups) => groups
             .iter()
             .flat_map(|group| group.options.iter())
-            .map(model_from_option)
+            .map(config_value_from_option)
             .collect(),
         _ => Vec::new(),
-    };
-    (models, Some(select.current_value.to_string()))
+    }
 }
 
-fn model_from_option(option: &acp::SessionConfigSelectOption) -> SessionModel {
-    SessionModel {
-        id: option.value.to_string(),
+fn config_value_from_option(option: &acp::SessionConfigSelectOption) -> ConfigOptionValue {
+    ConfigOptionValue {
+        value: option.value.to_string(),
         name: option.name.clone(),
     }
+}
+
+/// Map ACP's category enum to the domain's free-form string hint. Unknown future
+/// categories collapse to `"custom"`.
+fn config_option_category_to_domain(category: acp::SessionConfigOptionCategory) -> String {
+    match category {
+        acp::SessionConfigOptionCategory::Model => "model",
+        acp::SessionConfigOptionCategory::Mode => "mode",
+        acp::SessionConfigOptionCategory::ThoughtLevel => "thought_level",
+        _ => "custom",
+    }
+    .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -675,7 +683,7 @@ mod tests {
     }
 
     #[test]
-    fn session_init_maps_modes_and_models() {
+    fn session_init_maps_modes_and_config_options() {
         let modes = acp::SessionModeState::new(
             "code",
             vec![
@@ -688,8 +696,14 @@ mod tests {
         assert_eq!(init.session_id, SessionId::from("s1"));
         assert_eq!(init.modes.len(), 2);
         assert_eq!(init.current_mode, Some("code".to_string()));
-        assert_eq!(init.models.len(), 2);
-        assert_eq!(init.current_model, Some("gpt-5".to_string()));
+        assert_eq!(init.config_options.len(), 1);
+        let model = &init.config_options[0];
+        assert_eq!(model.id, "model-config");
+        assert_eq!(model.category.as_deref(), Some("model"));
+        assert_eq!(model.current_value, "gpt-5");
+        assert_eq!(model.values.len(), 2);
+        assert_eq!(model.values[0].value, "gpt-5");
+        assert_eq!(model.values[0].name, "GPT-5");
         // Slash commands arrive via a notification, not the session response.
         assert!(init.commands.is_empty());
     }
@@ -699,16 +713,15 @@ mod tests {
         let init = session_init_from(SessionId::from("s1"), None, None);
         assert!(init.modes.is_empty());
         assert_eq!(init.current_mode, None);
-        assert!(init.models.is_empty());
-        assert_eq!(init.current_model, None);
+        assert!(init.config_options.is_empty());
     }
 
     #[test]
-    fn model_config_id_finds_only_the_model_selector() {
-        let options = vec![model_option()];
-        assert_eq!(model_config_id(Some(&options)), Some("model-config".to_string()));
-        assert_eq!(model_config_id(Some(&[])), None);
-        assert_eq!(model_config_id(None), None);
+    fn config_options_drop_non_select_kinds() {
+        // A select survives; anything the domain can't model is filtered out.
+        let options = config_options_to_domain(vec![model_option()]);
+        assert_eq!(options.len(), 1);
+        assert!(config_options_to_domain(Vec::new()).is_empty());
     }
 
     // ---- permission requests ----

@@ -6,7 +6,10 @@
 //! visible to `view` (a descendant module), which is how the render closures
 //! call back into them.
 
+mod sessions;
 mod view;
+
+pub use sessions::SessionsPanel;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -23,7 +26,8 @@ use agentx_app::SessionService;
 use agentx_bus::Receiver;
 use agentx_domain::{
     AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, PersistedEvent,
-    SessionEvent, SessionId, SessionInit, SessionMode, SessionModel, SessionStatus, SlashCommand,
+    SessionConfigOption, SessionEvent, SessionId, SessionInit, SessionMode, SessionStatus,
+    SlashCommand,
 };
 
 /// One row in the conversation: a rich timeline event, a terse system note, or
@@ -58,14 +62,18 @@ pub struct ChatView {
     session: SessionId,
     /// The working directory, needed to resume a session.
     cwd: PathBuf,
-    /// Modes/models the agent advertised for this session, with the current pick.
+    /// ACP config options (model / mode / …) the agent advertised, each carrying
+    /// its own current value. Preferred over [`modes`](Self::modes) when present.
+    config_options: Vec<SessionConfigOption>,
+    /// Legacy mode list, used as a fallback for agents that advertise modes but
+    /// no config options, with the current pick.
     modes: Vec<SessionMode>,
     current_mode: Option<String>,
-    models: Vec<SessionModel>,
-    current_model: Option<String>,
     /// Slash commands the agent advertises; updated via a notification.
     commands: Vec<SlashCommand>,
     input: Entity<InputState>,
+    /// The panel's focus handle (required by the dock `Panel` trait).
+    focus_handle: FocusHandle,
     /// The live session's timeline, accumulated from the bus.
     live: Vec<Entry>,
     /// Sibling sessions on disk, for the sidebar (excludes the live one).
@@ -93,10 +101,9 @@ impl ChatView {
     ) -> Self {
         let SessionInit {
             session_id,
+            config_options,
             modes,
             current_mode,
-            models,
-            current_model,
             commands,
         } = init;
 
@@ -138,12 +145,12 @@ impl ChatView {
             agent,
             session: session_id,
             cwd,
+            config_options,
             modes,
             current_mode,
-            models,
-            current_model,
             commands,
             input,
+            focus_handle: cx.focus_handle(),
             live: Vec::new(),
             sessions: Vec::new(),
             viewed: None,
@@ -227,10 +234,9 @@ impl ChatView {
                         this.session = init.session_id;
                         this.live = Vec::new();
                         this.viewed = None;
+                        this.config_options = init.config_options;
                         this.modes = init.modes;
                         this.current_mode = init.current_mode;
-                        this.models = init.models;
-                        this.current_model = init.current_model;
                         this.commands = init.commands;
                         this.note("· new session");
                         this.refresh_sessions(cx);
@@ -287,10 +293,9 @@ impl ChatView {
                             this.viewed.take().map(|v| v.entries).unwrap_or_default();
                         this.session = init.session_id;
                         this.live = entries;
+                        this.config_options = init.config_options;
                         this.modes = init.modes;
                         this.current_mode = init.current_mode;
-                        this.models = init.models;
-                        this.current_model = init.current_model;
                         this.commands = init.commands;
                         this.note(format!("· resumed {label}"));
                         this.refresh_sessions(cx);
@@ -360,20 +365,31 @@ impl ChatView {
         .detach();
     }
 
-    /// Switch the session's model, updating the local selection optimistically.
-    fn choose_model(&mut self, model_id: String, window: &mut Window, cx: &mut Context<Self>) {
-        if self.current_model.as_deref() == Some(model_id.as_str()) {
+    /// Change one of the session's config options, updating the local selection
+    /// optimistically. The agent confirms by republishing the full option set as
+    /// [`DomainEvent::SessionConfigChanged`], handled in [`record`](Self::record).
+    fn choose_config_option(
+        &mut self,
+        config_id: String,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(option) = self.config_options.iter_mut().find(|o| o.id == config_id) else {
+            return;
+        };
+        if option.current_value == value {
             return;
         }
-        self.current_model = Some(model_id.clone());
+        option.current_value = value.clone();
         cx.notify();
         let service = self.service.clone();
         let session = self.session.clone();
         cx.spawn_in(window, async move |this, cx| {
-            let result = service.set_model(&session, &model_id).await;
+            let result = service.set_config_option(&session, &config_id, &value).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Err(error) = result {
-                    this.report_error(format!("set model error › {error}"), window, cx);
+                    this.report_error(format!("set option error › {error}"), window, cx);
                 }
                 cx.notify();
             });
@@ -486,6 +502,9 @@ impl ChatView {
                 }
                 self.commands = commands;
             }
+            DomainEvent::SessionConfigChanged { options, .. } => {
+                self.config_options = options;
+            }
             DomainEvent::ConfigChanged => {}
         }
     }
@@ -512,9 +531,11 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let view = cx.new(|cx| ChatView::new(service, events, agent, cwd, init, window, cx));
+        let chat = cx.new(|cx| ChatView::new(service, events, agent, cwd, init, window, cx));
+        let sessions = cx.new(|cx| SessionsPanel::new(chat.clone(), cx));
+        let workspace = cx.new(|cx| crate::workspace::Workspace::new(chat, sessions, window, cx));
         // The first level on the window must be a `Root`.
-        cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+        cx.new(|cx| Root::new(workspace, window, cx).bg(cx.theme().background))
     });
 }
 

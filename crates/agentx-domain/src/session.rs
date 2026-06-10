@@ -111,16 +111,32 @@ pub struct InvalidTransition {
 }
 
 /// A mode advertised by the agent for a session (e.g. "ask", "code", "plan").
+/// Legacy mechanism; superseded by [`SessionConfigOption`] but kept as a
+/// fallback for agents that only advertise modes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionMode {
     pub id: String,
     pub name: String,
 }
 
-/// A model advertised by the agent for a session.
+/// A configuration option the agent advertises for a session — a single-select
+/// over [`values`](Self::values) with a [`current_value`](Self::current_value).
+/// Categories like `"model"`, `"mode"`, `"thought_level"` are UX hints only.
+/// This is ACP's unified mechanism (it supersedes session modes); the user
+/// changes it via [`AgentGateway::set_config_option`](crate::ports::AgentGateway::set_config_option).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionModel {
+pub struct SessionConfigOption {
     pub id: String,
+    pub name: String,
+    pub category: Option<String>,
+    pub current_value: String,
+    pub values: Vec<ConfigOptionValue>,
+}
+
+/// One selectable value of a [`SessionConfigOption`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigOptionValue {
+    pub value: String,
     pub name: String,
 }
 
@@ -132,14 +148,18 @@ pub struct SlashCommand {
 }
 
 /// Everything the agent gateway returns when a session is created, resumed, or
-/// loaded: the id plus the capabilities the UI offers (modes/models/commands).
+/// loaded: the id plus the capabilities the UI offers.
+///
+/// `config_options` is the modern, unified selector list (model / mode /
+/// thought-level / …). `modes` is the legacy mode list, populated only as a
+/// fallback for agents that advertise modes but not config options; the UI
+/// prefers `config_options` when present.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInit {
     pub session_id: SessionId,
+    pub config_options: Vec<SessionConfigOption>,
     pub modes: Vec<SessionMode>,
     pub current_mode: Option<String>,
-    pub models: Vec<SessionModel>,
-    pub current_model: Option<String>,
     pub commands: Vec<SlashCommand>,
 }
 

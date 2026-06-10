@@ -155,6 +155,14 @@ fn spawn_event_printer(bus: EventBus, supervisor: Arc<AcpSupervisor>) {
                         .join(" ");
                     println!("  commands: {names}");
                 }
+                DomainEvent::SessionConfigChanged { options, .. } => {
+                    let names = options
+                        .iter()
+                        .map(|option| option.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!("  config options: {names}");
+                }
                 DomainEvent::ConfigChanged => {}
             }
         }
