@@ -96,6 +96,7 @@ impl ChatView {
         agent: AgentId,
         cwd: PathBuf,
         init: SessionInit,
+        initial_prompt: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -161,6 +162,19 @@ impl ChatView {
             _subscriptions: subscriptions,
         };
         view.refresh_sessions(cx);
+
+        // An initial prompt from the launcher is sent as the first turn, once the
+        // view exists as an entity so `submit` can drive it.
+        if let Some(text) = initial_prompt.filter(|t| !t.trim().is_empty()) {
+            cx.spawn_in(window, async move |this, cx| {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.input
+                        .update(cx, |state, cx| state.set_value(text, window, cx));
+                    this.submit(window, cx);
+                });
+            })
+            .detach();
+        }
         view
     }
 
@@ -515,13 +529,15 @@ impl ChatView {
 /// `events` must be a receiver subscribed *before* the agent was started, so the
 /// view replays the session-setup events (slash commands, status) instead of
 /// missing them. The composition root starts the agent, creates the session,
-/// then opens the window with its [`SessionInit`].
+/// then opens the window with its [`SessionInit`]. `initial_prompt`, if set, is
+/// sent as the first turn (the launcher uses this to forward a typed message).
 pub fn open_chat_window(
     service: Arc<SessionService>,
     events: Receiver<DomainEvent>,
     agent: AgentId,
     cwd: PathBuf,
     init: SessionInit,
+    initial_prompt: Option<String>,
     cx: &mut App,
 ) {
     let bounds = Bounds::centered(None, size(px(900.0), px(680.0)), cx);
@@ -531,7 +547,8 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let chat = cx.new(|cx| ChatView::new(service, events, agent, cwd, init, window, cx));
+        let chat = cx
+            .new(|cx| ChatView::new(service, events, agent, cwd, init, initial_prompt, window, cx));
         let sessions = cx.new(|cx| SessionsPanel::new(chat.clone(), cx));
         let workspace = cx.new(|cx| crate::workspace::Workspace::new(chat, sessions, window, cx));
         // The first level on the window must be a `Root`.
@@ -550,7 +567,7 @@ pub(crate) fn plain_text(content: &[ContentBlock]) -> String {
 
 /// A sidebar label for a session: its first user message's first line
 /// (truncated), or a short id when there is no message yet.
-fn session_label(id: &SessionId, history: &[PersistedEvent]) -> SharedString {
+pub(crate) fn session_label(id: &SessionId, history: &[PersistedEvent]) -> SharedString {
     for event in history {
         if let SessionEvent::UserMessage { content } = &event.event {
             let text = plain_text(content);

@@ -1,10 +1,11 @@
 //! The rewrite's entry point — the composition root.
 //!
 //! Wires the driven adapters into the application's [`SessionService`] and opens
-//! the [`agentx_ui::ChatView`] against a live agent from your `config.json`:
+//! the launcher ([`agentx_ui::open_welcome_window`]), where the user picks an
+//! agent from their `config.json` to start chatting:
 //!
 //! ```text
-//! cargo run -p agentx-shell -- <agent>
+//! cargo run -p agentx-shell
 //! ```
 //!
 //! No Tokio runtime is created here. The store adapters use blocking `std::fs`,
@@ -12,25 +13,23 @@
 //! [`PersistenceProjector`] drains the bus on GPUI's background executor so the
 //! per-event file appends never block the UI thread. Each agent runs its own
 //! current-thread Tokio runtime inside `agentx-acp` for its subprocess I/O.
-//! Every bus consumer (projector + view) subscribes before the agent starts, so
-//! no session-setup events are missed.
+//! The projector subscribes before any agent starts; each chat launch subscribes
+//! its own view stream before booting its agent, so no session-setup events are
+//! missed.
 
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 
 use agentx_acp::AcpSupervisor;
 use agentx_app::{PersistenceProjector, SessionService};
 use agentx_bus::EventBus;
-use agentx_domain::{
-    AgentGateway, AgentId, AgentRegistry, ConfigStore, DomainEvent, SessionRepository,
-};
+use agentx_domain::{AgentGateway, AgentRegistry, Config, ConfigStore, DomainEvent, SessionRepository};
 use agentx_store::{FsConfigStore, FsSessionRepository, paths};
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let agent = AgentId::from(std::env::args().nth(1).context("usage: agentx-shell <agent>")?);
     let data_dir = paths::data_dir();
     let config_path = paths::config_path(&data_dir);
     let sessions_dir = paths::sessions_dir(&data_dir);
@@ -45,7 +44,7 @@ fn main() -> Result<()> {
             let repository: Arc<dyn SessionRepository> =
                 Arc::new(FsSessionRepository::new(sessions_dir));
 
-            // Persist the timeline. Subscribed now (before the agent starts) and
+            // Persist the timeline. Subscribed now (before any agent starts) and
             // drained on the background executor so the per-event `std::fs`
             // appends never block the UI thread.
             {
@@ -62,64 +61,29 @@ fn main() -> Result<()> {
                     .detach();
             }
 
-            // The view's event stream — also subscribed before the agent starts.
-            let view_events = bus.subscribe::<DomainEvent>();
-
             let supervisor = Arc::new(AcpSupervisor::new(bus.clone()));
             let service = Arc::new(SessionService::new(
                 supervisor.clone() as Arc<dyn AgentGateway>,
                 bus.clone(),
                 repository,
             ));
+            let registry = supervisor as Arc<dyn AgentRegistry>;
 
             cx.spawn(async move |cx| {
                 // Blocking `std::fs` is runtime-agnostic, so loading config on
-                // GPUI's executor is fine (it's a one-off, KB-sized read).
-                let config = match FsConfigStore::new(config_path).load().await {
-                    Ok(config) => config,
-                    Err(error) => {
+                // GPUI's executor is fine (it's a one-off, KB-sized read). A
+                // missing or malformed file is not fatal — the launcher just
+                // shows no agents until the user fixes `config.json`.
+                let config = FsConfigStore::new(config_path)
+                    .load()
+                    .await
+                    .unwrap_or_else(|error| {
                         log::error!("load config.json: {error}");
-                        let _ = cx.update(|cx| cx.quit());
-                        return;
-                    }
-                };
-                let Some(agent_config) = config.agents.get(agent.as_str()).cloned() else {
-                    log::error!(
-                        "agent `{agent}` not in config; available: {:?}",
-                        config.agents.keys().collect::<Vec<_>>()
-                    );
-                    let _ = cx.update(|cx| cx.quit());
-                    return;
-                };
+                        Config::default()
+                    });
 
-                supervisor.set_proxy(config.proxy.clone()).await.ok();
-                if let Err(error) = supervisor.add_agent(agent.clone(), agent_config).await {
-                    log::error!("failed to start agent `{agent}`: {error}");
-                    let _ = cx.update(|cx| cx.quit());
-                    return;
-                }
-                let session = match service.get_or_create_session(&agent, &cwd, &[]).await {
-                    Ok(session) => session,
-                    Err(error) => {
-                        log::error!("failed to create session: {error}");
-                        let _ = cx.update(|cx| cx.quit());
-                        return;
-                    }
-                };
-                let Some(init) = service.session_init(&session).await else {
-                    log::error!("session capabilities unavailable");
-                    let _ = cx.update(|cx| cx.quit());
-                    return;
-                };
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_chat_window(
-                        service.clone(),
-                        view_events,
-                        agent.clone(),
-                        cwd,
-                        init,
-                        cx,
-                    );
+                    agentx_ui::open_welcome_window(registry, service, bus, config, cwd, cx);
                 });
             })
             .detach();

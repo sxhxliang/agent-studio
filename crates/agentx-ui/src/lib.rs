@@ -16,8 +16,14 @@
 //! `SessionService`, renders the streamed `DomainEvent`s, handles permission
 //! requests, mode/model/command selection, and session browsing. Open it with
 //! [`open_chat_window`].
+//!
+//! ## The launcher
+//! [`open_welcome_window`] opens the app's entry surface: an agent picker plus a
+//! recent-session list. Selecting an agent boots it and opens a [`ChatView`].
 
 mod chat;
+mod welcome;
 mod workspace;
 
 pub use chat::{ChatView, open_chat_window};
+pub use welcome::open_welcome_window;

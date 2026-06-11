@@ -3,9 +3,9 @@
 //! Every method here only reads state and builds elements; the click handlers
 //! call back into the intents defined on [`ChatView`] in the parent module.
 
-use gpui::*;
+use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
-    ActiveTheme as _, Root, Theme,
+    ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _, Theme,
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelEvent},
     h_flex,
@@ -206,9 +206,27 @@ impl ChatView {
                 v_flex()
                     .w_full()
                     .gap_1()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("you"))
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::new(IconName::CircleUser).xsmall().text_color(theme.muted_foreground))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme.muted_foreground)
+                                    .child("You"),
+                            ),
+                    )
                     .child(
                         div()
+                            .w_full()
+                            .p_2()
+                            .rounded(px(8.))
+                            .bg(theme.secondary)
+                            .border_1()
+                            .border_color(theme.border.opacity(0.5))
                             .text_sm()
                             .text_color(theme.foreground)
                             .child(plain_text(content)),
@@ -220,7 +238,19 @@ impl ChatView {
                 v_flex()
                     .w_full()
                     .gap_1()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("agent"))
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .child(Icon::new(IconName::Bot).xsmall().text_color(theme.primary))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme.primary)
+                                    .child("Agent"),
+                            ),
+                    )
                     .child(
                         TextView::markdown(
                             SharedString::from(format!("agent-{index}")),
@@ -337,21 +367,78 @@ impl Render for ChatView {
             }
             // The live session: selectors, streaming timeline, permissions, input.
             None => {
-                let header = format!(
-                    "{}  ·  {}{}",
-                    self.agent,
-                    self.session,
-                    if self.busy { "  ·  working…" } else { "" }
-                );
+                let theme = cx.theme();
+                let foreground = theme.foreground;
+                let muted = theme.muted_foreground;
+                let border = theme.border;
+                let primary = theme.primary;
+                let card_bg = theme.background;
+                let session_label: String = self.session.as_str().chars().take(8).collect();
+                let agent_name = self.agent.to_string();
+                let busy = self.busy;
                 let permissions = self.permission_cards(cx);
                 let selectors = self.render_selectors(cx);
                 let timeline = self.render_entries(&self.live, cx);
+
+                let header = h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .child(Icon::new(IconName::Bot).small().text_color(primary))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(foreground)
+                            .child(agent_name),
+                    )
+                    .child(div().text_xs().text_color(muted).child(format!("· {session_label}")))
+                    .when(busy, |this| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(Icon::new(IconName::LoaderCircle).xsmall().text_color(primary))
+                                .child(div().text_xs().text_color(muted).child("working…")),
+                        )
+                    });
+
+                let composer = v_flex()
+                    .w_full()
+                    .gap_2()
+                    .p_3()
+                    .rounded(px(12.))
+                    .border_1()
+                    .border_color(border)
+                    .bg(card_bg)
+                    .shadow_md()
+                    .child(div().w_full().child(Input::new(&self.input).appearance(false)))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_end()
+                            .child(
+                                Button::new("send")
+                                    .primary()
+                                    .rounded_full()
+                                    .small()
+                                    .icon(Icon::new(IconName::ArrowUp))
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        this.submit(window, cx)
+                                    })),
+                            ),
+                    );
+
                 v_flex()
                     .size_full()
                     .p_4()
                     .gap_3()
-                    .child(div().text_sm().child(header))
-                    .child(v_flex().gap_2().children(selectors))
+                    .child(header)
+                    .when(!selectors.is_empty(), |this| {
+                        this.child(v_flex().gap_2().children(selectors))
+                    })
                     .child(
                         div()
                             .id("chat-events")
@@ -361,20 +448,10 @@ impl Render for ChatView {
                             .overflow_y_scroll()
                             .child(v_flex().gap_3().children(timeline)),
                     )
-                    .child(v_flex().gap_2().children(permissions))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().flex_1().child(Input::new(&self.input)))
-                            .child(
-                                Button::new("send")
-                                    .primary()
-                                    .label("Send")
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.submit(window, cx)
-                                    })),
-                            ),
-                    )
+                    .when(!permissions.is_empty(), |this| {
+                        this.child(v_flex().gap_2().children(permissions))
+                    })
+                    .child(composer)
             }
         };
 
