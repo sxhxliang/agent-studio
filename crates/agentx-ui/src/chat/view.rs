@@ -5,19 +5,23 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
-    ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _, Theme,
+    ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelEvent},
     h_flex,
     input::Input,
-    text::TextView,
     v_flex,
 };
-use similar::{ChangeTag, TextDiff};
 
-use agentx_domain::{PermissionOutcome, Plan, SessionEvent, ToolCall, ToolCallContent};
+use agentx_domain::{PermissionOutcome, SessionEvent, ToolCall};
 
-use super::{ChatView, Entry, plain_text};
+use crate::components::{
+    permission_option_button, render_agent_message, render_agent_thought,
+    render_permission_request_card, render_plan, render_session_end, render_timeline_error,
+    render_timeline_note, render_tool_call_item, render_user_message,
+};
+
+use super::{ChatView, Entry};
 
 impl ChatView {
     /// One row of buttons per advertised selector (config options preferred,
@@ -108,8 +112,7 @@ impl ChatView {
     /// Build an interactive card per pending permission request: the tool's
     /// title, a button for each option the agent offered, and a Deny.
     fn permission_cards(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let secondary = cx.theme().secondary;
-        let border = cx.theme().border;
+        let theme = cx.theme();
         let mut cards = Vec::new();
         for request in &self.pending {
             let permission_id = request.id.to_string();
@@ -118,47 +121,41 @@ impl ChatView {
                 let permission_id = permission_id.clone();
                 let option_id = option.id.clone();
                 buttons.push(
-                    Button::new(SharedString::from(format!("perm-{permission_id}-{option_id}")))
-                        .label(option.label.clone())
-                        .on_click(cx.listener(move |this, _event, window, cx| {
-                            this.resolve(
-                                permission_id.clone(),
-                                PermissionOutcome::Selected {
-                                    option_id: option_id.clone(),
-                                },
-                                window,
-                                cx,
-                            );
-                        }))
-                        .into_any_element(),
+                    permission_option_button(
+                        SharedString::from(format!("perm-{permission_id}-{option_id}")),
+                        option.label.clone(),
+                        option.kind,
+                    )
+                    .on_click(cx.listener(move |this, _event, window, cx| {
+                        this.resolve(
+                            permission_id.clone(),
+                            PermissionOutcome::Selected {
+                                option_id: option_id.clone(),
+                            },
+                            window,
+                            cx,
+                        );
+                    }))
+                    .into_any_element(),
                 );
             }
             let deny_id = permission_id.clone();
-            buttons.push(
+            let deny_button =
                 Button::new(SharedString::from(format!("perm-{permission_id}-deny")))
                     .label("Deny")
+                    .icon(Icon::new(IconName::CircleX))
+                    .ghost()
+                    .small()
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         this.resolve(deny_id.clone(), PermissionOutcome::Cancelled, window, cx);
                     }))
-                    .into_any_element(),
-            );
-            cards.push(
-                v_flex()
-                    .w_full()
-                    .gap_1()
-                    .p_2()
-                    .rounded_md()
-                    .bg(secondary)
-                    .border_1()
-                    .border_color(border)
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(format!("⚠ permission: {}", request.tool_call.title)),
-                    )
-                    .child(h_flex().gap_2().children(buttons))
-                    .into_any_element(),
-            );
+                    .into_any_element();
+            cards.push(render_permission_request_card(
+                request,
+                buttons,
+                deny_button,
+                theme,
+            ));
         }
         cards
     }
@@ -169,22 +166,8 @@ impl ChatView {
         let mut items = Vec::with_capacity(entries.len());
         for (index, entry) in entries.iter().enumerate() {
             items.push(match entry {
-                Entry::Note(text) => {
-                    let muted = cx.theme().muted_foreground;
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(text.clone())
-                        .into_any_element()
-                }
-                Entry::Error(text) => {
-                    let red: Hsla = rgb(0xC0392B).into();
-                    div()
-                        .text_xs()
-                        .text_color(red)
-                        .child(text.clone())
-                        .into_any_element()
-                }
+                Entry::Note(text) => render_timeline_note(text.clone(), cx.theme()),
+                Entry::Error(text) => render_timeline_error(text.clone()),
                 Entry::Event(event) => self.render_event(index, event, cx),
             });
         }
@@ -202,73 +185,33 @@ impl ChatView {
     ) -> AnyElement {
         match event {
             SessionEvent::UserMessage { content } => {
-                let theme = cx.theme();
-                v_flex()
-                    .w_full()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .child(Icon::new(IconName::CircleUser).xsmall().text_color(theme.muted_foreground))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.muted_foreground)
-                                    .child("You"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .p_2()
-                            .rounded(px(8.))
-                            .bg(theme.secondary)
-                            .border_1()
-                            .border_color(theme.border.opacity(0.5))
-                            .text_sm()
-                            .text_color(theme.foreground)
-                            .child(plain_text(content)),
-                    )
-                    .into_any_element()
+                render_user_message(content, cx.theme())
             }
             SessionEvent::AgentMessage { content } => {
-                let theme = cx.theme();
-                v_flex()
-                    .w_full()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .child(Icon::new(IconName::Bot).xsmall().text_color(theme.primary))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme.primary)
-                                    .child("Agent"),
-                            ),
-                    )
-                    .child(
-                        TextView::markdown(
-                            SharedString::from(format!("agent-{index}")),
-                            plain_text(content),
-                        )
-                        .text_sm()
-                        .text_color(theme.foreground)
-                        .selectable(true),
-                    )
-                    .into_any_element()
+                render_agent_message(
+                    SharedString::from(format!("agent-{index}")),
+                    "Agent",
+                    content,
+                    cx.theme(),
+                )
             }
             SessionEvent::AgentThought { text } => {
-                let muted = cx.theme().muted_foreground;
-                div()
-                    .text_sm()
-                    .text_color(muted)
-                    .child(format!("💭 {text}"))
-                    .into_any_element()
+                let open = self.expanded_thoughts.contains(&index);
+                let toggle = (!text.is_empty()).then(|| {
+                    Button::new(SharedString::from(format!("thought-toggle-{index}")))
+                        .icon(if open {
+                            Icon::new(IconName::ChevronUp)
+                        } else {
+                            Icon::new(IconName::ChevronDown)
+                        })
+                        .ghost()
+                        .xsmall()
+                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                            this.toggle_thought(index, cx);
+                        }))
+                        .into_any_element()
+                });
+                render_agent_thought(text, open, toggle, cx.theme())
             }
             SessionEvent::ToolCall(call) => self.render_tool_call(call, cx),
             SessionEvent::Plan(plan) => {
@@ -276,12 +219,7 @@ impl ChatView {
                 render_plan(plan, theme)
             }
             SessionEvent::Stopped { reason } => {
-                let muted = cx.theme().muted_foreground;
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(format!("— end ({reason:?})"))
-                    .into_any_element()
+                render_session_end(format!("{reason:?}"), cx.theme())
             }
         }
     }
@@ -289,38 +227,33 @@ impl ChatView {
     /// A collapsible tool-call card: a clickable header, plus its content (text
     /// output or a colored diff) when expanded.
     fn render_tool_call(&self, call: &ToolCall, cx: &mut Context<Self>) -> AnyElement {
-        let foreground = cx.theme().foreground;
-        let muted = cx.theme().muted_foreground;
-        let border = cx.theme().border;
-        let secondary = cx.theme().secondary;
         let expanded = self.expanded.contains(&call.id);
-        let indicator = if expanded { "▾" } else { "▸" };
         let id = call.id.clone();
-        let header = Button::new(SharedString::from(format!("tool-{}", call.id)))
+        let detail_call = call.clone();
+        let toggle = (!call.content.is_empty()).then(|| {
+            Button::new(SharedString::from(format!("tool-call-{}-toggle", call.id)))
+                .icon(if expanded {
+                    Icon::new(IconName::ChevronUp)
+                } else {
+                    Icon::new(IconName::ChevronDown)
+                })
+                .ghost()
+                .xsmall()
+                .on_click(cx.listener(move |this, _event, _window, cx| {
+                    this.toggle_tool(id.clone(), cx);
+                }))
+                .into_any_element()
+        });
+        let detail = Button::new(SharedString::from(format!("tool-call-{}-detail", call.id)))
             .ghost()
-            .label(format!(
-                "{indicator} {:?} · {} [{:?}]",
-                call.kind, call.title, call.status
-            ))
-            .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.toggle_tool(id.clone(), cx);
-            }));
+            .xsmall()
+            .icon(Icon::new(IconName::Info))
+            .on_click(cx.listener(move |_this, _event, _window, cx| {
+                crate::open_tool_call_detail_window(detail_call.clone(), cx);
+            }))
+            .into_any_element();
 
-        let mut card = v_flex()
-            .w_full()
-            .gap_1()
-            .p_2()
-            .rounded_md()
-            .bg(secondary)
-            .border_1()
-            .border_color(border)
-            .child(header);
-        if expanded {
-            for content in &call.content {
-                card = card.child(render_tool_content(content, foreground, muted));
-            }
-        }
-        card.into_any_element()
+        render_tool_call_item(call, expanded, toggle, Some(detail), cx.theme())
     }
 }
 
@@ -478,61 +411,4 @@ impl Panel for ChatView {
     fn title(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         self.agent.to_string()
     }
-}
-
-/// One piece of a tool call's content: text output, or a colored line diff.
-fn render_tool_content(content: &ToolCallContent, foreground: Hsla, muted: Hsla) -> AnyElement {
-    match content {
-        ToolCallContent::Text(text) => div()
-            .text_xs()
-            .text_color(muted)
-            .child(text.clone())
-            .into_any_element(),
-        ToolCallContent::Diff {
-            path,
-            old_text,
-            new_text,
-        } => render_diff(path, old_text.as_deref().unwrap_or(""), new_text, foreground, muted),
-    }
-}
-
-/// A line diff between `old` and `new`: removals red, additions green, context
-/// muted.
-fn render_diff(path: &str, old: &str, new: &str, foreground: Hsla, muted: Hsla) -> AnyElement {
-    let removed: Hsla = rgb(0xC0392B).into();
-    let added: Hsla = rgb(0x27AE60).into();
-    let mut lines = v_flex()
-        .w_full()
-        .child(div().text_xs().text_color(foreground).child(path.to_string()));
-    for change in TextDiff::from_lines(old, new).iter_all_changes() {
-        let (prefix, color) = match change.tag() {
-            ChangeTag::Delete => ("-", removed),
-            ChangeTag::Insert => ("+", added),
-            ChangeTag::Equal => (" ", muted),
-        };
-        let text = format!("{prefix}{}", change.value().trim_end_matches('\n'));
-        lines = lines.child(div().text_xs().text_color(color).child(text));
-    }
-    lines.into_any_element()
-}
-
-fn render_plan(plan: &Plan, theme: &Theme) -> AnyElement {
-    let mut list = v_flex()
-        .w_full()
-        .gap_1()
-        .p_2()
-        .rounded_md()
-        .bg(theme.secondary)
-        .border_1()
-        .border_color(theme.border)
-        .child(div().text_sm().text_color(theme.foreground).child("Plan"));
-    for entry in &plan.entries {
-        list = list.child(
-            div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(format!("[{:?}] {}", entry.status, entry.content)),
-        );
-    }
-    list.into_any_element()
 }

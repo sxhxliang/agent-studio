@@ -82,6 +82,8 @@ pub struct ChatView {
     viewed: Option<ViewedSession>,
     /// Tool-call ids whose detail is expanded.
     expanded: HashSet<String>,
+    /// Thought rows expanded by timeline index.
+    expanded_thoughts: HashSet<usize>,
     /// Permission requests awaiting the user's allow/deny decision.
     pending: Vec<PermissionRequest>,
     scroll: ScrollHandle,
@@ -156,6 +158,7 @@ impl ChatView {
             sessions: Vec::new(),
             viewed: None,
             expanded: HashSet::new(),
+            expanded_thoughts: HashSet::new(),
             pending: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
@@ -422,6 +425,14 @@ impl ChatView {
     fn toggle_tool(&mut self, id: String, cx: &mut Context<Self>) {
         if !self.expanded.remove(&id) {
             self.expanded.insert(id);
+        }
+        cx.notify();
+    }
+
+    /// Toggle whether an agent-thought row's detail is expanded.
+    fn toggle_thought(&mut self, index: usize, cx: &mut Context<Self>) {
+        if !self.expanded_thoughts.remove(&index) {
+            self.expanded_thoughts.insert(index);
         }
         cx.notify();
     }

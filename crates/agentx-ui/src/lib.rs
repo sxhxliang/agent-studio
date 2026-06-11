@@ -22,8 +22,15 @@
 //! recent-session list. Selecting an agent boots it and opens a [`ChatView`].
 
 mod chat;
+pub mod components;
+pub mod panels;
 mod welcome;
 mod workspace;
 
 pub use chat::{ChatView, open_chat_window};
+pub use panels::{
+    PanelCommand, PanelDescriptor, PanelKind, PanelPlacement, ToolCallDetailPanel,
+    open_tool_call_detail_window,
+};
 pub use welcome::open_welcome_window;
+pub use workspace::Workspace;
