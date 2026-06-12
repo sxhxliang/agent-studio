@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
-    ActiveTheme as _,
+    ActiveTheme as _, Root,
     dock::{Panel, PanelEvent},
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
@@ -19,6 +19,26 @@ use gpui_component::{
 
 use agentx_app::ConfigService;
 use agentx_domain::Config;
+
+/// Open the settings window, loading the current config through the service so
+/// edits persist back to disk.
+pub fn open_settings_window(config_service: Arc<ConfigService>, cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let config = config_service.load().await.unwrap_or_default();
+        let _ = cx.update(|cx| {
+            let bounds = Bounds::centered(None, size(px(820.0), px(640.0)), cx);
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            };
+            let _ = cx.open_window(options, |window, cx| {
+                let panel = cx.new(|cx| SettingsPanel::new(config, Some(config_service), cx));
+                cx.new(|cx| Root::new(panel, window, cx).bg(cx.theme().background))
+            });
+        });
+    })
+    .detach();
+}
 
 pub struct SettingsPanel {
     config: Config,

@@ -22,13 +22,17 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use agentx_acp::AcpSupervisor;
-use agentx_app::{PersistenceProjector, SessionService, WorkspaceService};
+use agentx_app::{
+    ConfigService, FileService, PersistenceProjector, SessionService, WorkspaceService,
+};
 use agentx_bus::EventBus;
 use agentx_domain::{
     AgentGateway, AgentRegistry, Config, ConfigStore, DomainEvent, SessionRepository,
-    WorkspaceRepository,
+    WorkspaceFiles, WorkspaceRepository,
 };
-use agentx_store::{FsConfigStore, FsSessionRepository, FsWorkspaceRepository, paths};
+use agentx_store::{
+    FsConfigStore, FsSessionRepository, FsWorkspaceFiles, FsWorkspaceRepository, paths,
+};
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -83,24 +87,34 @@ fn main() -> Result<()> {
                 bus.clone(),
             ));
 
+            // Configuration read/save use-case, shared with the settings panel.
+            let config_service = Arc::new(ConfigService::new(
+                Arc::new(FsConfigStore::new(config_path)) as Arc<dyn ConfigStore>,
+                bus.clone(),
+            ));
+
+            // File listing for the composer's `@`-mention picker.
+            let file_service = Arc::new(FileService::new(
+                Arc::new(FsWorkspaceFiles::new()) as Arc<dyn WorkspaceFiles>
+            ));
+
             cx.spawn(async move |cx| {
                 // Blocking `std::fs` is runtime-agnostic, so loading config on
                 // GPUI's executor is fine (it's a one-off, KB-sized read). A
                 // missing or malformed file is not fatal — the launcher just
                 // shows no agents until the user fixes `config.json`.
-                let config = FsConfigStore::new(config_path)
-                    .load()
-                    .await
-                    .unwrap_or_else(|error| {
-                        log::error!("load config.json: {error}");
-                        Config::default()
-                    });
+                let config = config_service.load().await.unwrap_or_else(|error| {
+                    log::error!("load config.json: {error}");
+                    Config::default()
+                });
 
                 let _ = cx.update(|cx| {
                     agentx_ui::open_welcome_window(
                         registry,
                         service,
                         workspace_service,
+                        config_service,
+                        file_service,
                         bus,
                         config,
                         cwd,

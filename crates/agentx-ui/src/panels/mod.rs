@@ -10,7 +10,7 @@ mod tool_call_detail;
 mod types;
 
 pub use session_manager::SessionManagerPanel;
-pub use settings::SettingsPanel;
+pub use settings::{SettingsPanel, open_settings_window};
 pub use task_panel::TaskPanel;
 pub use tool_call_detail::{ToolCallDetailPanel, open_tool_call_detail_window};
 pub use types::{PanelCommand, PanelDescriptor, PanelKind, PanelPlacement};

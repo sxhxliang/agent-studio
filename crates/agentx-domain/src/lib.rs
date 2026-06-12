@@ -30,6 +30,7 @@ pub mod agent;
 pub mod config;
 pub mod error;
 pub mod event;
+pub mod files;
 pub mod id;
 pub mod message;
 pub mod permission;
@@ -48,13 +49,17 @@ pub use config::{
 };
 pub use error::{AgentError, StoreError};
 pub use event::{DomainEvent, PersistedEvent, SessionEvent};
+pub use files::FileEntry;
 pub use id::{AgentId, PermissionId, SessionId, TaskId, WorkspaceId};
 pub use message::{ContentBlock, Message, ResourceContents, Role};
 pub use permission::{
     PermissionOption, PermissionOptionKind, PermissionOutcome, PermissionRequest,
 };
 pub use plan::{Plan, PlanEntry, PlanEntryStatus, PlanPriority};
-pub use ports::{AgentGateway, AgentRegistry, ConfigStore, SessionRepository, WorkspaceRepository};
+pub use ports::{
+    AgentGateway, AgentRegistry, ConfigStore, SessionRepository, WorkspaceFiles,
+    WorkspaceRepository,
+};
 pub use session::{
     ConfigOptionValue, InvalidTransition, Session, SessionConfigOption, SessionInit, SessionMode,
     SessionStatus, SlashCommand,

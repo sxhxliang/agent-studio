@@ -19,6 +19,7 @@ gpui.workspace = true
 gpui-component.workspace = true
 similar.workspace = true
 chrono.workspace = true
+rfd = "0.15"
 
 # The preview gallery (`cargo run -p agentx-ui --example gallery`) boots a real
 # GPUI window, so it needs the platform layer and the icon assets — same crates

@@ -22,7 +22,7 @@ use gpui_component::{
     notification::Notification,
 };
 
-use agentx_app::{SessionService, WorkspaceService};
+use agentx_app::{ConfigService, FileService, SessionService, WorkspaceService};
 use agentx_bus::Receiver;
 use agentx_domain::{
     AgentId, AgentRegistry, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest,
@@ -30,6 +30,7 @@ use agentx_domain::{
     SessionStatus, SlashCommand,
 };
 
+use crate::components::FileItem;
 use crate::panels::{SessionManagerPanel, TaskPanel};
 
 /// One row in the conversation: a rich timeline event, a terse system note, or
@@ -60,6 +61,7 @@ pub(crate) struct SessionMeta {
 /// folds every [`DomainEvent`] into the timeline via [`record`](Self::record).
 pub struct ChatView {
     service: Arc<SessionService>,
+    file_service: Arc<FileService>,
     agent: AgentId,
     session: SessionId,
     /// The working directory, needed to resume a session.
@@ -88,6 +90,10 @@ pub struct ChatView {
     expanded_thoughts: HashSet<usize>,
     /// Permission requests awaiting the user's allow/deny decision.
     pending: Vec<PermissionRequest>,
+    /// File suggestions for the active `@`-mention, fed to the composer.
+    file_suggestions: Vec<FileItem>,
+    /// Files attached via `@`-mention, sent as resource links on submit.
+    selected_files: Vec<String>,
     scroll: ScrollHandle,
     busy: bool,
     _subscriptions: Vec<Subscription>,
@@ -96,6 +102,7 @@ pub struct ChatView {
 impl ChatView {
     fn new(
         service: Arc<SessionService>,
+        file_service: Arc<FileService>,
         mut events: Receiver<DomainEvent>,
         agent: AgentId,
         cwd: PathBuf,
@@ -119,10 +126,10 @@ impl ChatView {
         let subscriptions = vec![cx.subscribe_in(
             &input,
             window,
-            |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    this.submit(window, cx);
-                }
+            |this, _input, event: &InputEvent, window, cx| match event {
+                InputEvent::PressEnter { .. } => this.submit(window, cx),
+                InputEvent::Change => this.on_input_change(cx),
+                _ => {}
             },
         )];
 
@@ -147,6 +154,7 @@ impl ChatView {
 
         let view = Self {
             service,
+            file_service,
             agent,
             session: session_id,
             cwd,
@@ -162,6 +170,8 @@ impl ChatView {
             expanded: HashSet::new(),
             expanded_thoughts: HashSet::new(),
             pending: Vec::new(),
+            file_suggestions: Vec::new(),
+            selected_files: Vec::new(),
             scroll: ScrollHandle::new(),
             busy: false,
             _subscriptions: subscriptions,
@@ -345,15 +355,29 @@ impl ChatView {
         }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
+
+        // Send the text plus a resource link for each `@`-mentioned file.
+        let mut content = vec![ContentBlock::text(text)];
+        for path in self.selected_files.drain(..) {
+            let name = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| path.clone());
+            content.push(ContentBlock::ResourceLink {
+                name,
+                uri: path,
+                mime_type: None,
+            });
+        }
+        self.file_suggestions.clear();
         self.busy = true;
         cx.notify();
 
         let service = self.service.clone();
         let session = self.session.clone();
         cx.spawn_in(window, async move |this, cx| {
-            let result = service
-                .send_message(&session, vec![ContentBlock::text(text)])
-                .await;
+            let result = service.send_message(&session, content).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.busy = false;
                 if let Err(error) = result {
@@ -364,6 +388,66 @@ impl ChatView {
             });
         })
         .detach();
+    }
+
+    /// On every keystroke, if the cursor is in an `@`-mention, fetch matching
+    /// files from the workspace and feed them to the composer's suggestion list.
+    fn on_input_change(&mut self, cx: &mut Context<Self>) {
+        let value = self.input.read(cx).value().to_string();
+        let Some((_, query)) = active_mention(&value) else {
+            if !self.file_suggestions.is_empty() {
+                self.file_suggestions.clear();
+                cx.notify();
+            }
+            return;
+        };
+        let service = self.file_service.clone();
+        let cwd = self.cwd.clone();
+        cx.spawn(async move |this, cx| {
+            let entries = service.list_files(&cwd, &query).await.unwrap_or_default();
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.file_suggestions = entries
+                            .into_iter()
+                            .map(|entry| {
+                                FileItem::new(entry.name, entry.relative_path, entry.is_dir)
+                            })
+                            .collect();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Confirm a file suggestion: replace the `@query` token with the path and
+    /// remember the file so it is sent as a resource link.
+    fn apply_file_mention(&mut self, file: FileItem, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.input.read(cx).value().to_string();
+        if let Some((at, _)) = active_mention(&value) {
+            let mut path = file.relative_path.clone();
+            if file.is_folder && !path.ends_with('/') {
+                path.push('/');
+            }
+            let new_value = format!("{}@{} ", &value[..at], path);
+            self.input
+                .update(cx, |state, cx| state.set_value(new_value, window, cx));
+        }
+        if !self.selected_files.contains(&file.relative_path) {
+            self.selected_files.push(file.relative_path);
+        }
+        self.file_suggestions.clear();
+        cx.notify();
+    }
+
+    /// Drop a mentioned file (its chip's close button).
+    fn remove_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.selected_files.len() {
+            self.selected_files.remove(index);
+            cx.notify();
+        }
     }
 
     /// Cancel the in-flight turn. The agent stops; the streamed status change
@@ -583,6 +667,8 @@ pub fn open_chat_window(
     service: Arc<SessionService>,
     registry: Arc<dyn AgentRegistry>,
     workspace_service: Arc<WorkspaceService>,
+    config_service: Arc<ConfigService>,
+    file_service: Arc<FileService>,
     events: Receiver<DomainEvent>,
     agent: AgentId,
     cwd: PathBuf,
@@ -600,6 +686,7 @@ pub fn open_chat_window(
         let chat = cx.new(|cx| {
             ChatView::new(
                 service.clone(),
+                file_service,
                 events,
                 agent,
                 cwd,
@@ -612,7 +699,8 @@ pub fn open_chat_window(
         let sessions = cx.new(|cx| SessionsPanel::new(chat.clone(), cx));
         let manager =
             cx.new(|cx| SessionManagerPanel::new(service.clone(), registry, chat.clone(), cx));
-        let tasks = cx.new(|cx| TaskPanel::new(workspace_service, chat.clone(), window, cx));
+        let tasks = cx
+            .new(|cx| TaskPanel::new(workspace_service, config_service, chat.clone(), window, cx));
         let workspace = cx
             .new(|cx| crate::workspace::Workspace::new(chat, sessions, manager, tasks, window, cx));
         // The first level on the window must be a `Root`.
@@ -652,4 +740,15 @@ fn truncate(text: &str, max: usize) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// If the cursor sits in an `@`-mention (the text after the last `@` contains no
+/// whitespace), return the `@`'s byte offset and the query after it.
+fn active_mention(value: &str) -> Option<(usize, String)> {
+    let at = value.rfind('@')?;
+    let after = &value[at + 1..];
+    if after.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((at, after.to_string()))
 }

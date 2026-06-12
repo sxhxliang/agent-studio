@@ -14,6 +14,7 @@ use crate::agent::{AgentDescriptor, AgentStatus};
 use crate::config::{AgentConfig, Config, McpServerConfig, ProxyConfig};
 use crate::error::{AgentError, StoreError};
 use crate::event::PersistedEvent;
+use crate::files::FileEntry;
 use crate::id::{AgentId, SessionId, TaskId, WorkspaceId};
 use crate::message::ContentBlock;
 use crate::permission::PermissionOutcome;
@@ -126,4 +127,13 @@ pub trait WorkspaceRepository: Send + Sync {
         id: &TaskId,
         status: SessionStatus,
     ) -> Result<(), StoreError>;
+}
+
+/// Lists files under a directory for the composer's `@`-mention picker.
+#[async_trait]
+pub trait WorkspaceFiles: Send + Sync {
+    /// Files and directories under `root` (recursively, bounded depth), filtered
+    /// to those whose name or path contains `query` (case-insensitive); an empty
+    /// query returns the full bounded listing.
+    async fn list_files(&self, root: &Path, query: &str) -> Result<Vec<FileEntry>, StoreError>;
 }

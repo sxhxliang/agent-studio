@@ -4,7 +4,11 @@
 //! defined on [`WelcomeView`] in the parent module.
 
 use gpui::{prelude::FluentBuilder as _, *};
-use gpui_component::{ActiveTheme as _, Icon, IconName, Root, Sizable as _, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme as _, Icon, IconName, Root, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    h_flex, v_flex,
+};
 
 use agentx_domain::{AgentId, AgentStatus};
 
@@ -232,8 +236,20 @@ impl Render for WelcomeView {
 
         div()
             .size_full()
+            .relative()
             .track_focus(&self.focus_handle)
             .bg(background)
+            .child(
+                h_flex().absolute().top_2().right_2().child(
+                    Button::new("welcome-settings")
+                        .ghost()
+                        .small()
+                        .icon(Icon::new(IconName::Settings))
+                        .on_click(cx.listener(|this, _event, _window, cx| {
+                            this.open_settings(cx);
+                        })),
+                ),
+            )
             .child(
                 v_flex()
                     .size_full()

@@ -11,9 +11,9 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use agentx_domain::{
-    AgentError, AgentGateway, AgentId, AgentStatus, Config, ConfigStore, ContentBlock,
+    AgentError, AgentGateway, AgentId, AgentStatus, Config, ConfigStore, ContentBlock, FileEntry,
     McpServerConfig, PermissionOutcome, PersistedEvent, SessionId, SessionInit, SessionRepository,
-    SessionStatus, StopReason, StoreError, Task, TaskId, Workspace, WorkspaceId,
+    SessionStatus, StopReason, StoreError, Task, TaskId, Workspace, WorkspaceFiles, WorkspaceId,
     WorkspaceRepository,
 };
 
@@ -305,5 +305,30 @@ impl WorkspaceRepository for FakeWorkspaceRepository {
             task.status = status;
         }
         Ok(())
+    }
+}
+
+/// An in-memory [`WorkspaceFiles`] returning a fixed set, filtered by query.
+#[derive(Default)]
+pub(crate) struct FakeWorkspaceFiles {
+    entries: Vec<FileEntry>,
+}
+
+impl FakeWorkspaceFiles {
+    pub(crate) fn with_entries(entries: Vec<FileEntry>) -> Self {
+        Self { entries }
+    }
+}
+
+#[async_trait]
+impl WorkspaceFiles for FakeWorkspaceFiles {
+    async fn list_files(&self, _root: &Path, query: &str) -> Result<Vec<FileEntry>, StoreError> {
+        let query = query.to_lowercase();
+        Ok(self
+            .entries
+            .iter()
+            .filter(|entry| query.is_empty() || entry.name.to_lowercase().contains(&query))
+            .cloned()
+            .collect())
     }
 }

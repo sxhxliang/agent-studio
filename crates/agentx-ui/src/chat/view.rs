@@ -372,6 +372,22 @@ impl Render for ChatView {
                     .agent_status_text(if busy { "working…" } else { "ready" })
                     .show_command_suggestions(typing_command && !command_suggestions.is_empty())
                     .command_suggestions(command_suggestions)
+                    .file_suggestions(self.file_suggestions.clone())
+                    .selected_files(self.selected_files.clone())
+                    .on_file_select({
+                        let view = view.clone();
+                        move |file, window, cx| {
+                            let file = file.clone();
+                            view.update(cx, |this, cx| this.apply_file_mention(file, window, cx));
+                        }
+                    })
+                    .on_remove_file({
+                        let view = view.clone();
+                        move |index, _window, cx| {
+                            let index = *index;
+                            view.update(cx, |this, cx| this.remove_file(index, cx));
+                        }
+                    })
                     .on_send({
                         let view = view.clone();
                         move |_event, window, cx| {

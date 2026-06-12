@@ -25,7 +25,7 @@ use gpui_component::{
     notification::Notification,
 };
 
-use agentx_app::{SessionService, WorkspaceService};
+use agentx_app::{ConfigService, FileService, SessionService, WorkspaceService};
 use agentx_bus::EventBus;
 use agentx_domain::{AgentId, AgentRegistry, AgentStatus, Config, DomainEvent, SessionId};
 
@@ -47,6 +47,8 @@ pub struct WelcomeView {
     registry: Arc<dyn AgentRegistry>,
     service: Arc<SessionService>,
     workspace_service: Arc<WorkspaceService>,
+    config_service: Arc<ConfigService>,
+    file_service: Arc<FileService>,
     bus: EventBus,
     config: Config,
     cwd: PathBuf,
@@ -71,6 +73,8 @@ impl WelcomeView {
         registry: Arc<dyn AgentRegistry>,
         service: Arc<SessionService>,
         workspace_service: Arc<WorkspaceService>,
+        config_service: Arc<ConfigService>,
+        file_service: Arc<FileService>,
         bus: EventBus,
         config: Config,
         cwd: PathBuf,
@@ -103,6 +107,8 @@ impl WelcomeView {
             registry,
             service,
             workspace_service,
+            config_service,
+            file_service,
             bus,
             config,
             cwd,
@@ -148,6 +154,11 @@ impl WelcomeView {
         self.selected = Some(agent);
         self.status = None;
         cx.notify();
+    }
+
+    /// Open the settings window, wired to the real config service.
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        crate::panels::open_settings_window(self.config_service.clone(), cx);
     }
 
     /// Start a fresh chat with the selected agent, forwarding any typed message.
@@ -197,6 +208,8 @@ impl WelcomeView {
         let registry = self.registry.clone();
         let service = self.service.clone();
         let workspace_service = self.workspace_service.clone();
+        let config_service = self.config_service.clone();
+        let file_service = self.file_service.clone();
         let bus = self.bus.clone();
         let proxy = self.config.proxy.clone();
         let cwd = self.cwd.clone();
@@ -234,6 +247,8 @@ impl WelcomeView {
                             service,
                             registry,
                             workspace_service,
+                            config_service,
+                            file_service,
                             events,
                             agent,
                             cwd,
@@ -266,6 +281,8 @@ pub fn open_welcome_window(
     registry: Arc<dyn AgentRegistry>,
     service: Arc<SessionService>,
     workspace_service: Arc<WorkspaceService>,
+    config_service: Arc<ConfigService>,
+    file_service: Arc<FileService>,
     bus: EventBus,
     config: Config,
     cwd: PathBuf,
@@ -283,6 +300,8 @@ pub fn open_welcome_window(
                 registry,
                 service,
                 workspace_service,
+                config_service,
+                file_service,
                 bus,
                 config,
                 cwd,

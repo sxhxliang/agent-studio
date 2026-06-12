@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use gpui::*;
 use gpui_component::input::{InputEvent, InputState};
 
-use agentx_app::WorkspaceService;
+use agentx_app::{ConfigService, WorkspaceService};
 use agentx_domain::{AgentId, SessionId, SessionStatus, TaskId, WorkspaceId};
 
 use crate::chat::ChatView;
@@ -44,6 +44,7 @@ pub(crate) struct WorkspaceGroupVm {
 
 pub struct TaskPanel {
     service: Option<Arc<WorkspaceService>>,
+    config_service: Option<Arc<ConfigService>>,
     chat: Option<Entity<ChatView>>,
     groups: Vec<WorkspaceGroupVm>,
     view_mode: ViewMode,
@@ -56,24 +57,26 @@ pub struct TaskPanel {
 impl TaskPanel {
     pub fn new(
         service: Arc<WorkspaceService>,
+        config_service: Arc<ConfigService>,
         chat: Entity<ChatView>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let panel = Self::build(Some(service), Some(chat), window, cx);
+        let panel = Self::build(Some(service), Some(config_service), Some(chat), window, cx);
         panel.load(cx);
         panel
     }
 
     /// A preview instance with mock data and no backing service (gallery only).
     pub fn preview(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut panel = Self::build(None, None, window, cx);
+        let mut panel = Self::build(None, None, None, window, cx);
         panel.groups = mock_groups();
         panel
     }
 
     fn build(
         service: Option<Arc<WorkspaceService>>,
+        config_service: Option<Arc<ConfigService>>,
         chat: Option<Entity<ChatView>>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -89,6 +92,7 @@ impl TaskPanel {
             ];
         Self {
             service,
+            config_service,
             chat,
             groups: Vec::new(),
             view_mode: ViewMode::Tree,
@@ -190,6 +194,35 @@ impl TaskPanel {
             });
         })
         .detach();
+    }
+
+    /// Pick a folder and add it as a workspace, then refresh.
+    fn add_workspace(&mut self, cx: &mut Context<Self>) {
+        let Some(service) = self.service.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let Some(folder) = rfd::AsyncFileDialog::new().pick_folder().await else {
+                return;
+            };
+            let _ = service.add_workspace(folder.path().to_path_buf()).await;
+            let _ = cx.update(|cx| {
+                if let Some(view) = this.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.load(cx);
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Open the settings window (when wired to a config service).
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        if let Some(config_service) = self.config_service.clone() {
+            crate::panels::open_settings_window(config_service, cx);
+        }
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {

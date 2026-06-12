@@ -19,6 +19,7 @@
 //! [`DomainEvent`]: agentx_domain::DomainEvent
 
 mod config_service;
+mod file_service;
 mod persistence;
 mod session_service;
 mod workspace_service;
@@ -27,6 +28,7 @@ mod workspace_service;
 mod fakes;
 
 pub use config_service::ConfigService;
+pub use file_service::FileService;
 pub use persistence::PersistenceProjector;
 pub use session_service::SessionService;
 pub use workspace_service::{TaskView, WorkspaceService};

@@ -332,12 +332,31 @@ impl Render for TaskPanel {
                     .border_t_1()
                     .border_color(border)
                     .child(
+                        Button::new("tasks-add-workspace")
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(IconName::FolderOpen))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.add_workspace(cx);
+                            })),
+                    )
+                    .child(
                         Button::new("tasks-refresh")
                             .ghost()
                             .small()
                             .icon(Icon::new(IconName::LoaderCircle))
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.refresh(cx);
+                            })),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("tasks-settings")
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(IconName::Settings))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.open_settings(cx);
                             })),
                     ),
             )
