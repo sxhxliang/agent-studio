@@ -11,12 +11,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::agent::{AgentStatus, StopReason};
-use crate::id::{AgentId, SessionId};
+use crate::id::{AgentId, SessionId, TaskId, WorkspaceId};
 use crate::message::ContentBlock;
 use crate::permission::PermissionRequest;
 use crate::plan::Plan;
 use crate::session::{SessionConfigOption, SessionStatus, SlashCommand};
 use crate::tool_call::ToolCall;
+use crate::workspace::{Task, Workspace};
 
 /// One semantic event in a session's timeline.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +79,27 @@ pub enum DomainEvent {
     SessionConfigChanged {
         session: SessionId,
         options: Vec<SessionConfigOption>,
+    },
+    /// A workspace (project folder) was added.
+    WorkspaceAdded {
+        workspace: Workspace,
+    },
+    /// A workspace was removed (its tasks go with it).
+    WorkspaceRemoved {
+        workspace: WorkspaceId,
+    },
+    /// A task was created within a workspace.
+    TaskAdded {
+        task: Task,
+    },
+    /// A task was removed.
+    TaskRemoved {
+        task: TaskId,
+    },
+    /// A task's status changed (e.g. its session started or finished).
+    TaskStatusChanged {
+        task: TaskId,
+        status: SessionStatus,
     },
     ConfigChanged,
 }

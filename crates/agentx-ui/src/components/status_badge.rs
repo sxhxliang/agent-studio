@@ -1,6 +1,8 @@
 use gpui::*;
 use gpui_component::{Theme, h_flex};
 
+use agentx_domain::SessionStatus;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusTone {
     Neutral,
@@ -8,6 +10,17 @@ pub enum StatusTone {
     Success,
     Warning,
     Danger,
+}
+
+/// Map a session's lifecycle state to a display tone for dots and badges.
+pub fn session_status_tone(status: SessionStatus) -> StatusTone {
+    match status {
+        SessionStatus::Pending => StatusTone::Neutral,
+        SessionStatus::Running => StatusTone::Info,
+        SessionStatus::Idle | SessionStatus::Completed => StatusTone::Success,
+        SessionStatus::Failed => StatusTone::Danger,
+        SessionStatus::Closed => StatusTone::Neutral,
+    }
 }
 
 impl StatusTone {

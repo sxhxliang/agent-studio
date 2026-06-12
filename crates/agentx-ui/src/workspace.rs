@@ -1,15 +1,18 @@
 //! The dock shell — hosts panels in a gpui-component `DockArea`.
 //!
-//! Layout: the session list in the left dock, the chat in the center. As more
-//! panels are built (settings, tasks, a code editor, …) they get added here;
-//! this is the seam that grows toward replacing the legacy workspace.
+//! Layout: the session list + manager as tabs in the left dock, the chat in the
+//! center. As more panels are built (settings, tasks, a code editor, …) they get
+//! added here; this is the seam that grows toward replacing the legacy workspace.
+
+use std::sync::Arc;
 
 use gpui::*;
-use gpui_component::dock::{DockArea, DockItem};
+use gpui_component::dock::{DockArea, DockItem, PanelView};
 
 use crate::chat::{ChatView, SessionsPanel};
+use crate::panels::{SessionManagerPanel, TaskPanel};
 
-/// The window's root content: a `DockArea` with the sessions panel docked left
+/// The window's root content: a `DockArea` with the session panels docked left
 /// and the chat panel in the center.
 pub struct Workspace {
     dock_area: Entity<DockArea>,
@@ -19,16 +22,27 @@ impl Workspace {
     pub fn new(
         chat: Entity<ChatView>,
         sessions: Entity<SessionsPanel>,
+        manager: Entity<SessionManagerPanel>,
+        tasks: Entity<TaskPanel>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let dock_area = cx.new(|cx| DockArea::new("agentx-main", Some(1), window, cx));
         let weak = dock_area.downgrade();
         let center = DockItem::tab(chat, &weak, window, cx);
-        let left = DockItem::tab(sessions, &weak, window, cx);
+        let left = DockItem::tabs(
+            vec![
+                Arc::new(tasks) as Arc<dyn PanelView>,
+                Arc::new(sessions) as Arc<dyn PanelView>,
+                Arc::new(manager) as Arc<dyn PanelView>,
+            ],
+            &weak,
+            window,
+            cx,
+        );
         dock_area.update(cx, |area, cx| {
             area.set_center(center, window, cx);
-            area.set_left_dock(left, Some(px(240.)), true, window, cx);
+            area.set_left_dock(left, Some(px(280.)), true, window, cx);
         });
         Self { dock_area }
     }

@@ -25,7 +25,7 @@ use gpui_component::{
     notification::Notification,
 };
 
-use agentx_app::SessionService;
+use agentx_app::{SessionService, WorkspaceService};
 use agentx_bus::EventBus;
 use agentx_domain::{AgentId, AgentRegistry, AgentStatus, Config, DomainEvent, SessionId};
 
@@ -46,6 +46,7 @@ pub(crate) struct RecentSession {
 pub struct WelcomeView {
     registry: Arc<dyn AgentRegistry>,
     service: Arc<SessionService>,
+    workspace_service: Arc<WorkspaceService>,
     bus: EventBus,
     config: Config,
     cwd: PathBuf,
@@ -69,14 +70,18 @@ impl WelcomeView {
     fn new(
         registry: Arc<dyn AgentRegistry>,
         service: Arc<SessionService>,
+        workspace_service: Arc<WorkspaceService>,
         bus: EventBus,
         config: Config,
         cwd: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut agents: Vec<AgentId> =
-            config.agents.keys().map(|name| AgentId::from(name.clone())).collect();
+        let mut agents: Vec<AgentId> = config
+            .agents
+            .keys()
+            .map(|name| AgentId::from(name.clone()))
+            .collect();
         agents.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         let selected = agents.first().cloned();
 
@@ -97,6 +102,7 @@ impl WelcomeView {
         let view = Self {
             registry,
             service,
+            workspace_service,
             bus,
             config,
             cwd,
@@ -184,11 +190,13 @@ impl WelcomeView {
         self.launching = true;
         self.status = None;
         // Clear the composer; the typed text travels with the launch.
-        self.input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.input
+            .update(cx, |state, cx| state.set_value("", window, cx));
         cx.notify();
 
         let registry = self.registry.clone();
         let service = self.service.clone();
+        let workspace_service = self.workspace_service.clone();
         let bus = self.bus.clone();
         let proxy = self.config.proxy.clone();
         let cwd = self.cwd.clone();
@@ -222,7 +230,17 @@ impl WelcomeView {
                 this.launching = false;
                 match result {
                     Ok(init) => {
-                        crate::open_chat_window(service, events, agent, cwd, init, prompt, cx);
+                        crate::open_chat_window(
+                            service,
+                            registry,
+                            workspace_service,
+                            events,
+                            agent,
+                            cwd,
+                            init,
+                            prompt,
+                            cx,
+                        );
                         this.refresh_recent(cx);
                     }
                     Err(error) => {
@@ -247,6 +265,7 @@ impl WelcomeView {
 pub fn open_welcome_window(
     registry: Arc<dyn AgentRegistry>,
     service: Arc<SessionService>,
+    workspace_service: Arc<WorkspaceService>,
     bus: EventBus,
     config: Config,
     cwd: PathBuf,
@@ -259,8 +278,18 @@ pub fn open_welcome_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let welcome =
-            cx.new(|cx| WelcomeView::new(registry, service, bus, config, cwd, window, cx));
+        let welcome = cx.new(|cx| {
+            WelcomeView::new(
+                registry,
+                service,
+                workspace_service,
+                bus,
+                config,
+                cwd,
+                window,
+                cx,
+            )
+        });
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(welcome, window, cx).bg(cx.theme().background))
     });

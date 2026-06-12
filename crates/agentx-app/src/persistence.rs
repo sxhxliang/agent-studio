@@ -73,7 +73,10 @@ mod tests {
             })
             .await
             .unwrap();
-        projector.project(&DomainEvent::ConfigChanged).await.unwrap();
+        projector
+            .project(&DomainEvent::ConfigChanged)
+            .await
+            .unwrap();
 
         assert!(repository.list().await.unwrap().is_empty());
     }

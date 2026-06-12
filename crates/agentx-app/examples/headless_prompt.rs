@@ -23,8 +23,8 @@ use agentx_acp::AcpSupervisor;
 use agentx_app::{PersistenceProjector, SessionService};
 use agentx_bus::EventBus;
 use agentx_domain::{
-    AgentGateway, AgentId, AgentRegistry, ConfigStore, ContentBlock, DomainEvent, PermissionOutcome,
-    SessionRepository,
+    AgentGateway, AgentId, AgentRegistry, ConfigStore, ContentBlock, DomainEvent,
+    PermissionOutcome, SessionRepository,
 };
 use agentx_store::{FsConfigStore, FsSessionRepository, paths};
 
@@ -40,16 +40,12 @@ async fn main() -> Result<()> {
         .load()
         .await
         .context("load config.json")?;
-    let agent_config = config
-        .agents
-        .get(agent.as_str())
-        .cloned()
-        .ok_or_else(|| {
-            anyhow!(
-                "agent `{agent}` not in config; available: {:?}",
-                config.agents.keys().collect::<Vec<_>>()
-            )
-        })?;
+    let agent_config = config.agents.get(agent.as_str()).cloned().ok_or_else(|| {
+        anyhow!(
+            "agent `{agent}` not in config; available: {:?}",
+            config.agents.keys().collect::<Vec<_>>()
+        )
+    })?;
 
     // ---- compose the runtime ----
     let bus = EventBus::new();
@@ -163,7 +159,12 @@ fn spawn_event_printer(bus: EventBus, supervisor: Arc<AcpSupervisor>) {
                         .join(", ");
                     println!("  config options: {names}");
                 }
-                DomainEvent::ConfigChanged => {}
+                DomainEvent::ConfigChanged
+                | DomainEvent::WorkspaceAdded { .. }
+                | DomainEvent::WorkspaceRemoved { .. }
+                | DomainEvent::TaskAdded { .. }
+                | DomainEvent::TaskRemoved { .. }
+                | DomainEvent::TaskStatusChanged { .. } => {}
             }
         }
     });

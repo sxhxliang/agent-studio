@@ -213,7 +213,9 @@ mod tests {
         assert_eq!(session.status, SessionStatus::Running);
         assert_eq!(session.last_active, at(5));
 
-        let err = session.transition(SessionStatus::Pending, at(9)).unwrap_err();
+        let err = session
+            .transition(SessionStatus::Pending, at(9))
+            .unwrap_err();
         assert_eq!(err.from, SessionStatus::Running);
         assert_eq!(err.to, SessionStatus::Pending);
         // A rejected transition leaves the session untouched.

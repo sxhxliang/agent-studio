@@ -5,18 +5,16 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
-    ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _,
+    ActiveTheme as _, Icon, IconName, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelEvent},
-    h_flex,
-    input::Input,
-    v_flex,
+    h_flex, v_flex,
 };
 
-use agentx_domain::{PermissionOutcome, SessionEvent, ToolCall};
+use agentx_domain::{PermissionOutcome, SessionEvent, SessionStatus, SlashCommand, ToolCall};
 
 use crate::components::{
-    permission_option_button, render_agent_message, render_agent_thought,
+    ChatInputBox, permission_option_button, render_agent_message, render_agent_thought,
     render_permission_request_card, render_plan, render_session_end, render_timeline_error,
     render_timeline_note, render_tool_call_item, render_user_message,
 };
@@ -38,18 +36,26 @@ impl ChatView {
                     let config_id = option.id.clone();
                     let value_id = value.value.clone();
                     let selected = option.current_value == value.value;
-                    let button =
-                        Button::new(SharedString::from(format!("cfg-{}-{}", option.id, value.value)))
-                            .label(value.name.clone())
-                            .on_click(cx.listener(move |this, _event, window, cx| {
-                                this.choose_config_option(
-                                    config_id.clone(),
-                                    value_id.clone(),
-                                    window,
-                                    cx,
-                                );
-                            }));
-                    let button = if selected { button.primary() } else { button.ghost() };
+                    let button = Button::new(SharedString::from(format!(
+                        "cfg-{}-{}",
+                        option.id, value.value
+                    )))
+                    .label(value.name.clone())
+                    .on_click(cx.listener(
+                        move |this, _event, window, cx| {
+                            this.choose_config_option(
+                                config_id.clone(),
+                                value_id.clone(),
+                                window,
+                                cx,
+                            );
+                        },
+                    ));
+                    let button = if selected {
+                        button.primary()
+                    } else {
+                        button.ghost()
+                    };
                     buttons.push(button.into_any_element());
                 }
                 rows.push(
@@ -71,7 +77,11 @@ impl ChatView {
                     .on_click(cx.listener(move |this, _event, window, cx| {
                         this.choose_mode(mode_id.clone(), window, cx);
                     }));
-                let button = if selected { button.primary() } else { button.ghost() };
+                let button = if selected {
+                    button.primary()
+                } else {
+                    button.ghost()
+                };
                 buttons.push(button.into_any_element());
             }
             rows.push(
@@ -140,16 +150,15 @@ impl ChatView {
                 );
             }
             let deny_id = permission_id.clone();
-            let deny_button =
-                Button::new(SharedString::from(format!("perm-{permission_id}-deny")))
-                    .label("Deny")
-                    .icon(Icon::new(IconName::CircleX))
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(move |this, _event, window, cx| {
-                        this.resolve(deny_id.clone(), PermissionOutcome::Cancelled, window, cx);
-                    }))
-                    .into_any_element();
+            let deny_button = Button::new(SharedString::from(format!("perm-{permission_id}-deny")))
+                .label("Deny")
+                .icon(Icon::new(IconName::CircleX))
+                .ghost()
+                .small()
+                .on_click(cx.listener(move |this, _event, window, cx| {
+                    this.resolve(deny_id.clone(), PermissionOutcome::Cancelled, window, cx);
+                }))
+                .into_any_element();
             cards.push(render_permission_request_card(
                 request,
                 buttons,
@@ -184,17 +193,13 @@ impl ChatView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match event {
-            SessionEvent::UserMessage { content } => {
-                render_user_message(content, cx.theme())
-            }
-            SessionEvent::AgentMessage { content } => {
-                render_agent_message(
-                    SharedString::from(format!("agent-{index}")),
-                    "Agent",
-                    content,
-                    cx.theme(),
-                )
-            }
+            SessionEvent::UserMessage { content } => render_user_message(content, cx.theme()),
+            SessionEvent::AgentMessage { content } => render_agent_message(
+                SharedString::from(format!("agent-{index}")),
+                "Agent",
+                content,
+                cx.theme(),
+            ),
             SessionEvent::AgentThought { text } => {
                 let open = self.expanded_thoughts.contains(&index);
                 let toggle = (!text.is_empty()).then(|| {
@@ -272,22 +277,22 @@ impl Render for ChatView {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(div().text_sm().child(format!("history · {label} (read-only)")))
                             .child(
-                                Button::new("back-to-live")
-                                    .label("← live")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.viewed = None;
-                                        cx.notify();
-                                    })),
+                                div()
+                                    .text_sm()
+                                    .child(format!("history · {label} (read-only)")),
                             )
-                            .child(
-                                Button::new("resume-session")
-                                    .label("continue ⟳")
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.resume_viewed(window, cx);
-                                    })),
-                            ),
+                            .child(Button::new("back-to-live").label("← live").on_click(
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.viewed = None;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(Button::new("resume-session").label("continue ⟳").on_click(
+                                cx.listener(|this, _event, window, cx| {
+                                    this.resume_viewed(window, cx);
+                                }),
+                            )),
                     )
                     .child(
                         div()
@@ -325,44 +330,57 @@ impl Render for ChatView {
                             .text_color(foreground)
                             .child(agent_name),
                     )
-                    .child(div().text_xs().text_color(muted).child(format!("· {session_label}")))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(format!("· {session_label}")),
+                    )
                     .when(busy, |this| {
                         this.child(
                             h_flex()
                                 .gap_1()
                                 .items_center()
-                                .child(Icon::new(IconName::LoaderCircle).xsmall().text_color(primary))
+                                .child(
+                                    Icon::new(IconName::LoaderCircle)
+                                        .xsmall()
+                                        .text_color(primary),
+                                )
                                 .child(div().text_xs().text_color(muted).child("working…")),
                         )
                     });
 
-                let composer = v_flex()
-                    .w_full()
-                    .gap_2()
-                    .p_3()
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(border)
-                    .bg(card_bg)
-                    .shadow_md()
-                    .child(div().w_full().child(Input::new(&self.input).appearance(false)))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_end()
-                            .child(
-                                Button::new("send")
-                                    .primary()
-                                    .rounded_full()
-                                    .small()
-                                    .icon(Icon::new(IconName::ArrowUp))
-                                    .disabled(busy)
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.submit(window, cx)
-                                    })),
-                            ),
-                    );
+                let view = cx.entity();
+                let value = self.input.read(cx).value();
+                let typing_command = value.starts_with('/');
+                let command_query = value.trim_start_matches('/').to_lowercase();
+                let command_suggestions: Vec<SlashCommand> = if typing_command {
+                    self.commands
+                        .iter()
+                        .filter(|command| command.name.to_lowercase().starts_with(&command_query))
+                        .cloned()
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let composer = ChatInputBox::new("chat-composer", self.input.clone())
+                    .session_status(Some(if busy {
+                        SessionStatus::Running
+                    } else {
+                        SessionStatus::Idle
+                    }))
+                    .agent_status_text(if busy { "working…" } else { "ready" })
+                    .show_command_suggestions(typing_command && !command_suggestions.is_empty())
+                    .command_suggestions(command_suggestions)
+                    .on_send({
+                        let view = view.clone();
+                        move |_event, window, cx| {
+                            view.update(cx, |this, cx| this.submit(window, cx));
+                        }
+                    })
+                    .on_cancel(move |_event, window, cx| {
+                        view.update(cx, |this, cx| this.cancel(window, cx));
+                    });
 
                 v_flex()
                     .size_full()

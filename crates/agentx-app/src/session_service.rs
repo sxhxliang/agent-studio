@@ -152,9 +152,12 @@ impl SessionService {
         content: Vec<ContentBlock>,
     ) -> Result<StopReason, AgentError> {
         self.set_status(session, SessionStatus::Running).await?;
-        self.append(session, SessionEvent::UserMessage {
-            content: content.clone(),
-        });
+        self.append(
+            session,
+            SessionEvent::UserMessage {
+                content: content.clone(),
+            },
+        );
 
         match self.gateway.prompt(session, content).await {
             Ok(reason) => {
@@ -169,6 +172,13 @@ impl SessionService {
                 Err(error)
             }
         }
+    }
+
+    /// Cancel the in-flight turn for a session. The agent stops streaming; the
+    /// turn's own `send_message` future then resolves and records the final
+    /// status, so this only needs to signal the gateway.
+    pub async fn cancel(&self, session: &SessionId) -> Result<(), AgentError> {
+        self.gateway.cancel(session).await
     }
 
     /// The capabilities (modes, models, commands) the session was created with,
@@ -194,7 +204,9 @@ impl SessionService {
         config_id: &str,
         value: &str,
     ) -> Result<(), AgentError> {
-        self.gateway.set_config_option(session, config_id, value).await
+        self.gateway
+            .set_config_option(session, config_id, value)
+            .await
     }
 
     /// Forward the user's decision on a permission request the agent raised
@@ -231,11 +243,37 @@ impl SessionService {
         self.repository.delete(session).await
     }
 
-    async fn set_status(
-        &self,
-        session: &SessionId,
-        next: SessionStatus,
-    ) -> Result<(), AgentError> {
+    /// Close a session: mark it terminal and drop it from the live registry.
+    /// Unlike [`delete_session`](Self::delete_session) the persisted timeline is
+    /// kept, so the conversation can still be browsed and resumed.
+    pub async fn close_session(&self, session: &SessionId) -> Result<(), AgentError> {
+        self.set_status(session, SessionStatus::Closed).await?;
+        let mut registry = self.sessions.lock().await;
+        registry.by_id.remove(session);
+        registry.by_agent.retain(|_, id| id != session);
+        Ok(())
+    }
+
+    /// The live sessions created during this run, each with its owning agent and
+    /// current status. Persisted-but-unloaded sessions are not included — the
+    /// store doesn't record which agent produced a timeline — so the session
+    /// manager lists those separately.
+    pub async fn live_sessions(&self) -> Vec<(AgentId, SessionId, SessionStatus)> {
+        let registry = self.sessions.lock().await;
+        registry
+            .by_id
+            .values()
+            .map(|live| {
+                (
+                    live.session.agent.clone(),
+                    live.session.id.clone(),
+                    live.session.status,
+                )
+            })
+            .collect()
+    }
+
+    async fn set_status(&self, session: &SessionId, next: SessionStatus) -> Result<(), AgentError> {
         let status = {
             let mut registry = self.sessions.lock().await;
             let entry = registry
@@ -396,6 +434,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_signals_the_gateway() {
+        let gateway = Arc::new(FakeAgentGateway::new().with_session_id("s1"));
+        let service = SessionService::new(
+            gateway.clone(),
+            EventBus::new(),
+            Arc::new(FakeSessionRepository::new()),
+        );
+        let session = service
+            .get_or_create_session(&AgentId::from("claude"), Path::new("."), &[])
+            .await
+            .unwrap();
+
+        service.cancel(&session).await.unwrap();
+        assert_eq!(gateway.cancelled(), vec![session]);
+    }
+
+    #[tokio::test]
+    async fn close_session_marks_closed_and_drops_from_registry() {
+        let gateway = Arc::new(FakeAgentGateway::new().with_session_id("s1"));
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe::<DomainEvent>();
+        let service =
+            SessionService::new(gateway, bus.clone(), Arc::new(FakeSessionRepository::new()));
+        let session = service
+            .new_session(&AgentId::from("claude"), Path::new("."), &[])
+            .await
+            .unwrap()
+            .session_id;
+
+        service.close_session(&session).await.unwrap();
+
+        let statuses: Vec<SessionStatus> = drain(&mut rx)
+            .into_iter()
+            .filter_map(|event| match event {
+                DomainEvent::SessionStatusChanged { status, .. } => Some(status),
+                _ => None,
+            })
+            .collect();
+        assert!(statuses.contains(&SessionStatus::Closed));
+        // The closed session left the live registry but its timeline survives.
+        assert!(service.session_init(&session).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn live_sessions_lists_created_sessions_with_their_agent() {
+        let service = SessionService::new(
+            Arc::new(FakeAgentGateway::new().with_session_id("s1")),
+            EventBus::new(),
+            Arc::new(FakeSessionRepository::new()),
+        );
+        let claude = AgentId::from("claude");
+        let _ = service
+            .new_session(&claude, Path::new("."), &[])
+            .await
+            .unwrap();
+
+        let live = service.live_sessions().await;
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].0, claude);
+        assert_eq!(live[0].2, SessionStatus::Pending);
+    }
+
+    #[tokio::test]
     async fn sending_to_an_unknown_session_is_not_found() {
         let service = SessionService::new(
             Arc::new(FakeAgentGateway::new()),
@@ -425,8 +526,11 @@ mod tests {
             )
             .await
             .unwrap();
-        let service =
-            SessionService::new(Arc::new(FakeAgentGateway::new()), EventBus::new(), repository);
+        let service = SessionService::new(
+            Arc::new(FakeAgentGateway::new()),
+            EventBus::new(),
+            repository,
+        );
 
         let events = service.history(&session).await.unwrap();
         assert_eq!(events.len(), 1);
@@ -445,9 +549,17 @@ mod tests {
             .await
             .unwrap();
 
-        let init = service.session_init(&session).await.expect("caps are cached");
+        let init = service
+            .session_init(&session)
+            .await
+            .expect("caps are cached");
         assert_eq!(init.session_id, session);
         // An unknown session has no cached capabilities.
-        assert!(service.session_init(&SessionId::from("ghost")).await.is_none());
+        assert!(
+            service
+                .session_init(&SessionId::from("ghost"))
+                .await
+                .is_none()
+        );
     }
 }

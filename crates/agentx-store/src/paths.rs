@@ -32,3 +32,8 @@ pub fn config_path(data_dir: &Path) -> PathBuf {
 pub fn sessions_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("sessions")
 }
+
+/// Path to the workspaces + tasks JSON file within `data_dir`.
+pub fn workspaces_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("workspaces.json")
+}

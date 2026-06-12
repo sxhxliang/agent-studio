@@ -4,17 +4,13 @@
 //! defined on [`WelcomeView`] in the parent module.
 
 use gpui::{prelude::FluentBuilder as _, *};
-use gpui_component::{
-    ActiveTheme as _, Disableable as _, Icon, IconName, Root, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::Input,
-    v_flex,
-};
+use gpui_component::{ActiveTheme as _, Icon, IconName, Root, Sizable as _, h_flex, v_flex};
 
 use agentx_domain::{AgentId, AgentStatus};
 
 use super::WelcomeView;
+
+use crate::components::ChatInputBox;
 
 impl WelcomeView {
     /// A selectable agent chip: a Bot glyph, the agent name, and a status dot
@@ -34,9 +30,21 @@ impl WelcomeView {
             AgentStatus::Unavailable { .. } => theme.danger,
         });
 
-        let fg = if selected { theme.primary_foreground } else { theme.foreground };
-        let bg = if selected { theme.primary } else { theme.secondary };
-        let border = if selected { theme.primary } else { theme.border };
+        let fg = if selected {
+            theme.primary_foreground
+        } else {
+            theme.foreground
+        };
+        let bg = if selected {
+            theme.primary
+        } else {
+            theme.secondary
+        };
+        let border = if selected {
+            theme.primary
+        } else {
+            theme.border
+        };
         let hover_border = theme.primary.opacity(0.6);
 
         let id = agent.clone();
@@ -86,7 +94,13 @@ impl WelcomeView {
             .border_color(row_border)
             .hover(move |this| this.bg(hover_bg))
             .child(Icon::new(IconName::Inbox).xsmall().text_color(icon_color))
-            .child(div().flex_1().text_sm().text_color(label_color).child(recent.label.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .text_sm()
+                    .text_color(label_color)
+                    .child(recent.label.clone()),
+            )
             .on_click(cx.listener(move |this, _event, window, cx| {
                 this.resume_recent(id.clone(), window, cx);
             }))
@@ -129,7 +143,12 @@ impl Render for WelcomeView {
                 .iter()
                 .map(|agent| self.agent_chip(agent, cx))
                 .collect();
-            h_flex().w_full().flex_wrap().gap_2().children(chips).into_any_element()
+            h_flex()
+                .w_full()
+                .flex_wrap()
+                .gap_2()
+                .children(chips)
+                .into_any_element()
         };
 
         // Recent sessions (omitted entirely when there are none).
@@ -148,41 +167,23 @@ impl Render for WelcomeView {
             )
         };
 
-        let can_launch = self.selected.is_some() && !self.launching;
-        let send = Button::new("start-chat")
-            .primary()
-            .rounded_full()
-            .icon(Icon::new(IconName::ArrowUp))
-            .disabled(!can_launch)
-            .on_click(cx.listener(|this, _event, window, cx| {
-                this.start_chat(window, cx);
-            }));
-
         let selected_hint = match (&self.selected, self.launching) {
             (_, true) => "Starting…".to_string(),
             (Some(agent), false) => format!("Start with {agent}"),
             (None, false) => "Select an agent above".to_string(),
         };
 
-        // The composer card: a borderless input over a footer row.
-        let composer = v_flex()
-            .w_full()
-            .gap_2p5()
-            .p_3()
-            .rounded(px(12.))
-            .border_1()
-            .border_color(border)
-            .bg(card_bg)
-            .shadow_md()
-            .child(div().w_full().child(Input::new(&self.input).appearance(false)))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .child(div().text_xs().text_color(muted).child(selected_hint))
-                    .child(send),
-            );
+        // The composer card, shared with the chat panel. The launcher allows an
+        // empty send (the first message is optional), and disables until an agent
+        // is picked.
+        let view = cx.entity();
+        let composer = ChatInputBox::new("welcome-composer", self.input.clone())
+            .allow_empty_send(true)
+            .disabled(self.launching || self.selected.is_none())
+            .agent_status_text(selected_hint)
+            .on_send(move |_event, window, cx| {
+                view.update(cx, |this, cx| this.start_chat(window, cx));
+            });
 
         let inner = v_flex()
             .w_full()

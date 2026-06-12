@@ -18,6 +18,14 @@ agentx-bus.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
 similar.workspace = true
+chrono.workspace = true
+
+# The preview gallery (`cargo run -p agentx-ui --example gallery`) boots a real
+# GPUI window, so it needs the platform layer and the icon assets — same crates
+# the composition root (agentx-shell) uses.
+[dev-dependencies]
+gpui_platform.workspace = true
+gpui-component-assets = { git = "https://github.com/sxhxliang/gpui-component", branch = "dev" }
 
 [lints]
 workspace = true

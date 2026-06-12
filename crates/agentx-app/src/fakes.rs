@@ -11,9 +11,10 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use agentx_domain::{
-    AgentError, AgentGateway, AgentId, AgentStatus, ContentBlock, McpServerConfig,
-    PermissionOutcome, PersistedEvent, SessionId, SessionInit, SessionRepository, StopReason,
-    StoreError,
+    AgentError, AgentGateway, AgentId, AgentStatus, Config, ConfigStore, ContentBlock,
+    McpServerConfig, PermissionOutcome, PersistedEvent, SessionId, SessionInit, SessionRepository,
+    SessionStatus, StopReason, StoreError, Task, TaskId, Workspace, WorkspaceId,
+    WorkspaceRepository,
 };
 
 /// A configurable, recording [`AgentGateway`].
@@ -34,6 +35,8 @@ struct GatewayState {
     prompts: Vec<(SessionId, Vec<ContentBlock>)>,
     /// Every agent passed to `create_session`, in order.
     created: Vec<AgentId>,
+    /// Every session passed to `cancel`, in order.
+    cancelled: Vec<SessionId>,
 }
 
 impl FakeAgentGateway {
@@ -62,6 +65,10 @@ impl FakeAgentGateway {
 
     pub(crate) fn created(&self) -> Vec<AgentId> {
         self.state.lock().unwrap().created.clone()
+    }
+
+    pub(crate) fn cancelled(&self) -> Vec<SessionId> {
+        self.state.lock().unwrap().cancelled.clone()
     }
 
     fn session_init(&self) -> SessionInit {
@@ -133,6 +140,7 @@ impl AgentGateway for FakeAgentGateway {
     }
 
     async fn cancel(&self, _session: &SessionId) -> Result<(), AgentError> {
+        self.state.lock().unwrap().cancelled.push(_session.clone());
         Ok(())
     }
 
@@ -206,6 +214,96 @@ impl SessionRepository for FakeSessionRepository {
     }
 
     async fn flush(&self, _session: &SessionId) -> Result<(), StoreError> {
+        Ok(())
+    }
+}
+
+/// An in-memory [`ConfigStore`] that records every saved config.
+#[derive(Default)]
+pub(crate) struct FakeConfigStore {
+    config: Mutex<Config>,
+    saved: Mutex<Vec<Config>>,
+}
+
+impl FakeConfigStore {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn saved(&self) -> Vec<Config> {
+        self.saved.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ConfigStore for FakeConfigStore {
+    async fn load(&self) -> Result<Config, StoreError> {
+        Ok(self.config.lock().unwrap().clone())
+    }
+
+    async fn save(&self, config: &Config) -> Result<(), StoreError> {
+        self.saved.lock().unwrap().push(config.clone());
+        *self.config.lock().unwrap() = config.clone();
+        Ok(())
+    }
+}
+
+/// An in-memory [`WorkspaceRepository`].
+#[derive(Default)]
+pub(crate) struct FakeWorkspaceRepository {
+    workspaces: Mutex<Vec<Workspace>>,
+    tasks: Mutex<Vec<Task>>,
+}
+
+impl FakeWorkspaceRepository {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl WorkspaceRepository for FakeWorkspaceRepository {
+    async fn list_workspaces(&self) -> Result<Vec<Workspace>, StoreError> {
+        Ok(self.workspaces.lock().unwrap().clone())
+    }
+
+    async fn list_tasks(&self) -> Result<Vec<Task>, StoreError> {
+        Ok(self.tasks.lock().unwrap().clone())
+    }
+
+    async fn add_workspace(&self, workspace: Workspace) -> Result<(), StoreError> {
+        let mut workspaces = self.workspaces.lock().unwrap();
+        workspaces.retain(|existing| existing.id != workspace.id);
+        workspaces.push(workspace);
+        Ok(())
+    }
+
+    async fn remove_workspace(&self, id: &WorkspaceId) -> Result<(), StoreError> {
+        self.workspaces.lock().unwrap().retain(|w| &w.id != id);
+        self.tasks.lock().unwrap().retain(|t| &t.workspace != id);
+        Ok(())
+    }
+
+    async fn add_task(&self, task: Task) -> Result<(), StoreError> {
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|existing| existing.id != task.id);
+        tasks.push(task);
+        Ok(())
+    }
+
+    async fn remove_task(&self, id: &TaskId) -> Result<(), StoreError> {
+        self.tasks.lock().unwrap().retain(|t| &t.id != id);
+        Ok(())
+    }
+
+    async fn update_task_status(
+        &self,
+        id: &TaskId,
+        status: SessionStatus,
+    ) -> Result<(), StoreError> {
+        if let Some(task) = self.tasks.lock().unwrap().iter_mut().find(|t| &t.id == id) {
+            task.status = status;
+        }
         Ok(())
     }
 }

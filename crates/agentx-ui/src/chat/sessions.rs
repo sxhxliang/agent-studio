@@ -44,7 +44,11 @@ impl SessionsPanel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let bg = if selected { theme.secondary } else { theme.background };
+        let bg = if selected {
+            theme.secondary
+        } else {
+            theme.background
+        };
         let border = theme.border.opacity(0.5);
         let open_id = id.clone();
 
@@ -101,7 +105,11 @@ impl Render for SessionsPanel {
                 .iter()
                 .map(|meta| (meta.id.clone(), meta.label.clone()))
                 .collect();
-            (metas, chat.session.clone(), chat.viewed.as_ref().map(|v| v.id.clone()))
+            (
+                metas,
+                chat.session.clone(),
+                chat.viewed.as_ref().map(|v| v.id.clone()),
+            )
         };
 
         let mut rows: Vec<AnyElement> = Vec::new();

@@ -16,9 +16,11 @@
 mod config_store;
 pub mod paths;
 mod session_repo;
+mod workspace_repo;
 
 pub use config_store::FsConfigStore;
 pub use session_repo::FsSessionRepository;
+pub use workspace_repo::FsWorkspaceRepository;
 
 use agentx_domain::StoreError;
 

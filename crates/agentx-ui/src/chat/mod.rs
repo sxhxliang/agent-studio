@@ -22,13 +22,15 @@ use gpui_component::{
     notification::Notification,
 };
 
-use agentx_app::SessionService;
+use agentx_app::{SessionService, WorkspaceService};
 use agentx_bus::Receiver;
 use agentx_domain::{
-    AgentId, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest, PersistedEvent,
-    SessionConfigOption, SessionEvent, SessionId, SessionInit, SessionMode, SessionStatus,
-    SlashCommand,
+    AgentId, AgentRegistry, ContentBlock, DomainEvent, PermissionOutcome, PermissionRequest,
+    PersistedEvent, SessionConfigOption, SessionEvent, SessionId, SessionInit, SessionMode,
+    SessionStatus, SlashCommand,
 };
+
+use crate::panels::{SessionManagerPanel, TaskPanel};
 
 /// One row in the conversation: a rich timeline event, a terse system note, or
 /// an error (rendered prominently).
@@ -181,6 +183,11 @@ impl ChatView {
         view
     }
 
+    /// The id of the live session (the one new prompts go to).
+    pub(crate) fn current_session(&self) -> SessionId {
+        self.session.clone()
+    }
+
     /// Reload the sibling session list (everything on disk except the live one),
     /// each labelled by its first user message. Newest first (the store orders
     /// by modification time).
@@ -212,7 +219,7 @@ impl ChatView {
 
     /// Browse a session: the live one returns to the live view, any other loads
     /// its persisted history read-only.
-    fn view_session(&mut self, id: SessionId, cx: &mut Context<Self>) {
+    pub(crate) fn view_session(&mut self, id: SessionId, cx: &mut Context<Self>) {
         if id == self.session {
             self.viewed = None;
             cx.notify();
@@ -239,7 +246,7 @@ impl ChatView {
     }
 
     /// Start a fresh session and switch the live view to it.
-    fn start_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let agent = self.agent.clone();
         let service = self.service.clone();
         let cwd = self.cwd.clone();
@@ -304,10 +311,8 @@ impl ChatView {
             let _ = this.update_in(cx, |this, window, cx| {
                 match result {
                     Ok(init) => {
-                        let label: String =
-                            init.session_id.as_str().chars().take(8).collect();
-                        let entries =
-                            this.viewed.take().map(|v| v.entries).unwrap_or_default();
+                        let label: String = init.session_id.as_str().chars().take(8).collect();
+                        let entries = this.viewed.take().map(|v| v.entries).unwrap_or_default();
                         this.session = init.session_id;
                         this.live = entries;
                         this.config_options = init.config_options;
@@ -361,6 +366,26 @@ impl ChatView {
         .detach();
     }
 
+    /// Cancel the in-flight turn. The agent stops; the streamed status change
+    /// returns the session to Idle, which clears `busy` in [`record`](Self::record).
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.busy {
+            return;
+        }
+        let service = self.service.clone();
+        let session = self.session.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = service.cancel(&session).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Err(error) = result {
+                    this.report_error(format!("cancel error › {error}"), window, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Switch the session's mode, updating the local selection optimistically.
     fn choose_mode(&mut self, mode_id: String, window: &mut Window, cx: &mut Context<Self>) {
         if self.current_mode.as_deref() == Some(mode_id.as_str()) {
@@ -403,7 +428,9 @@ impl ChatView {
         let service = self.service.clone();
         let session = self.session.clone();
         cx.spawn_in(window, async move |this, cx| {
-            let result = service.set_config_option(&session, &config_id, &value).await;
+            let result = service
+                .set_config_option(&session, &config_id, &value)
+                .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Err(error) = result {
                     this.report_error(format!("set option error › {error}"), window, cx);
@@ -462,7 +489,9 @@ impl ChatView {
 
         let service = self.service.clone();
         cx.spawn_in(window, async move |this, cx| {
-            let result = service.resolve_permission(&session, &permission_id, outcome).await;
+            let result = service
+                .resolve_permission(&session, &permission_id, outcome)
+                .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Err(error) = result {
                     this.report_error(format!("permission error › {error}"), window, cx);
@@ -513,7 +542,10 @@ impl ChatView {
                 self.note(format!("· agent {agent}: {status:?}"));
             }
             DomainEvent::PermissionRequested { request } => {
-                self.note(format!("⚠ permission requested: {}", request.tool_call.title));
+                self.note(format!(
+                    "⚠ permission requested: {}",
+                    request.tool_call.title
+                ));
                 self.pending.push(request);
             }
             DomainEvent::SessionCommandsChanged { commands, .. } => {
@@ -530,7 +562,12 @@ impl ChatView {
             DomainEvent::SessionConfigChanged { options, .. } => {
                 self.config_options = options;
             }
-            DomainEvent::ConfigChanged => {}
+            DomainEvent::ConfigChanged
+            | DomainEvent::WorkspaceAdded { .. }
+            | DomainEvent::WorkspaceRemoved { .. }
+            | DomainEvent::TaskAdded { .. }
+            | DomainEvent::TaskRemoved { .. }
+            | DomainEvent::TaskStatusChanged { .. } => {}
         }
     }
 }
@@ -544,6 +581,8 @@ impl ChatView {
 /// sent as the first turn (the launcher uses this to forward a typed message).
 pub fn open_chat_window(
     service: Arc<SessionService>,
+    registry: Arc<dyn AgentRegistry>,
+    workspace_service: Arc<WorkspaceService>,
     events: Receiver<DomainEvent>,
     agent: AgentId,
     cwd: PathBuf,
@@ -558,10 +597,24 @@ pub fn open_chat_window(
     };
 
     let _ = cx.open_window(options, |window, cx| {
-        let chat = cx
-            .new(|cx| ChatView::new(service, events, agent, cwd, init, initial_prompt, window, cx));
+        let chat = cx.new(|cx| {
+            ChatView::new(
+                service.clone(),
+                events,
+                agent,
+                cwd,
+                init,
+                initial_prompt,
+                window,
+                cx,
+            )
+        });
         let sessions = cx.new(|cx| SessionsPanel::new(chat.clone(), cx));
-        let workspace = cx.new(|cx| crate::workspace::Workspace::new(chat, sessions, window, cx));
+        let manager =
+            cx.new(|cx| SessionManagerPanel::new(service.clone(), registry, chat.clone(), cx));
+        let tasks = cx.new(|cx| TaskPanel::new(workspace_service, chat.clone(), window, cx));
+        let workspace = cx
+            .new(|cx| crate::workspace::Workspace::new(chat, sessions, manager, tasks, window, cx));
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(workspace, window, cx).bg(cx.theme().background))
     });

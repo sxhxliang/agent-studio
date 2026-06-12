@@ -4,508 +4,80 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AgentX (version 0.3.0) is a desktop AI agent studio built with Rust and GPUI Component. It provides a dock-based interface for interacting with AI agents via the Agent Client Protocol (ACP).
+AgentX is a GPU-accelerated desktop **AI agent studio** (Rust + GPUI) that talks to AI agents over the **Agent Client Protocol (ACP)**, each agent running as a managed subprocess. Agents are configured in `config.json` (Codex, Claude, Gemini, Qwen, etc.).
 
-**Key Technologies:**
-- **GPUI**: Zed's GPU-accelerated UI framework
-- **gpui-component**: Component library for dock systems, menus, and UI widgets
-- **Agent Client Protocol (ACP)**: Protocol for agent communication
-- **Tokio**: Async runtime for agent process management
+## ⚠️ Current state: a big-bang rewrite in progress
 
-**Platform-Specific Dependencies:**
-- **Windows**: MSVC toolchain
-- **Linux**: `libxcb`, `libfontconfig`, `libssl-dev`, GTK (for system tray)
-- **macOS**: Xcode command line tools
+The repository contains **two architectures side by side**. Know which one you are touching:
 
-## Build and Development Commands
+- **Hexagonal rewrite (`crates/agentx-*`) — where all active development happens.** Clean ports-and-adapters design, the binary is `agentx-shell`. Build/run/test against these crates.
+- **Legacy app (`src/` + `crates/agentx-{types,event-bus,agent,services,acp-ui}`, `git-worktree-manager`) — being cut over and replaced.** Don't add features here. The existing `src/panels`, `src/core/services`, `AppState` service-locator, and `DockPanel` machinery belong to this legacy layer; they are the *source material* for the rewrite, not the target.
 
-**Windows** (current platform):
+New work goes in the hexagonal crates. When migrating a legacy panel, read the `src/panels/*` + `src/components/*` original for behavior **and visual style**, then rebuild it cleanly in `crates/agentx-ui`.
+
+## Build, run, and test (rewrite)
+
 ```bash
-# Run application
-cargo run
+# Run the rewrite (opens the launcher window; pick an agent from config.json)
+cargo run -p agentx-shell
 
-# Run with logging
-set RUST_LOG=info && cargo run
+# With logs (env_logger; module names use underscores)
+RUST_LOG=info cargo run -p agentx-shell
+RUST_LOG=info,agentx_acp=debug,agentx_app=debug cargo run -p agentx-shell
 
-# Debug specific modules
-set RUST_LOG=info,agentx::core::services=debug && cargo run
-set RUST_LOG=info,agentx::core::event_bus=debug && cargo run
+# Type-check / build a single crate
+cargo check -p agentx-ui
+cargo build -p agentx-shell
 
-# Check for compilation errors (fast)
-cargo check
+# Tests live in the domain-facing crates (agentx-domain/-acp/-app/-store/-bus)
+cargo test -p agentx-domain -p agentx-acp -p agentx-app -p agentx-store
+cargo test -p agentx-acp <test_name>     # single test by name
 
-# Format code
 cargo fmt
-
-# Lint
-cargo clippy
-
-# Run tests
-cargo test
-
-# Run specific test
-cargo test <test_name>
-
-# Release build
-cargo build --release
+cargo clippy -p agentx-ui -p agentx-shell
 ```
 
-**Unix/Linux/macOS:**
-```bash
-# Run application
-cargo run
+**Gotcha:** workspace-wide `cargo test` / `cargo clippy --all-targets` currently fails — the legacy `agentx-acp-ui` crate's *test/example* targets don't compile (its library does). Scope commands to the rewrite crates with `-p`. The legacy root binary still builds via plain `cargo run`.
 
-# Run with logging
-RUST_LOG=info cargo run
+UI/feature correctness can't be verified from the terminal — type-check + tests prove code correctness only. Hand off running the windowed app (and anything touching real agents/network) to the user.
 
-# Debug specific modules
-RUST_LOG=info,agentx::core::services=debug cargo run
-RUST_LOG=info,agentx::core::event_bus=debug cargo run
+## Hexagonal architecture (the rewrite)
 
-# macOS performance profiling
-MTL_HUD_ENABLED=1 cargo run
-```
+Dependency arrows point **inward** to the domain. Each crate's `lib.rs` header states its dependency rule; honor it.
 
-**Workspace Development:**
-```bash
-# Run from workspace root
-cd ../.. && cargo run --example agentx
-```
+| Crate | Role | May depend on |
+|-------|------|---------------|
+| `agentx-domain` | **Core**: entities, value objects, lifecycle state machines, and **port traits**. Zero framework deps (only serde/thiserror/chrono/uuid/async-trait). | nothing internal |
+| `agentx-bus` | Infra: a typed async pub/sub `EventBus` (tokio broadcast, routed by `TypeId`). Knows nothing about the domain. | — |
+| `agentx-store` | **Driven adapter**: `FsSessionRepository` (JSONL timelines) + `FsConfigStore`; `paths` is the single source of on-disk locations. | domain |
+| `agentx-acp` | **Driven adapter**: implements `AgentGateway`/`AgentRegistry` over ACP; supervises agent subprocesses; `mapping.rs` is the ACP↔domain anti-corruption layer. | domain, bus |
+| `agentx-app` | **Application**: use-cases orchestrating the domain via ports (`SessionService`, `PersistenceProjector`). | domain, bus |
+| `agentx-ui` | **Driving adapter**: GPUI panels/view-models/dock (`ChatView`, `WelcomeView`, `SessionsPanel`). | app, domain, bus, gpui |
+| `agentx-shell` | **Composition root**: the binary. The *only* place adapters are constructed and injected into ports. | everything |
 
-## Architecture Overview
+**Ports** (traits in `agentx-domain/src/ports.rs`): `AgentGateway` + `AgentRegistry` (impl: `AcpSupervisor`), `SessionRepository` + `ConfigStore` (impl: the `Fs*` store types). The application depends on these traits, never on a concrete adapter. `agentx-ui` must **not** depend on `agentx-acp`/`agentx-store`.
 
-AgentX follows a layered architecture with clear separation of concerns:
+## Cross-cutting design you must understand before editing
 
-```
-┌─────────────────────────────────────────┐
-│  UI Layer (panels/, components/)        │  ← GPUI rendering, user interaction
-├─────────────────────────────────────────┤
-│  Event Bus (core/event_bus/)            │  ← Pub/sub for cross-thread updates
-├─────────────────────────────────────────┤
-│  Service Layer (core/services/)         │  ← Business logic
-├─────────────────────────────────────────┤
-│  Agent Client (core/agent/)             │  ← ACP protocol, process management
-└─────────────────────────────────────────┘
-```
+These constraints span multiple crates and are easy to violate:
 
-### Workspace Crates
+- **GPUI executor ≠ a Tokio runtime.** `agentx-shell` creates **no** app-level Tokio runtime. Store adapters use blocking `std::fs` so their async port methods can be awaited from GPUI's executor. Each ACP agent runs on its **own OS thread** with a current-thread Tokio runtime + `LocalSet` (ACP connection futures are `!Send`). The `PersistenceProjector` drains the bus on `cx.background_executor()` so per-event file appends never block the UI thread.
+- **The event bus has no replay.** `EventBus` is broadcast: a subscriber only sees events published *after* it subscribes. **Subscribe consumers before starting the producer** (agent). The shell/launcher subscribes the projector and each chat view's `Receiver<DomainEvent>` *before* booting the agent, then injects the receiver — otherwise session-setup events (slash commands, config options) are lost.
+- **Two event layers — don't conflate them.** `SessionEvent` is the in-session timeline (`UserMessage`/`AgentMessage`/`ToolCall`/…) that `SessionRepository` persists and the UI renders. `DomainEvent` is the cross-cutting bus notification (`SessionAppended`, `SessionStatusChanged`, `PermissionRequested`, `SessionConfigChanged`, …). Adapters/UI react to `DomainEvent`; they never call each other directly.
+- **ACP types stop at `agentx-acp::mapping`.** All translation between `agent_client_protocol::schema` and domain types lives there (`*_to_domain` inbound, `*_to_acp` outbound). ACP schema types must never leak inward to app/ui/domain. ACP enums are `#[non_exhaustive]` — always include a catch-all arm.
+- **Persistence is a projector, not a call.** Nothing calls "save"; `PersistenceProjector` subscribes to the bus and turns `SessionAppended` into stored rows. Streamed agent output is folded into whole `SessionEvent`s by a per-session accumulator in `agentx-acp` before it reaches the bus.
+- **GPUI entity lifecycle.** Entities created inside `render()` are dropped when it returns. Store long-lived entities as struct fields (`Entity<T>`) and `.clone()` them in `render`; never `cx.new(...)` a widget inside `render`. Each `agentx-ui` panel splits into a `mod.rs` (state + intents) and a `view.rs` (pure render) — keep that shape.
 
-AgentX uses a workspace structure to separate concerns into reusable crates:
+## Conventions
 
-- **agentx-types** (`crates/agentx-types/`): Shared type definitions and data structures used across all crates
-- **agentx-event-bus** (`crates/agentx-event-bus/`): Event bus implementation for thread-safe pub/sub communication
-- **agentx-agent** (`crates/agentx-agent/`): Agent client and ACP protocol implementation, process management
-- **agentx-services** (`crates/agentx-services/`): Business logic services (AgentService, MessageService, PersistenceService, etc.)
-- **agentx-acp-ui** (`crates/agentx-acp-ui/`): ACP-specific UI components for rendering agent messages, tool calls, and streams
-- **git-worktree-manager** (`crates/git-worktree-manager/`): Git worktree management utilities
+- **Rust edition 2024.** Run `cargo fmt` before committing.
+- **Lints are pre-relaxed in `Cargo.toml`:** `dead_code`, `unused_variables`, `unused_imports`, and most `clippy::style` are `allow`. `dbg!` is **denied** — never commit `dbg!`. When silencing another lint locally, add a one-line `#[allow(...)]` justification.
+- **Commits:** Conventional Commits (`feat(scope):`, `fix:`, `refactor:`, `docs:`, `chore:`). Do not commit unless asked.
+- **Tests** are colocated in `#[cfg(test)] mod tests`; keep them deterministic (no network/timers). The domain stays pure — pass `now: DateTime<Utc>` in rather than calling `Utc::now()` inside it.
+- **Error handling:** `anyhow` at the app/shell boundary with `.context(...)`; typed `thiserror` errors (`AgentError`, `StoreError`) inside the domain/adapters.
 
-**Important**: When modifying shared types, event definitions, or service interfaces, make changes in the respective crate directory, not in the main application (`src/`). This ensures proper separation of concerns and enables code reuse.
+## Configuration & data locations
 
-### Core Architectural Patterns
+`agentx-store::paths` is authoritative. Per-user data dir: Windows `%APPDATA%\agentx`, Linux `~/.config/agentx`, macOS `~/.agentx`. Within it: `config.json` (agents/models/MCP servers/proxy) and `sessions/{session_id}.jsonl` (per-session timelines).
 
-#### 1. Event Bus System (Cross-Thread Communication)
-
-The event bus enables thread-safe pub/sub between agent threads and UI thread:
-
-**Event Buses** (`src/core/event_bus/`):
-- `SessionUpdateBus`: Agent messages, tool calls, thinking updates
-- `PermissionBus`: Permission requests from agents
-- `WorkspaceBus`: Workspace status changes
-- `CodeSelectionBus`: Code selection events for editor integration
-- `AgentConfigBus`: Agent configuration changes
-
-**Pattern** (Agent Thread → UI Thread):
-```rust
-// 1. Subscribe in UI component (runs on GPUI main thread)
-let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-session_bus.subscribe(move |event| {
-    let _ = tx.send((*event.update).clone());
-});
-
-cx.spawn(|mut cx| async move {
-    while let Some(update) = rx.recv().await {
-        cx.update(|cx| {
-            entity.update(cx, |this, cx| {
-                // Update UI state
-                cx.notify();  // Trigger re-render
-            });
-        });
-    }
-}).detach();
-
-// 2. Publish from any thread (agent thread, service, etc.)
-session_bus.publish(SessionUpdateEvent {
-    session_id: session_id.clone(),
-    update: Arc::new(SessionUpdate::AgentMessage(...)),
-});
-```
-
-**Key Features** (Recent Enhancements):
-- **Batching**: `BatchedEventCollector` groups rapid events
-- **Debouncing**: `Debouncer` prevents excessive updates
-- **Filtering**: Subscribe to specific sessions or all sessions
-- **Metrics**: `EventBusStats` tracks subscription count and event throughput
-
-#### 2. Service Layer Pattern
-
-All business logic lives in services (`src/core/services/`), accessed via global `AppState`:
-
-**Services:**
-- `AgentService`: Manages agent lifecycle and sessions (Aggregate Root)
-- `MessageService`: Handles message sending and event bus integration
-- `PersistenceService`: Saves/loads session history to JSONL files
-- `WorkspaceService`: Manages workspace state and panel visibility
-- `AgentConfigService`: Dynamic agent configuration with hot-reloading
-- `AiService`: AI-powered features (code comments, etc.)
-
-**Usage Pattern:**
-```rust
-let message_service = AppState::global(cx).message_service()?;
-
-// Send message (async operation)
-cx.spawn(async move |_this, _cx| {
-    match message_service.send_user_message(&agent_name, message).await {
-        Ok(session_id) => log::info!("Message sent to {}", session_id),
-        Err(e) => log::error!("Failed: {}", e),
-    }
-}).detach();
-
-// Subscribe to session updates with filtering
-let mut rx = message_service.subscribe_session_updates(Some(session_id));
-cx.spawn(async move |cx| {
-    while let Some(update) = rx.recv().await {
-        // Handle update
-    }
-}).detach();
-```
-
-#### 3. DockPanel System
-
-All panels implement `DockPanel` trait for consistent docking behavior:
-
-```rust
-pub trait DockPanel: 'static + Sized {
-    fn title() -> &'static str;
-    fn description() -> &'static str;
-    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render>;
-
-    // Optional customization
-    fn closable() -> bool { true }
-    fn zoomable() -> bool { true }
-    fn paddings() -> Pixels { px(16.) }
-}
-```
-
-**Panels** (`src/panels/`):
-- `ConversationPanel`: Chat interface with ACP agents
-- `CodeEditorPanel`: LSP-enabled code editor
-- `TaskPanel`: Task/todo management
-- `SessionManagerPanel`: Multi-session switching
-- `SettingsPanel`: Application settings
-- `TerminalPanel`: Embedded terminal
-- `ToolCallDetailPanel`: Tool call detail viewer
-- `WelcomePanel`: Welcome screen
-
-#### 4. Entity Lifecycle (CRITICAL)
-
-**GPUI Entity Rule**: Entities created in `render()` are dropped after the method returns.
-
-❌ **WRONG**:
-```rust
-fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let widget = cx.new(|cx| Widget::new(...)); // Dies after render!
-    v_flex().child(widget)
-}
-```
-
-✅ **CORRECT**:
-```rust
-struct MyPanel {
-    widget: Entity<Widget>,  // Stored in struct
-}
-
-impl MyPanel {
-    fn new(window: &mut Window, cx: &mut App) -> Self {
-        Self {
-            widget: cx.new(|cx| Widget::new(...)),  // Lives with panel
-        }
-    }
-}
-
-fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    v_flex().child(self.widget.clone())  // Reference stored entity
-}
-```
-
-## Key Subsystems
-
-### Agent Management
-
-**Flow**: `main.rs` → `AgentManager::initialize()` → spawns agent processes → `GuiClient` callbacks → event bus
-
-**Agent Configuration** (`config.json`):
-- Located in user data directory (Windows: `%APPDATA%\agentx\config.json`)
-- Supports hot-reloading via `ConfigWatcher`
-- Command-line override: `agentx --config /path/to/config.json`
-
-**Session Lifecycle**:
-```rust
-let agent_service = AppState::global(cx).agent_service()?;
-
-// Get or create session (reuses existing)
-let session_id = agent_service.get_or_create_session(&agent_name).await?;
-
-// Send message
-let message_service = AppState::global(cx).message_service()?;
-message_service.send_user_message(&agent_name, message).await?;
-
-// Close session
-agent_service.close_session(&agent_name).await?;
-```
-
-### Layout Persistence
-
-**Location**:
-- Debug: `target/docks-agentx.json`
-- Release: `docks-agentx.json`
-
-**Features**:
-- Auto-saves layout (debounced 10 seconds)
-- Saves on app quit
-- Includes panel positions, sizes, active tabs
-- Version tracking for migration
-
-### Session Persistence
-
-**Location**: `target/sessions/{session_id}.jsonl` (debug) or `sessions/` (release)
-
-**Format** (one JSON per line):
-```jsonl
-{"timestamp":"2025-12-10T10:30:45Z","update":{"UserMessage":{"content":"..."}}}
-{"timestamp":"2025-12-10T10:30:47Z","update":{"AgentMessage":{"content":"..."}}}
-```
-
-**Automatic**: `PersistenceService` subscribes to session bus and saves in real-time.
-
-### Update System
-
-**Auto-update checking** (`src/core/updater/`):
-```rust
-let manager = UpdateManager::new()?;
-
-match manager.check_for_updates().await {
-    UpdateCheckResult::UpdateAvailable(info) => {
-        // Download update
-        let path = manager.download_update(&info, Some(progress_callback)).await?;
-    }
-    UpdateCheckResult::UpToDate => {},
-    UpdateCheckResult::Error(e) => {},
-}
-```
-
-## Adding New Panels
-
-### Step 1: Implement DockPanel
-
-Create `src/panels/my_panel.rs`:
-```rust
-use gpui::*;
-use crate::panels::dock_panel::DockPanel;
-
-pub struct MyPanel {
-    focus_handle: FocusHandle,
-}
-
-impl DockPanel for MyPanel {
-    fn title() -> &'static str { "My Panel" }
-    fn description() -> &'static str { "Panel description" }
-
-    fn new_view(window: &mut Window, cx: &mut App) -> Entity<impl Render> {
-        cx.new(|cx| Self::new(window, cx))
-    }
-}
-
-impl MyPanel {
-    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self {
-            focus_handle: cx.focus_handle(),
-        }
-    }
-}
-
-impl Render for MyPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex().size_full().child("Panel content")
-    }
-}
-
-impl Focusable for MyPanel {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-```
-
-### Step 2: Register Panel
-
-In `src/lib.rs`, add to `create_panel_view()`:
-```rust
-"MyPanel" => {
-    let view = MyPanel::new_view(window, cx);
-    Some(view.into())
-}
-```
-
-### Step 3: Export
-
-In `src/panels/mod.rs`:
-```rust
-mod my_panel;
-pub use my_panel::MyPanel;
-```
-
-### Step 4: Add to Default Layout (Optional)
-
-In `src/workspace/mod.rs`, update `init_default_layout()`:
-```rust
-dock_area.push_panel_to_stack(
-    DockPanelContainer::panel::<MyPanel>(window, cx).into(),
-    DockPlacement::Left,
-);
-```
-
-## Important Conventions
-
-### Code Organization
-
-Follow this structure for complex panels:
-```
-src/panels/my_panel/
-├── mod.rs           # Module exports
-├── panel.rs         # Main panel implementation
-├── types.rs         # Panel-specific types
-├── components.rs    # UI subcomponents
-└── helpers.rs       # Utility functions
-```
-
-Examples: `conversation/`, `code_editor/`, `task_panel/`
-
-### Import Organization
-
-Group imports with blank lines:
-```rust
-// External crates (alphabetical)
-use anyhow::Context as _;
-use gpui::{App, Context, Entity};
-
-// Local parent module imports
-use crate::panels::ConversationPanel;
-
-// Sibling module imports
-use super::app_state::AppState;
-```
-
-### Error Handling
-
-Use `anyhow` with context:
-```rust
-let data = load_data()
-    .await
-    .context("Failed to load data")?;
-```
-
-### UI Patterns
-
-- **Sizing**: Use `px()` for pixels, `rems()` for font-relative
-- **Layout**: Use `v_flex()`, `h_flex()` with `.gap()`, `.p()` modifiers
-- **Mouse cursor**: Use `default` not `pointer` for buttons (desktop convention)
-- **Component size**: Default to `md` size
-
-### Async Operations
-
-- Use `tokio` for async runtime
-- Spawn with `cx.spawn(...).detach()` for fire-and-forget
-- Bridge agent threads to UI with `tokio::sync::mpsc::unbounded_channel` + `cx.spawn()`
-
-## Configuration Files
-
-**User Data Directories**:
-- macOS: `~/.agentx/`
-- Windows: `%APPDATA%\agentx\`
-- Linux: `~/.config/agentx/`
-
-**Files**:
-- `config.json`: Agent server configurations
-- `docks-agentx.json`: Layout state
-- `sessions/{session_id}.jsonl`: Session history
-- `state.json`: Application state
-- `workspace-config.json`: Workspace configuration
-
-## Internationalization
-
-**System**: `rust-i18n` crate
-**Locale files**: `locales/en.yml`, `locales/zh-CN.yml`
-**Usage**: `t!("key")` macro for translated strings
-**Settings**: Locale selection in Settings panel
-
-## Testing
-
-Tests colocated in `#[cfg(test)] mod tests` blocks:
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_feature() {
-        // Test implementation
-    }
-}
-```
-
-## Debugging
-
-**Module-specific logging**:
-```bash
-# Windows
-set RUST_LOG=info,agentx::core::services=debug && cargo run
-set RUST_LOG=info,agentx::panels::conversation=debug && cargo run
-
-# Unix/Linux/macOS
-RUST_LOG=info,agentx::core::services=debug cargo run
-```
-
-**Key log messages**:
-- `"Published user message to session bus"` - ChatInputBox
-- `"Subscribed to session bus"` - ConversationPanel
-- `"Session update sent to channel"` - Event bus
-- `"Agent spawned successfully"` - AgentManager
-- `"Session created"` - AgentService
-
-## Additional Guidelines
-
-**See AGENTS.md** for:
-- Detailed code style guidelines
-- Git/PR conventions
-- Security considerations
-- Clippy exceptions
-- Testing guidelines
-
-**Performance** (macOS only):
-```bash
-MTL_HUD_ENABLED=1 cargo run  # Show FPS/GPU metrics
-samply record cargo run --release  # Profile with samply
-```
-
-## Workspace Context
-
-This project is part of the `gpui-component` workspace at `../gpui-component/`:
-- `crates/ui`: Core component library
-- `crates/story`: Component gallery
-- `crates/macros`: Procedural macros
-- `examples/`: Other GPUI examples
-
-Run full component gallery:
-```bash
-cd ../.. && cargo run
-```
+`config.json` holds local executable paths, env vars, and may hold provider API keys — **do not read or commit it.** If agents don't appear, it's usually a proxy/network issue (configure proxy in settings).

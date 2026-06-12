@@ -43,8 +43,8 @@ pub mod workspace;
 // can `use agentx_domain::SessionId` rather than `use agentx_domain::id::SessionId`.
 pub use agent::{AgentDescriptor, AgentStatus, StopReason};
 pub use config::{
-    AgentConfig, CommandConfig, Config, McpServerConfig, ModelConfig, ProxyConfig,
-    DEFAULT_TOOL_CALL_PREVIEW_MAX_LINES,
+    AgentConfig, CommandConfig, Config, DEFAULT_TOOL_CALL_PREVIEW_MAX_LINES, McpServerConfig,
+    ModelConfig, ProxyConfig,
 };
 pub use error::{AgentError, StoreError};
 pub use event::{DomainEvent, PersistedEvent, SessionEvent};
@@ -54,7 +54,7 @@ pub use permission::{
     PermissionOption, PermissionOptionKind, PermissionOutcome, PermissionRequest,
 };
 pub use plan::{Plan, PlanEntry, PlanEntryStatus, PlanPriority};
-pub use ports::{AgentGateway, AgentRegistry, ConfigStore, SessionRepository};
+pub use ports::{AgentGateway, AgentRegistry, ConfigStore, SessionRepository, WorkspaceRepository};
 pub use session::{
     ConfigOptionValue, InvalidTransition, Session, SessionConfigOption, SessionInit, SessionMode,
     SessionStatus, SlashCommand,

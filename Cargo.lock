@@ -385,8 +385,11 @@ dependencies = [
  "agentx-app",
  "agentx-bus",
  "agentx-domain",
+ "chrono",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
  "similar",
 ]
 

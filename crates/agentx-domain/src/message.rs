@@ -17,7 +17,10 @@ pub enum Role {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentBlock {
     Text(String),
-    Image { mime_type: String, data: String },
+    Image {
+        mime_type: String,
+        data: String,
+    },
     ResourceLink {
         name: String,
         uri: String,
@@ -44,6 +47,14 @@ pub enum ResourceContents {
 impl ContentBlock {
     pub fn text(value: impl Into<String>) -> Self {
         ContentBlock::Text(value.into())
+    }
+
+    /// An inline image block carrying base64-encoded `data`.
+    pub fn image(mime_type: impl Into<String>, data: impl Into<String>) -> Self {
+        ContentBlock::Image {
+            mime_type: mime_type.into(),
+            data: data.into(),
+        }
     }
 
     /// Best-effort plain-text view of a block, used for previews and search.

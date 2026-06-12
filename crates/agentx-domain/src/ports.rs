@@ -9,15 +9,16 @@ use std::path::Path;
 
 use async_trait::async_trait;
 
+use crate::agent::StopReason;
 use crate::agent::{AgentDescriptor, AgentStatus};
 use crate::config::{AgentConfig, Config, McpServerConfig, ProxyConfig};
 use crate::error::{AgentError, StoreError};
 use crate::event::PersistedEvent;
-use crate::id::{AgentId, SessionId};
+use crate::id::{AgentId, SessionId, TaskId, WorkspaceId};
 use crate::message::ContentBlock;
 use crate::permission::PermissionOutcome;
-use crate::session::SessionInit;
-use crate::agent::StopReason;
+use crate::session::{SessionInit, SessionStatus};
+use crate::workspace::{Task, Workspace};
 
 /// Talks to agents: session lifecycle, prompts, and turn control.
 #[async_trait]
@@ -106,4 +107,23 @@ pub trait SessionRepository: Send + Sync {
 pub trait ConfigStore: Send + Sync {
     async fn load(&self) -> Result<Config, StoreError>;
     async fn save(&self, config: &Config) -> Result<(), StoreError>;
+}
+
+/// Persists workspaces (project folders) and the tasks run within them.
+///
+/// The whole set is small and edited interactively, so the granular operations
+/// are expected to load-modify-save the backing store.
+#[async_trait]
+pub trait WorkspaceRepository: Send + Sync {
+    async fn list_workspaces(&self) -> Result<Vec<Workspace>, StoreError>;
+    async fn list_tasks(&self) -> Result<Vec<Task>, StoreError>;
+    async fn add_workspace(&self, workspace: Workspace) -> Result<(), StoreError>;
+    async fn remove_workspace(&self, id: &WorkspaceId) -> Result<(), StoreError>;
+    async fn add_task(&self, task: Task) -> Result<(), StoreError>;
+    async fn remove_task(&self, id: &TaskId) -> Result<(), StoreError>;
+    async fn update_task_status(
+        &self,
+        id: &TaskId,
+        status: SessionStatus,
+    ) -> Result<(), StoreError>;
 }

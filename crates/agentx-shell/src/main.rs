@@ -22,10 +22,13 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use agentx_acp::AcpSupervisor;
-use agentx_app::{PersistenceProjector, SessionService};
+use agentx_app::{PersistenceProjector, SessionService, WorkspaceService};
 use agentx_bus::EventBus;
-use agentx_domain::{AgentGateway, AgentRegistry, Config, ConfigStore, DomainEvent, SessionRepository};
-use agentx_store::{FsConfigStore, FsSessionRepository, paths};
+use agentx_domain::{
+    AgentGateway, AgentRegistry, Config, ConfigStore, DomainEvent, SessionRepository,
+    WorkspaceRepository,
+};
+use agentx_store::{FsConfigStore, FsSessionRepository, FsWorkspaceRepository, paths};
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -33,6 +36,7 @@ fn main() -> Result<()> {
     let data_dir = paths::data_dir();
     let config_path = paths::config_path(&data_dir);
     let sessions_dir = paths::sessions_dir(&data_dir);
+    let workspaces_path = paths::workspaces_path(&data_dir);
     let cwd = std::env::current_dir()?;
 
     gpui_platform::application()
@@ -65,9 +69,19 @@ fn main() -> Result<()> {
             let service = Arc::new(SessionService::new(
                 supervisor.clone() as Arc<dyn AgentGateway>,
                 bus.clone(),
-                repository,
+                repository.clone(),
             ));
             let registry = supervisor as Arc<dyn AgentRegistry>;
+
+            // Workspaces + tasks: persisted to their own JSON file, with task
+            // last-message previews derived from the session timelines.
+            let workspace_repo: Arc<dyn WorkspaceRepository> =
+                Arc::new(FsWorkspaceRepository::new(workspaces_path));
+            let workspace_service = Arc::new(WorkspaceService::new(
+                workspace_repo,
+                repository,
+                bus.clone(),
+            ));
 
             cx.spawn(async move |cx| {
                 // Blocking `std::fs` is runtime-agnostic, so loading config on
@@ -83,7 +97,15 @@ fn main() -> Result<()> {
                     });
 
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_welcome_window(registry, service, bus, config, cwd, cx);
+                    agentx_ui::open_welcome_window(
+                        registry,
+                        service,
+                        workspace_service,
+                        bus,
+                        config,
+                        cwd,
+                        cx,
+                    );
                 });
             })
             .detach();
