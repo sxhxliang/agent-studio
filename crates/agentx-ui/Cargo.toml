@@ -15,11 +15,15 @@ publish = false
 agentx-domain.workspace = true
 agentx-app.workspace = true
 agentx-bus.workspace = true
+agentx-acp-ui.workspace = true
+agent-client-protocol.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
 similar.workspace = true
 chrono.workspace = true
+log.workspace = true
 rfd = "0.15"
+base64 = "0.22"
 
 # The preview gallery (`cargo run -p agentx-ui --example gallery`) boots a real
 # GPUI window, so it needs the platform layer and the icon assets — same crates

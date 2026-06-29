@@ -1,8 +1,8 @@
 //! The rewrite's entry point — the composition root.
 //!
 //! Wires the driven adapters into the application's [`SessionService`] and opens
-//! the launcher ([`agentx_ui::open_welcome_window`]), where the user picks an
-//! agent from their `config.json` to start chatting:
+//! the dock workspace ([`agentx_ui::open_workspace_window`]), where the welcome
+//! panel starts a task and hands it to the conversation panel:
 //!
 //! ```text
 //! cargo run -p agentx-shell
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
                 });
 
                 let _ = cx.update(|cx| {
-                    agentx_ui::open_welcome_window(
+                    agentx_ui::open_workspace_window(
                         registry,
                         service,
                         workspace_service,

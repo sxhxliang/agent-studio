@@ -230,7 +230,11 @@ mod tests {
         acp::SessionUpdate::UserMessageChunk(acp::ContentChunk::new(text.into()))
     }
 
-    fn tool_start(id: &'static str, title: &str, status: acp::ToolCallStatus) -> acp::SessionUpdate {
+    fn tool_start(
+        id: &'static str,
+        title: &str,
+        status: acp::ToolCallStatus,
+    ) -> acp::SessionUpdate {
         acp::SessionUpdate::ToolCall(acp::ToolCall::new(id, title.to_string()).status(status))
     }
 
@@ -305,9 +309,10 @@ mod tests {
     fn tool_call_folds_start_and_update_into_one_event_on_completion() {
         let mut acc = StreamAccumulator::default();
         // Start is buffered, not emitted, while non-terminal.
-        assert!(acc
-            .push(tool_start("t1", "Edit file", acp::ToolCallStatus::Pending))
-            .is_empty());
+        assert!(
+            acc.push(tool_start("t1", "Edit file", acp::ToolCallStatus::Pending))
+                .is_empty()
+        );
         let events = acc.push(tool_update("t1", acp::ToolCallStatus::Completed));
         assert_eq!(events.len(), 1);
         let SessionEvent::ToolCall(call) = &events[0] else {

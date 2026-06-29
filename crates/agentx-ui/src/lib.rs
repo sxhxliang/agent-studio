@@ -27,10 +27,11 @@ pub mod panels;
 mod welcome;
 mod workspace;
 
+pub use chat::ChatView as ConversationPanel;
 pub use chat::{ChatView, open_chat_window};
 pub use panels::{
-    PanelCommand, PanelDescriptor, PanelKind, PanelPlacement, ToolCallDetailPanel,
+    PanelCommand, PanelDescriptor, PanelKind, PanelPlacement, ToolCallDetailPanel, WelcomePanel,
     open_tool_call_detail_window,
 };
 pub use welcome::open_welcome_window;
-pub use workspace::Workspace;
+pub use workspace::{Workspace, open_workspace_window};

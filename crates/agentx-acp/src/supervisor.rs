@@ -14,8 +14,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
 use std::sync::Arc;
+use std::sync::{Mutex, RwLock};
 
 use async_trait::async_trait;
 
@@ -207,9 +207,14 @@ impl AgentRegistry for AcpSupervisor {
             )));
         }
         let proxy = self.proxy.lock().expect("proxy poisoned").clone();
-        let worker =
-            AgentWorker::spawn(agent.clone(), config, proxy, self.bus.clone(), self.permissions.clone())
-                .await?;
+        let worker = AgentWorker::spawn(
+            agent.clone(),
+            config,
+            proxy,
+            self.bus.clone(),
+            self.permissions.clone(),
+        )
+        .await?;
         let status = worker.status();
         self.agents
             .write()
@@ -221,11 +226,7 @@ impl AgentRegistry for AcpSupervisor {
     }
 
     async fn remove_agent(&self, agent: &AgentId) -> Result<(), AgentError> {
-        let worker = self
-            .agents
-            .write()
-            .expect("agents poisoned")
-            .remove(agent);
+        let worker = self.agents.write().expect("agents poisoned").remove(agent);
         let Some(worker) = worker else {
             return Err(AgentError::Unavailable(agent.clone()));
         };

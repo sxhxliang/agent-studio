@@ -18,7 +18,7 @@ use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputState},
+    input::{Input, InputState, Paste},
     popover::Popover,
     select::{Select, SelectState},
     v_flex,
@@ -95,6 +95,7 @@ pub struct ChatInputBox {
     on_remove_image: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
     on_remove_code_selection: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
     on_remove_file: Option<Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>>,
+    on_paste: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     session_status: Option<SessionStatus>,
     file_suggestions: Vec<FileItem>,
     on_file_select: Option<Box<dyn Fn(&FileItem, &mut Window, &mut App) + 'static>>,
@@ -128,6 +129,7 @@ impl ChatInputBox {
             on_remove_image: None,
             on_remove_code_selection: None,
             on_remove_file: None,
+            on_paste: None,
             session_status: None,
             file_suggestions: Vec::new(),
             on_file_select: None,
@@ -193,6 +195,14 @@ impl ChatInputBox {
         F: Fn(&usize, &mut Window, &mut App) + 'static,
     {
         self.on_remove_image = Some(Rc::new(callback));
+        self
+    }
+
+    pub fn on_paste<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) + 'static,
+    {
+        self.on_paste = Some(Rc::new(callback));
         self
     }
 
@@ -291,6 +301,8 @@ impl RenderOnce for ChatInputBox {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let on_send = self.on_send;
         let on_cancel = self.on_cancel;
+        let on_paste_callback = self.on_paste.clone();
+        let input_state_for_paste = self.input_state.clone();
         let input_state = self.input_state.clone();
         let disabled = self.disabled;
         let allow_empty_send = self.allow_empty_send;
@@ -366,6 +378,27 @@ impl RenderOnce for ChatInputBox {
                     .border_color(border)
                     .bg(background)
                     .shadow_md()
+                    .when_some(on_paste_callback, |this, callback| {
+                        let input_state = input_state_for_paste.clone();
+                        this.on_action(move |_: &Paste, window, cx| {
+                            callback(window, cx);
+
+                            if let Some(clipboard_item) = cx.read_from_clipboard() {
+                                let has_images = clipboard_item
+                                    .entries()
+                                    .iter()
+                                    .any(|entry| matches!(entry, gpui::ClipboardEntry::Image(_)));
+
+                                if !has_images {
+                                    if let Some(text) = clipboard_item.text() {
+                                        input_state.update(cx, |state, cx| {
+                                            state.insert(text, window, cx);
+                                        });
+                                    }
+                                }
+                            }
+                        })
+                    })
                     .when(has_attachments, |this| {
                         let chip_text_color = foreground.opacity(0.85);
                         let render_chip = |id_prefix: &'static str,
@@ -696,8 +729,11 @@ impl RenderOnce for ChatInputBox {
                                     }
                                     _ => (Icon::new(IconName::ArrowUp), false),
                                 };
-                                let btn_disabled =
-                                    disabled || (is_empty && !is_in_progress && !allow_empty_send);
+                                let btn_disabled = disabled
+                                    || (is_empty
+                                        && !has_attachments
+                                        && !is_in_progress
+                                        && !allow_empty_send);
 
                                 let mut btn = Button::new("send-or-cancel")
                                     .icon(icon)

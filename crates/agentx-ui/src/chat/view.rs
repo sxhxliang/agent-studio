@@ -8,7 +8,10 @@ use gpui_component::{
     ActiveTheme as _, Icon, IconName, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelEvent},
-    h_flex, v_flex,
+    h_flex,
+    skeleton::Skeleton,
+    spinner::Spinner,
+    v_flex,
 };
 
 use agentx_domain::{PermissionOutcome, SessionEvent, SessionStatus, SlashCommand, ToolCall};
@@ -260,6 +263,122 @@ impl ChatView {
 
         render_tool_call_item(call, expanded, toggle, Some(detail), cx.theme())
     }
+
+    fn render_loading_skeleton(&self, cx: &mut Context<Self>) -> AnyElement {
+        if !matches!(
+            self.session_status,
+            SessionStatus::Running | SessionStatus::Pending
+        ) {
+            return v_flex().into_any_element();
+        }
+
+        let current_todo = self.message_stream.read(cx).current_todo_in_progress();
+        let (status_icon, status_color) = match self.session_status {
+            SessionStatus::Running => (IconName::Loader, cx.theme().primary),
+            SessionStatus::Pending => (IconName::LoaderCircle, cx.theme().warning),
+            _ => return v_flex().into_any_element(),
+        };
+        let duration = chrono::Utc::now().signed_duration_since(self.last_active);
+        let total_seconds = duration.num_seconds().max(0) as u64;
+        let elapsed_time = format!(
+            "{:02}:{:02}:{:02}",
+            total_seconds / 3600,
+            (total_seconds % 3600) / 60,
+            total_seconds % 60
+        );
+
+        v_flex()
+            .w_full()
+            .gap_3()
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        Spinner::new()
+                            .icon(status_icon)
+                            .with_size(gpui_component::Size::Medium)
+                            .color(status_color),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2p5()
+                            .flex_1()
+                            .when_some(current_todo, |this, todo| {
+                                this.child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .px_2()
+                                        .py_1()
+                                        .rounded(cx.theme().radius)
+                                        .bg(cx.theme().muted.opacity(0.5))
+                                        .child(
+                                            Icon::new(IconName::Check)
+                                                .size(px(12.))
+                                                .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .max_w(px(400.))
+                                                .overflow_hidden()
+                                                .text_ellipsis()
+                                                .whitespace_nowrap()
+                                                .child(todo),
+                                        ),
+                                )
+                            })
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .child(
+                                        Icon::new(IconName::Info)
+                                            .size(px(12.))
+                                            .text_color(cx.theme().muted_foreground),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(elapsed_time),
+                                    ),
+                            ),
+                    ),
+            )
+            .child(
+                h_flex().gap_3().child(div().w(px(24.))).child(
+                    v_flex()
+                        .flex_1()
+                        .gap_2()
+                        .child(
+                            Skeleton::new()
+                                .w_full()
+                                .max_w(px(480.))
+                                .h(px(16.))
+                                .rounded(cx.theme().radius),
+                        )
+                        .child(
+                            Skeleton::new()
+                                .w_full()
+                                .max_w(px(420.))
+                                .h(px(16.))
+                                .rounded(cx.theme().radius),
+                        )
+                        .child(
+                            Skeleton::new()
+                                .w_full()
+                                .max_w(px(360.))
+                                .h(px(16.))
+                                .rounded(cx.theme().radius),
+                        ),
+                ),
+            )
+            .into_any_element()
+    }
 }
 
 impl Render for ChatView {
@@ -268,15 +387,17 @@ impl Render for ChatView {
             // Browsing a past session: read-only history + a way back / continue.
             Some(viewed) => {
                 let label: String = viewed.id.as_str().chars().take(8).collect();
-                let entries = self.render_entries(&viewed.entries, cx);
                 v_flex()
                     .size_full()
-                    .p_4()
-                    .gap_3()
                     .child(
                         h_flex()
+                            .flex_none()
                             .gap_2()
                             .items_center()
+                            .px_4()
+                            .py_2()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
                             .child(
                                 div()
                                     .text_sm()
@@ -299,57 +420,20 @@ impl Render for ChatView {
                             .id("history-events")
                             .flex_1()
                             .w_full()
+                            .track_scroll(&self.scroll)
                             .overflow_y_scroll()
-                            .child(v_flex().gap_3().children(entries)),
+                            .child(
+                                v_flex()
+                                    .p_4()
+                                    .gap_3()
+                                    .bg(cx.theme().background)
+                                    .child(viewed.stream.clone()),
+                            ),
                     )
+                    .into_any_element()
             }
             // The live session: selectors, streaming timeline, permissions, input.
             None => {
-                let theme = cx.theme();
-                let foreground = theme.foreground;
-                let muted = theme.muted_foreground;
-                let border = theme.border;
-                let primary = theme.primary;
-                let card_bg = theme.background;
-                let session_label: String = self.session.as_str().chars().take(8).collect();
-                let agent_name = self.agent.to_string();
-                let busy = self.busy;
-                let permissions = self.permission_cards(cx);
-                let selectors = self.render_selectors(cx);
-                let timeline = self.render_entries(&self.live, cx);
-
-                let header = h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(Icon::new(IconName::Bot).small().text_color(primary))
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(foreground)
-                            .child(agent_name),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(format!("· {session_label}")),
-                    )
-                    .when(busy, |this| {
-                        this.child(
-                            h_flex()
-                                .gap_1()
-                                .items_center()
-                                .child(
-                                    Icon::new(IconName::LoaderCircle)
-                                        .xsmall()
-                                        .text_color(primary),
-                                )
-                                .child(div().text_xs().text_color(muted).child("working…")),
-                        )
-                    });
-
                 let view = cx.entity();
                 let value = self.input.read(cx).value();
                 let typing_command = value.starts_with('/');
@@ -363,13 +447,22 @@ impl Render for ChatView {
                 } else {
                     Vec::new()
                 };
+                let is_empty = self.message_stream.read(cx).is_empty();
+                let message_list = v_flex()
+                    .p_4()
+                    .gap_3()
+                    .bg(cx.theme().background)
+                    .child(self.message_stream.clone())
+                    .child(self.render_loading_skeleton(cx));
                 let composer = ChatInputBox::new("chat-composer", self.input.clone())
-                    .session_status(Some(if busy {
-                        SessionStatus::Running
-                    } else {
-                        SessionStatus::Idle
-                    }))
-                    .agent_status_text(if busy { "working…" } else { "ready" })
+                    .pasted_images(self.pasted_images.clone())
+                    .code_selections(self.code_selections.clone())
+                    .selected_files(self.selected_files.clone())
+                    .session_status(Some(self.session_status))
+                    .disabled(matches!(
+                        self.session_status,
+                        SessionStatus::Closed | SessionStatus::Failed
+                    ))
                     .show_command_suggestions(typing_command && !command_suggestions.is_empty())
                     .command_suggestions(command_suggestions)
                     .file_suggestions(self.file_suggestions.clone())
@@ -379,6 +472,26 @@ impl Render for ChatView {
                         move |file, window, cx| {
                             let file = file.clone();
                             view.update(cx, |this, cx| this.apply_file_mention(file, window, cx));
+                        }
+                    })
+                    .on_paste({
+                        let view = view.clone();
+                        move |_window, cx| {
+                            view.update(cx, |this, cx| this.handle_paste(cx));
+                        }
+                    })
+                    .on_remove_image({
+                        let view = view.clone();
+                        move |index, _window, cx| {
+                            let index = *index;
+                            view.update(cx, |this, cx| this.remove_image(index, cx));
+                        }
+                    })
+                    .on_remove_code_selection({
+                        let view = view.clone();
+                        move |index, _window, cx| {
+                            let index = *index;
+                            view.update(cx, |this, cx| this.remove_code_selection(index, cx));
                         }
                     })
                     .on_remove_file({
@@ -399,26 +512,42 @@ impl Render for ChatView {
                     });
 
                 v_flex()
+                    .id("messages")
                     .size_full()
-                    .p_4()
-                    .gap_3()
-                    .child(header)
-                    .when(!selectors.is_empty(), |this| {
-                        this.child(v_flex().gap_2().children(selectors))
-                    })
                     .child(
                         div()
-                            .id("chat-events")
+                            .id("conversation-scroll-container")
                             .flex_1()
                             .w_full()
                             .track_scroll(&self.scroll)
                             .overflow_y_scroll()
-                            .child(v_flex().gap_3().children(timeline)),
+                            .size_full()
+                            .when(is_empty, |this| {
+                                this.child(
+                                    div()
+                                        .size_full()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(
+                                            div()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .text_sm()
+                                                .child("No messages yet"),
+                                        ),
+                                )
+                            })
+                            .when(!is_empty, |this| this.pb_3().child(message_list)),
                     )
-                    .when(!permissions.is_empty(), |this| {
-                        this.child(v_flex().gap_2().children(permissions))
-                    })
-                    .child(composer)
+                    .child(
+                        div()
+                            .flex_none()
+                            .w_full()
+                            .bg(cx.theme().background)
+                            .p_1()
+                            .child(composer),
+                    )
+                    .into_any_element()
             }
         };
 
@@ -439,10 +568,10 @@ impl Focusable for ChatView {
 
 impl Panel for ChatView {
     fn panel_name(&self) -> &'static str {
-        "ChatView"
+        "ConversationPanel"
     }
 
     fn title(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        self.agent.to_string()
+        "Conversation"
     }
 }

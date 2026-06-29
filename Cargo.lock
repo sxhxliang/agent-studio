@@ -382,14 +382,18 @@ dependencies = [
 name = "agentx-ui"
 version = "0.1.0"
 dependencies = [
+ "agent-client-protocol",
+ "agentx-acp-ui",
  "agentx-app",
  "agentx-bus",
  "agentx-domain",
+ "base64 0.22.1",
  "chrono",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "log",
  "rfd",
  "similar",
 ]

@@ -58,11 +58,11 @@ impl TaskPanel {
     pub fn new(
         service: Arc<WorkspaceService>,
         config_service: Arc<ConfigService>,
-        chat: Entity<ChatView>,
+        chat: Option<Entity<ChatView>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let panel = Self::build(Some(service), Some(config_service), Some(chat), window, cx);
+        let panel = Self::build(Some(service), Some(config_service), chat, window, cx);
         panel.load(cx);
         panel
     }

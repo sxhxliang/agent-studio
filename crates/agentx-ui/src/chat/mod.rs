@@ -6,6 +6,7 @@
 //! visible to `view` (a descendant module), which is how the render closures
 //! call back into them.
 
+mod acp_bridge;
 mod sessions;
 mod view;
 
@@ -15,13 +16,21 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use base64::Engine as _;
+use chrono::{DateTime, Utc};
 use gpui::*;
 use gpui_component::{
-    ActiveTheme as _, Root, WindowExt as _,
+    ActiveTheme as _, Icon, IconName, Root, WindowExt as _,
     input::{InputEvent, InputState},
     notification::Notification,
+    spinner::Spinner,
 };
 
+use agentx_acp_ui::{
+    AcpMessageStream, AcpMessageStreamOptions, DiffSummaryOptions,
+    PermissionRequest as AcpPermissionRequest, PermissionRequestOptions, PermissionRequestView,
+    ToolCallItemOptions,
+};
 use agentx_app::{ConfigService, FileService, SessionService, WorkspaceService};
 use agentx_bus::Receiver;
 use agentx_domain::{
@@ -30,11 +39,14 @@ use agentx_domain::{
     SessionStatus, SlashCommand,
 };
 
-use crate::components::FileItem;
+use crate::components::{CodeSelection, FileItem, ImageAttachment};
 use crate::panels::{SessionManagerPanel, TaskPanel};
+
+const AUTO_SCROLL_THRESHOLD_PX: f32 = 120.0;
 
 /// One row in the conversation: a rich timeline event, a terse system note, or
 /// an error (rendered prominently).
+#[derive(Clone)]
 pub(crate) enum Entry {
     Event(SessionEvent),
     Note(SharedString),
@@ -45,6 +57,7 @@ pub(crate) enum Entry {
 pub(crate) struct ViewedSession {
     id: SessionId,
     entries: Vec<Entry>,
+    stream: Entity<AcpMessageStream>,
 }
 
 /// A sidebar entry for a sibling session: its id plus a display label (the first
@@ -80,6 +93,8 @@ pub struct ChatView {
     focus_handle: FocusHandle,
     /// The live session's timeline, accumulated from the bus.
     live: Vec<Entry>,
+    /// ACP-compatible message stream that recreates the legacy conversation UI.
+    message_stream: Entity<AcpMessageStream>,
     /// Sibling sessions on disk, for the sidebar (excludes the live one).
     sessions: Vec<SessionMeta>,
     /// A past session being browsed read-only; `None` means the live session.
@@ -94,20 +109,64 @@ pub struct ChatView {
     file_suggestions: Vec<FileItem>,
     /// Files attached via `@`-mention, sent as resource links on submit.
     selected_files: Vec<String>,
+    /// Images pasted into the composer.
+    pasted_images: Vec<ImageAttachment>,
+    /// Code snippets forwarded from an editor surface.
+    code_selections: Vec<CodeSelection>,
     scroll: ScrollHandle,
+    session_status: SessionStatus,
+    last_active: DateTime<Utc>,
+    message_count: usize,
     busy: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ChatView {
-    fn new(
+    fn create_message_stream(cx: &mut Context<Self>) -> Entity<AcpMessageStream> {
+        let tool_call_options =
+            ToolCallItemOptions::default().on_open_detail(Arc::new(|tool_call, _window, cx| {
+                crate::open_tool_call_detail_window(
+                    acp_bridge::acp_tool_call_to_domain(tool_call),
+                    cx,
+                );
+            }));
+        let diff_summary_options = DiffSummaryOptions {
+            on_open_tool_call: Some(Arc::new(|tool_call, _window, cx| {
+                crate::open_tool_call_detail_window(
+                    acp_bridge::acp_tool_call_to_domain(tool_call),
+                    cx,
+                );
+            })),
+        };
+
+        cx.new(|_| {
+            AcpMessageStream::with_options(AcpMessageStreamOptions {
+                agent_icon_provider: Arc::new(|_| Icon::new(IconName::Bot)),
+                tool_call_item_options: tool_call_options,
+                diff_summary_options,
+            })
+        })
+    }
+
+    fn should_auto_scroll(&self) -> bool {
+        let max_offset = self.scroll.max_offset().y;
+        let offset = self.scroll.offset().y;
+        let distance_to_bottom = max_offset + offset;
+        distance_to_bottom <= px(AUTO_SCROLL_THRESHOLD_PX)
+    }
+
+    fn reset_message_stream(&mut self, cx: &mut Context<Self>) {
+        self.message_stream = Self::create_message_stream(cx);
+    }
+
+    pub(crate) fn new(
         service: Arc<SessionService>,
         file_service: Arc<FileService>,
         mut events: Receiver<DomainEvent>,
         agent: AgentId,
         cwd: PathBuf,
         init: SessionInit,
-        initial_prompt: Option<String>,
+        initial_content: Option<Vec<ContentBlock>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -122,6 +181,7 @@ impl ChatView {
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Type a message, press Enter to send…")
         });
+        let message_stream = Self::create_message_stream(cx);
 
         let subscriptions = vec![cx.subscribe_in(
             &input,
@@ -142,8 +202,11 @@ impl ChatView {
                 let _ = cx.update(|cx| {
                     if let Some(view) = this.upgrade() {
                         view.update(cx, |this, cx| {
-                            this.record(event);
-                            this.scroll.scroll_to_bottom();
+                            let should_scroll = this.should_auto_scroll();
+                            this.record(event, cx);
+                            if should_scroll {
+                                this.scroll.scroll_to_bottom();
+                            }
                             cx.notify();
                         });
                     }
@@ -165,6 +228,7 @@ impl ChatView {
             input,
             focus_handle: cx.focus_handle(),
             live: Vec::new(),
+            message_stream,
             sessions: Vec::new(),
             viewed: None,
             expanded: HashSet::new(),
@@ -172,20 +236,24 @@ impl ChatView {
             pending: Vec::new(),
             file_suggestions: Vec::new(),
             selected_files: Vec::new(),
+            pasted_images: Vec::new(),
+            code_selections: Vec::new(),
             scroll: ScrollHandle::new(),
+            session_status: SessionStatus::Pending,
+            last_active: Utc::now(),
+            message_count: 0,
             busy: false,
             _subscriptions: subscriptions,
         };
         view.refresh_sessions(cx);
 
-        // An initial prompt from the launcher is sent as the first turn, once the
-        // view exists as an entity so `submit` can drive it.
-        if let Some(text) = initial_prompt.filter(|t| !t.trim().is_empty()) {
+        // Initial content from the launcher/welcome panel is sent as the first
+        // turn once the view exists as an entity, so streamed events have a
+        // receiver attached before the prompt starts.
+        if let Some(content) = initial_content.filter(|content| !content.is_empty()) {
             cx.spawn_in(window, async move |this, cx| {
                 let _ = this.update_in(cx, |this, window, cx| {
-                    this.input
-                        .update(cx, |state, cx| state.set_value(text, window, cx));
-                    this.submit(window, cx);
+                    this.send_content(content, window, cx);
                 });
             })
             .detach();
@@ -238,14 +306,20 @@ impl ChatView {
         let service = self.service.clone();
         cx.spawn(async move |this, cx| {
             let history = service.history(&id).await.unwrap_or_default();
-            let entries = history
+            let entries: Vec<Entry> = history
                 .into_iter()
                 .map(|event| Entry::Event(event.event))
                 .collect();
             let _ = cx.update(|cx| {
                 if let Some(view) = this.upgrade() {
                     view.update(cx, |this, cx| {
-                        this.viewed = Some(ViewedSession { id, entries });
+                        let stream = Self::create_message_stream(cx);
+                        this.replay_entries_to_stream(&stream, &id, &entries, cx);
+                        this.viewed = Some(ViewedSession {
+                            id,
+                            entries,
+                            stream,
+                        });
                         this.scroll.scroll_to_bottom();
                         cx.notify();
                     });
@@ -267,11 +341,15 @@ impl ChatView {
                     Ok(init) => {
                         this.session = init.session_id;
                         this.live = Vec::new();
+                        this.reset_message_stream(cx);
                         this.viewed = None;
                         this.config_options = init.config_options;
                         this.modes = init.modes;
                         this.current_mode = init.current_mode;
                         this.commands = init.commands;
+                        this.session_status = SessionStatus::Pending;
+                        this.last_active = Utc::now();
+                        this.message_count = 0;
                         this.note("· new session");
                         this.refresh_sessions(cx);
                     }
@@ -324,11 +402,21 @@ impl ChatView {
                         let label: String = init.session_id.as_str().chars().take(8).collect();
                         let entries = this.viewed.take().map(|v| v.entries).unwrap_or_default();
                         this.session = init.session_id;
-                        this.live = entries;
+                        this.live = entries.clone();
+                        this.reset_message_stream(cx);
+                        this.replay_entries_to_stream(
+                            &this.message_stream.clone(),
+                            &id,
+                            &entries,
+                            cx,
+                        );
                         this.config_options = init.config_options;
                         this.modes = init.modes;
                         this.current_mode = init.current_mode;
                         this.commands = init.commands;
+                        this.session_status = SessionStatus::Idle;
+                        this.last_active = Utc::now();
+                        this.message_count = entries.len();
                         this.note(format!("· resumed {label}"));
                         this.refresh_sessions(cx);
                         this.scroll.scroll_to_bottom();
@@ -350,14 +438,32 @@ impl ChatView {
             return;
         }
         let text = self.input.read(cx).value().to_string();
-        if text.trim().is_empty() {
+        if text.trim().is_empty()
+            && self.pasted_images.is_empty()
+            && self.code_selections.is_empty()
+            && self.selected_files.is_empty()
+        {
             return;
         }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
 
-        // Send the text plus a resource link for each `@`-mentioned file.
-        let mut content = vec![ContentBlock::text(text)];
+        // Send text plus every attachment the legacy composer supported.
+        let mut content = Vec::new();
+        if !text.trim().is_empty() {
+            content.push(ContentBlock::text(text));
+        }
+        for image in self.pasted_images.drain(..) {
+            content.push(ContentBlock::Image {
+                mime_type: image.mime_type,
+                data: image.data,
+            });
+        }
+        for selection in self.code_selections.drain(..) {
+            content.push(ContentBlock::text(format_code_selection_as_context(
+                &selection,
+            )));
+        }
         for path in self.selected_files.drain(..) {
             let name = std::path::Path::new(&path)
                 .file_name()
@@ -369,6 +475,18 @@ impl ChatView {
                 uri: path,
                 mime_type: None,
             });
+        }
+        self.send_content(content, window, cx);
+    }
+
+    pub(crate) fn send_content(
+        &mut self,
+        content: Vec<ContentBlock>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy || content.is_empty() {
+            return;
         }
         self.file_suggestions.clear();
         self.busy = true;
@@ -446,6 +564,37 @@ impl ChatView {
     fn remove_file(&mut self, index: usize, cx: &mut Context<Self>) {
         if index < self.selected_files.len() {
             self.selected_files.remove(index);
+            cx.notify();
+        }
+    }
+
+    fn remove_image(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.pasted_images.len() {
+            self.pasted_images.remove(index);
+            cx.notify();
+        }
+    }
+
+    fn remove_code_selection(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.code_selections.len() {
+            self.code_selections.remove(index);
+            cx.notify();
+        }
+    }
+
+    fn handle_paste(&mut self, cx: &mut Context<Self>) {
+        let Some(clipboard_item) = cx.read_from_clipboard() else {
+            return;
+        };
+
+        let mut changed = false;
+        for entry in clipboard_item.entries() {
+            if let ClipboardEntry::Image(image) = entry {
+                self.pasted_images.push(image_attachment(image.clone()));
+                changed = true;
+            }
+        }
+        if changed {
             cx.notify();
         }
     }
@@ -608,51 +757,142 @@ impl ChatView {
         window.push_notification(Notification::error(text), cx);
     }
 
-    fn record(&mut self, event: DomainEvent) {
+    fn record(&mut self, event: DomainEvent, cx: &mut Context<Self>) {
         match event {
-            DomainEvent::SessionStatusChanged { status, .. } => {
+            DomainEvent::SessionStatusChanged { session, status } if session == self.session => {
+                self.session_status = status;
+                self.last_active = Utc::now();
+                self.busy = status.is_busy();
                 if matches!(
                     status,
                     SessionStatus::Idle | SessionStatus::Completed | SessionStatus::Failed
                 ) {
-                    self.busy = false;
+                    self.message_stream.update(cx, |stream, cx| {
+                        stream.mark_last_complete(cx);
+                        stream.add_diff_summary_if_needed(cx);
+                    });
                 }
-                self.note(format!("· {status:?}"));
             }
-            DomainEvent::SessionAppended { event, .. } => {
+            DomainEvent::SessionAppended { session, event } if session == self.session => {
+                self.apply_session_event_to_live_stream(&event, cx);
                 self.live.push(Entry::Event(event));
+                self.message_count += 1;
             }
-            DomainEvent::AgentStatusChanged { agent, status } => {
-                self.note(format!("· agent {agent}: {status:?}"));
+            DomainEvent::PermissionRequested { request } if request.session == self.session => {
+                self.add_permission_request(request, cx);
             }
-            DomainEvent::PermissionRequested { request } => {
-                self.note(format!(
-                    "⚠ permission requested: {}",
-                    request.tool_call.title
-                ));
-                self.pending.push(request);
-            }
-            DomainEvent::SessionCommandsChanged { commands, .. } => {
-                if !commands.is_empty() {
-                    let names = commands
-                        .iter()
-                        .map(|command| format!("/{}", command.name))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    self.note(format!("· commands: {names}"));
-                }
+            DomainEvent::SessionCommandsChanged { session, commands }
+                if session == self.session =>
+            {
+                let update = acp_bridge::commands_to_update(&commands);
+                self.message_stream.update(cx, |stream, cx| {
+                    stream.process_update(
+                        update,
+                        Some(self.session.as_str()),
+                        Some(self.agent.as_str()),
+                        cx,
+                    );
+                });
                 self.commands = commands;
             }
-            DomainEvent::SessionConfigChanged { options, .. } => {
+            DomainEvent::SessionConfigChanged { session, options } if session == self.session => {
                 self.config_options = options;
             }
-            DomainEvent::ConfigChanged
+            DomainEvent::AgentStatusChanged { .. }
+            | DomainEvent::SessionStatusChanged { .. }
+            | DomainEvent::SessionAppended { .. }
+            | DomainEvent::PermissionRequested { .. }
+            | DomainEvent::SessionCommandsChanged { .. }
+            | DomainEvent::SessionConfigChanged { .. }
+            | DomainEvent::ConfigChanged
             | DomainEvent::WorkspaceAdded { .. }
             | DomainEvent::WorkspaceRemoved { .. }
             | DomainEvent::TaskAdded { .. }
             | DomainEvent::TaskRemoved { .. }
             | DomainEvent::TaskStatusChanged { .. } => {}
         }
+    }
+
+    fn apply_session_event_to_live_stream(&mut self, event: &SessionEvent, cx: &mut Context<Self>) {
+        self.apply_session_event_to_stream(&self.message_stream.clone(), &self.session, event, cx);
+    }
+
+    fn replay_entries_to_stream(
+        &self,
+        stream: &Entity<AcpMessageStream>,
+        session: &SessionId,
+        entries: &[Entry],
+        cx: &mut Context<Self>,
+    ) {
+        for entry in entries {
+            if let Entry::Event(event) = entry {
+                self.apply_session_event_to_stream(stream, session, event, cx);
+            }
+        }
+        stream.update(cx, |stream, cx| {
+            stream.add_diff_summary_if_needed(cx);
+        });
+    }
+
+    fn apply_session_event_to_stream(
+        &self,
+        stream: &Entity<AcpMessageStream>,
+        session: &SessionId,
+        event: &SessionEvent,
+        cx: &mut Context<Self>,
+    ) {
+        for update in acp_bridge::session_event_to_updates(event) {
+            stream.update(cx, |stream, cx| {
+                stream.process_update(
+                    update,
+                    Some(session.as_str()),
+                    Some(self.agent.as_str()),
+                    cx,
+                );
+            });
+        }
+        if matches!(event, SessionEvent::Stopped { .. }) {
+            stream.update(cx, |stream, cx| {
+                stream.mark_last_complete(cx);
+            });
+        }
+    }
+
+    fn add_permission_request(&mut self, request: PermissionRequest, cx: &mut Context<Self>) {
+        let service = self.service.clone();
+        let session = request.session.clone();
+        let (tool_call, options) = acp_bridge::permission_request_to_acp(&request);
+        let handler: agentx_acp_ui::PermissionResponseHandler =
+            Arc::new(move |permission_id, response, cx| {
+                let service = service.clone();
+                let session = session.clone();
+                let outcome = acp_bridge::permission_response_to_outcome(response);
+                cx.spawn(async move |_this, _cx| {
+                    if let Err(error) = service
+                        .resolve_permission(&session, &permission_id, outcome)
+                        .await
+                    {
+                        log::error!("permission response failed: {error}");
+                    }
+                })
+                .detach();
+            });
+        let item = cx.new(|_| {
+            AcpPermissionRequest::with_options(
+                request.id.to_string(),
+                request.session.to_string(),
+                &tool_call,
+                options,
+                PermissionRequestOptions {
+                    on_response: Some(handler),
+                },
+            )
+        });
+        let view = cx.new(|_| PermissionRequestView::from_entity(item));
+        self.pending.push(request);
+        self.message_stream.update(cx, |stream, cx| {
+            stream.add_permission_request(view, cx);
+        });
     }
 }
 
@@ -682,6 +922,7 @@ pub fn open_chat_window(
         ..Default::default()
     };
 
+    let initial_content = initial_prompt.map(|prompt| vec![ContentBlock::text(prompt)]);
     let _ = cx.open_window(options, |window, cx| {
         let chat = cx.new(|cx| {
             ChatView::new(
@@ -691,7 +932,7 @@ pub fn open_chat_window(
                 agent,
                 cwd,
                 init,
-                initial_prompt,
+                initial_content,
                 window,
                 cx,
             )
@@ -699,10 +940,18 @@ pub fn open_chat_window(
         let sessions = cx.new(|cx| SessionsPanel::new(chat.clone(), cx));
         let manager =
             cx.new(|cx| SessionManagerPanel::new(service.clone(), registry, chat.clone(), cx));
-        let tasks = cx
-            .new(|cx| TaskPanel::new(workspace_service, config_service, chat.clone(), window, cx));
-        let workspace = cx
-            .new(|cx| crate::workspace::Workspace::new(chat, sessions, manager, tasks, window, cx));
+        let tasks = cx.new(|cx| {
+            TaskPanel::new(
+                workspace_service,
+                config_service,
+                Some(chat.clone()),
+                window,
+                cx,
+            )
+        });
+        let workspace = cx.new(|cx| {
+            crate::workspace::Workspace::with_chat(chat, sessions, manager, tasks, window, cx)
+        });
         // The first level on the window must be a `Root`.
         cx.new(|cx| Root::new(workspace, window, cx).bg(cx.theme().background))
     });
@@ -744,11 +993,68 @@ fn truncate(text: &str, max: usize) -> String {
 
 /// If the cursor sits in an `@`-mention (the text after the last `@` contains no
 /// whitespace), return the `@`'s byte offset and the query after it.
-fn active_mention(value: &str) -> Option<(usize, String)> {
+pub(crate) fn active_mention(value: &str) -> Option<(usize, String)> {
     let at = value.rfind('@')?;
     let after = &value[at + 1..];
     if after.contains(char::is_whitespace) {
         return None;
     }
     Some((at, after.to_string()))
+}
+
+pub(crate) fn format_code_selection_as_context(selection: &CodeSelection) -> String {
+    let line_info = if selection.start_line == selection.end_line {
+        format!("Line {}", selection.start_line)
+    } else {
+        format!("Lines {}-{}", selection.start_line, selection.end_line)
+    };
+
+    format!(
+        "```\n// File: {} ({})\n\n```",
+        selection.file_path, line_info
+    )
+}
+
+pub(crate) fn image_attachment(image: Image) -> ImageAttachment {
+    let mime_type = mime_type_for_format(image.format).to_string();
+    let extension = extension_for_format(image.format);
+    let filename = format!(
+        "pasted-image-{}.{}",
+        Utc::now().timestamp_millis(),
+        extension
+    );
+    let data = base64::engine::general_purpose::STANDARD.encode(image.bytes());
+    ImageAttachment {
+        filename,
+        mime_type,
+        data,
+    }
+}
+
+fn mime_type_for_format(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Png => "image/png",
+        ImageFormat::Jpeg => "image/jpeg",
+        ImageFormat::Webp => "image/webp",
+        ImageFormat::Gif => "image/gif",
+        ImageFormat::Svg => "image/svg+xml",
+        ImageFormat::Bmp => "image/bmp",
+        ImageFormat::Tiff => "image/tiff",
+        ImageFormat::Ico => "image/icon",
+        ImageFormat::Pnm => "image/x-portable-anymap",
+    }
+}
+
+fn extension_for_format(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Png => "png",
+        ImageFormat::Jpeg => "jpg",
+        ImageFormat::Webp => "webp",
+        ImageFormat::Gif => "gif",
+        ImageFormat::Svg => "svg",
+        ImageFormat::Bmp => "bmp",
+        ImageFormat::Tiff => "tiff",
+        ImageFormat::Ico => "ico",
+        ImageFormat::Pnm => "pnm",
+    }
 }

@@ -122,10 +122,9 @@ impl AgentWorker {
                 );
                 if let Err(error) = result {
                     log::error!("agent `{thread_agent}` worker exited: {error:?}");
-                    *thread_status.lock().expect("status poisoned") =
-                        AgentStatus::Unavailable {
-                            reason: error.to_string(),
-                        };
+                    *thread_status.lock().expect("status poisoned") = AgentStatus::Unavailable {
+                        reason: error.to_string(),
+                    };
                 }
             })
             .map_err(|error| AgentError::Transport(error.to_string()))?;
@@ -395,7 +394,9 @@ async fn event_loop(
             {
                 let accumulators = accumulators.clone();
                 let bus = bus.clone();
-                async move |notification: acp::SessionNotification, _conn| -> acp_runtime::Result<()> {
+                async move |notification: acp::SessionNotification,
+                            _conn|
+                            -> acp_runtime::Result<()> {
                     let session = SessionId::from(notification.session_id.to_string());
                     match notification.update {
                         // Available commands are session state, not a timeline
@@ -432,8 +433,10 @@ async fn event_loop(
             transport,
             async move |conn: ConnectionTo<Agent>| -> acp_runtime::Result<()> {
                 let mut init = acp::InitializeRequest::new(acp::ProtocolVersion::V1);
-                init.client_info =
-                    Some(acp::Implementation::new("agentx", env!("CARGO_PKG_VERSION")));
+                init.client_info = Some(acp::Implementation::new(
+                    "agentx",
+                    env!("CARGO_PKG_VERSION"),
+                ));
                 match conn.send_request(init).block_task().await {
                     Ok(_response) => {
                         let _ = ready_tx.send(Ok(()));
@@ -481,7 +484,11 @@ async fn event_loop(
                                 .block_task()
                                 .await
                                 .map(|response| {
-                                    session_init_from(session, response.modes, response.config_options)
+                                    session_init_from(
+                                        session,
+                                        response.modes,
+                                        response.config_options,
+                                    )
                                 })
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
@@ -499,7 +506,11 @@ async fn event_loop(
                                 .block_task()
                                 .await
                                 .map(|response| {
-                                    session_init_from(session, response.modes, response.config_options)
+                                    session_init_from(
+                                        session,
+                                        response.modes,
+                                        response.config_options,
+                                    )
                                 })
                                 .map_err(protocol_error);
                             let _ = respond.send(result);
@@ -539,7 +550,9 @@ async fn event_loop(
                         }
                         Command::Cancel { session, respond } => {
                             let result = conn
-                                .send_notification(acp::CancelNotification::new(session.to_string()))
+                                .send_notification(acp::CancelNotification::new(
+                                    session.to_string(),
+                                ))
                                 .map_err(|error| AgentError::Protocol(error.to_string()));
                             let _ = respond.send(result);
                         }

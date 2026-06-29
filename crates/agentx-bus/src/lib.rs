@@ -75,7 +75,11 @@ impl EventBus {
     }
 
     fn sender<E: Event>(&self) -> broadcast::Sender<E> {
-        let mut channels = self.inner.channels.lock().expect("event bus mutex poisoned");
+        let mut channels = self
+            .inner
+            .channels
+            .lock()
+            .expect("event bus mutex poisoned");
         let entry = channels
             .entry(TypeId::of::<E>())
             .or_insert_with(|| Box::new(broadcast::channel::<E>(self.inner.capacity).0));

@@ -36,11 +36,11 @@ mod tests {
         // Create a specific time in UTC: 2023-01-01T15:30:00Z
         let time = Utc.with_ymd_and_hms(2023, 1, 1, 15, 30, 0).unwrap();
         let formatted = format_time_hhmm(&time);
-        
+
         // The output depends on the local timezone, so we format the same time
         // using the local timezone to get the expected output.
         let expected = time.with_timezone(&Local).format("%H:%M").to_string();
-        
+
         assert_eq!(formatted, expected);
     }
 
@@ -50,9 +50,9 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        
+
         let now = now_millis();
-        
+
         let after = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

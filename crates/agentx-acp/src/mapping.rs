@@ -79,7 +79,9 @@ pub(crate) fn content_block_to_acp(block: ContentBlock) -> acp::ContentBlock {
             name,
             uri,
             mime_type,
-        } => acp::ContentBlock::ResourceLink(acp::ResourceLink::new(name, uri).mime_type(mime_type)),
+        } => {
+            acp::ContentBlock::ResourceLink(acp::ResourceLink::new(name, uri).mime_type(mime_type))
+        }
         ContentBlock::Resource(ResourceContents::Text {
             uri,
             text,
@@ -552,10 +554,9 @@ mod tests {
 
     #[test]
     fn text_content_maps_to_domain_text() {
-        let call = acp::ToolCall::new("c", "run")
-            .content(vec![acp::ToolCallContent::Content(acp::Content::new(
-                "output line",
-            ))]);
+        let call = acp::ToolCall::new("c", "run").content(vec![acp::ToolCallContent::Content(
+            acp::Content::new("output line"),
+        )]);
         let domain = tool_call_to_domain(call);
         assert_eq!(
             domain.content,
@@ -691,8 +692,11 @@ mod tests {
                 acp::SessionMode::new("ask", "Ask"),
             ],
         );
-        let init =
-            session_init_from(SessionId::from("s1"), Some(modes), Some(vec![model_option()]));
+        let init = session_init_from(
+            SessionId::from("s1"),
+            Some(modes),
+            Some(vec![model_option()]),
+        );
         assert_eq!(init.session_id, SessionId::from("s1"));
         assert_eq!(init.modes.len(), 2);
         assert_eq!(init.current_mode, Some("code".to_string()));
@@ -740,7 +744,11 @@ mod tests {
                     "Allow once",
                     acp::PermissionOptionKind::AllowOnce,
                 ),
-                acp::PermissionOption::new("reject", "Reject", acp::PermissionOptionKind::RejectOnce),
+                acp::PermissionOption::new(
+                    "reject",
+                    "Reject",
+                    acp::PermissionOptionKind::RejectOnce,
+                ),
             ],
         );
         let domain = permission_request_to_domain(PermissionId::from("p1"), request);
