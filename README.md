@@ -329,10 +329,10 @@ Special thanks to:
 ## Star History
 
 <p align="center">
-  <a href="https://star-history.com/#sxhxliang/agent-studio&Date">
+  <a href="https://star-history.dera.page/#sxhxliang/agent-studio&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=sxhxliang/agent-studio&type=Date&theme=dark"/>
-      <img src="https://api.star-history.com/svg?repos=sxhxliang/agent-studio&type=Date" alt="Star History Chart"/>
+      <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=sxhxliang/agent-studio&type=Date&theme=dark"/>
+      <img src="https://star-history.dera.page/svg?repos=sxhxliang/agent-studio&type=Date" alt="Star History Chart"/>
     </picture>
   </a>
 </p>
